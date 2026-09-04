@@ -33,6 +33,11 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
         ArgumentNullException.ThrowIfNull(gesture);
         gesture.Validate();
 
+        if (IsRegistered && Equals(CurrentGesture, gesture))
+        {
+            return;
+        }
+
         int candidateId = _activeHotKeyId == HotKeyIdA ? HotKeyIdB : HotKeyIdA;
         uint modifiers = (uint)gesture.Modifiers | ModNoRepeat;
 
