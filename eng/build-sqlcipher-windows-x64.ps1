@@ -111,9 +111,27 @@ endlocal
 "@
     Set-Content -Path $buildBatch -Value $batch -Encoding Ascii
 
-    & cmd.exe /d /c $buildBatch
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native SQLCipher build failed with exit code $LASTEXITCODE."
+    $nativeStdoutPath = Join-Path $OutputDirectory "native-cmd.stdout.log"
+    $nativeStderrPath = Join-Path $OutputDirectory "native-cmd.stderr.log"
+    $nativeCmdLogPath = Join-Path $OutputDirectory "native-cmd.log"
+    $nativeProcess = Start-Process -FilePath "cmd.exe" `
+        -ArgumentList @("/d", "/c", "`"$buildBatch`"") `
+        -Wait `
+        -PassThru `
+        -NoNewWindow `
+        -RedirectStandardOutput $nativeStdoutPath `
+        -RedirectStandardError $nativeStderrPath
+
+    @(
+        "=== STDOUT ==="
+        if (Test-Path $nativeStdoutPath) { Get-Content $nativeStdoutPath }
+        "=== STDERR ==="
+        if (Test-Path $nativeStderrPath) { Get-Content $nativeStderrPath }
+    ) | Set-Content -Path $nativeCmdLogPath -Encoding UTF8
+
+    Get-Content $nativeCmdLogPath | ForEach-Object { Write-Host $_ }
+    if ($nativeProcess.ExitCode -ne 0) {
+        throw "Native SQLCipher build failed with exit code $($nativeProcess.ExitCode). See native-cmd.log for compiler/linker output."
     }
 
     $sqlcipherDll = Join-Path $sqlcipherSource "sqlcipher.dll"
