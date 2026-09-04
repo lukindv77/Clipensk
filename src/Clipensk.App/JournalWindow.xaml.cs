@@ -1,9 +1,12 @@
+using Clipensk.Core.Application;
 using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
 using Clipensk.Core.Settings;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 
 namespace Clipensk.App;
 
@@ -12,6 +15,7 @@ public sealed partial class JournalWindow : Window
     private readonly ILocalizationService _localization;
     private readonly IApplicationSettingsStore _settingsStore;
     private readonly IGlobalHotKeyService _hotKeyService;
+    private readonly ProtectedApplicationLifecycle _lifecycle;
     private ApplicationSettings _settings;
     private bool _allowClose;
 
@@ -19,27 +23,39 @@ public sealed partial class JournalWindow : Window
         ILocalizationService localization,
         IApplicationSettingsStore settingsStore,
         IGlobalHotKeyService hotKeyService,
-        ApplicationSettings settings)
+        ApplicationSettings settings,
+        ProtectedApplicationLifecycle lifecycle)
     {
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         _hotKeyService = hotKeyService ?? throw new ArgumentNullException(nameof(hotKeyService));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
 
         InitializeComponent();
         AppWindow.Closing += OnAppWindowClosing;
 
         InitializeLocalizedText();
         InitializeHotKeyEditor();
-
-        ShellNavigation.SelectedItem = JournalItem;
-        ShowPage("journal");
+        RefreshLifecycleUi();
     }
 
     public void ShowJournal()
     {
-        ShellNavigation.SelectedItem = JournalItem;
-        ShowPage("journal");
+        if (!_lifecycle.IsDataRootConfigured)
+        {
+            ShowFirstRunPanel();
+        }
+        else if (!_lifecycle.CanAccessProtectedData)
+        {
+            ShowLockPanel();
+        }
+        else
+        {
+            ShellNavigation.SelectedItem = JournalItem;
+            ShowPage("journal");
+        }
+
         AppWindow.Show();
         Activate();
     }
@@ -59,7 +75,18 @@ public sealed partial class JournalWindow : Window
         SettingsItem.Content = _localization.GetString("Navigation.Settings");
         AboutItem.Content = _localization.GetString("Navigation.About");
 
+        FirstRunTitle.Text = _localization.GetString("FirstRun.Title");
+        FirstRunBody.Text = _localization.GetString("FirstRun.Body");
+        ChooseDataRootButton.Content = _localization.GetString("FirstRun.ChooseDataRoot");
+
+        LockTitle.Text = _localization.GetString("Lock.Title");
+        LockBody.Text = _localization.GetString("Lock.Body");
+        PasswordHintTitle.Text = _localization.GetString("Lock.PasswordHint");
+        PasswordEntry.PlaceholderText = _localization.GetString("Lock.PasswordPlaceholder");
+        UnlockButton.Content = _localization.GetString("Lock.Unlock");
+
         SettingsTitle.Text = _localization.GetString("Page.Settings.Title");
+        DataRootTitle.Text = _localization.GetString("Settings.DataRoot.Title");
         HotKeyTitle.Text = _localization.GetString("Settings.HotKey.Title");
         HotKeyKeyLabel.Text = _localization.GetString("Settings.HotKey.Key");
         ApplyHotKeyButton.Content = _localization.GetString("Settings.HotKey.Apply");
@@ -89,6 +116,88 @@ public sealed partial class JournalWindow : Window
         }
 
         HotKeyKey.SelectedItem = selected;
+    }
+
+    private async void OnChooseDataRootClicked(object sender, RoutedEventArgs e)
+    {
+        ChooseDataRootButton.IsEnabled = false;
+        DataRootInfo.IsOpen = false;
+
+        try
+        {
+            var picker = new FolderPicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            };
+            picker.FileTypeFilter.Add("*");
+
+            nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
+
+            StorageFolder? folder = await picker.PickSingleFolderAsync();
+            if (folder is null)
+            {
+                return;
+            }
+
+            string validatedPath = await ValidateDataRootAsync(folder.Path);
+            ApplicationSettings updated = _settings with { DataRootPath = validatedPath };
+
+            await _settingsStore.SaveAsync(updated);
+
+            _settings = updated;
+            _lifecycle.CompleteFirstRunConfiguration();
+            DataRootValue.Text = validatedPath;
+
+            LockInfo.Severity = InfoBarSeverity.Success;
+            LockInfo.Message = _localization.GetString("FirstRun.SavedLocked");
+            LockInfo.IsOpen = true;
+
+            RefreshLifecycleUi();
+        }
+        catch (Exception)
+        {
+            DataRootInfo.Severity = InfoBarSeverity.Error;
+            DataRootInfo.Message = _localization.GetString("FirstRun.ValidationFailed");
+            DataRootInfo.IsOpen = true;
+            ShowFirstRunPanel();
+        }
+        finally
+        {
+            ChooseDataRootButton.IsEnabled = true;
+        }
+    }
+
+    private void OnUnlockClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(PasswordEntry.Password))
+        {
+            LockInfo.Severity = InfoBarSeverity.Error;
+            LockInfo.Message = _localization.GetString("Lock.PasswordRequired");
+            LockInfo.IsOpen = true;
+            return;
+        }
+
+        if (!_lifecycle.TryBeginUnlock())
+        {
+            PasswordEntry.Password = string.Empty;
+            return;
+        }
+
+        try
+        {
+            // На этом tranche пароль намеренно не передаётся и не сохраняется:
+            // криптографический unlock provider будет реализован отдельным решением.
+            LockInfo.Severity = InfoBarSeverity.Warning;
+            LockInfo.Message = _localization.GetString("Lock.CryptoNotReady");
+            LockInfo.IsOpen = true;
+        }
+        finally
+        {
+            PasswordEntry.Password = string.Empty;
+            _lifecycle.CancelUnlock();
+            RefreshNavigationAvailability();
+        }
     }
 
     private async void OnApplyHotKeyClicked(object sender, RoutedEventArgs e)
@@ -145,22 +254,41 @@ public sealed partial class JournalWindow : Window
 
     private void OnSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.SelectedItemContainer?.Tag is string tag)
+        if (args.SelectedItemContainer?.Tag is not string tag)
         {
-            ShowPage(tag);
+            return;
         }
+
+        if (!_lifecycle.IsDataRootConfigured && !string.Equals(tag, "about", StringComparison.Ordinal))
+        {
+            ShowFirstRunPanel();
+            return;
+        }
+
+        if (!_lifecycle.CanAccessProtectedData &&
+            (string.Equals(tag, "journal", StringComparison.Ordinal) ||
+             string.Equals(tag, "applications", StringComparison.Ordinal)))
+        {
+            ShowLockPanel();
+            return;
+        }
+
+        ShowPage(tag);
     }
 
     private void ShowPage(string tag)
     {
-        bool isSettings = string.Equals(tag, "settings", StringComparison.Ordinal);
-        SettingsPanel.Visibility = isSettings ? Visibility.Visible : Visibility.Collapsed;
-        PlaceholderPanel.Visibility = isSettings ? Visibility.Collapsed : Visibility.Visible;
+        HideContentPanels();
 
+        bool isSettings = string.Equals(tag, "settings", StringComparison.Ordinal);
         if (isSettings)
         {
+            DataRootValue.Text = _settings.DataRootPath ?? _localization.GetString("Settings.DataRoot.NotConfigured");
+            SettingsPanel.Visibility = Visibility.Visible;
             return;
         }
+
+        PlaceholderPanel.Visibility = Visibility.Visible;
 
         (string titleKey, string bodyKey) = tag switch
         {
@@ -174,6 +302,66 @@ public sealed partial class JournalWindow : Window
         PageBody.Text = _localization.GetString(bodyKey);
     }
 
+    private void RefreshLifecycleUi()
+    {
+        RefreshNavigationAvailability();
+        DataRootValue.Text = _settings.DataRootPath ?? _localization.GetString("Settings.DataRoot.NotConfigured");
+        PasswordHintValue.Text = string.IsNullOrWhiteSpace(_settings.PasswordHint)
+            ? _localization.GetString("Lock.PasswordHintEmpty")
+            : _settings.PasswordHint;
+
+        if (!_lifecycle.IsDataRootConfigured)
+        {
+            ShowFirstRunPanel();
+        }
+        else if (!_lifecycle.CanAccessProtectedData)
+        {
+            ShowLockPanel();
+        }
+        else
+        {
+            ShellNavigation.SelectedItem = JournalItem;
+            ShowPage("journal");
+        }
+    }
+
+    private void RefreshNavigationAvailability()
+    {
+        bool protectedAccess = _lifecycle.CanAccessProtectedData;
+        bool safeShell = _lifecycle.CanUseSafeShell;
+
+        JournalItem.IsEnabled = protectedAccess;
+        ApplicationsItem.IsEnabled = protectedAccess;
+        MaintenanceItem.IsEnabled = safeShell;
+        SettingsItem.IsEnabled = safeShell;
+        AboutItem.IsEnabled = true;
+    }
+
+    private void ShowFirstRunPanel()
+    {
+        ShellNavigation.SelectedItem = null;
+        HideContentPanels();
+        FirstRunPanel.Visibility = Visibility.Visible;
+    }
+
+    private void ShowLockPanel()
+    {
+        ShellNavigation.SelectedItem = null;
+        HideContentPanels();
+        PasswordHintValue.Text = string.IsNullOrWhiteSpace(_settings.PasswordHint)
+            ? _localization.GetString("Lock.PasswordHintEmpty")
+            : _settings.PasswordHint;
+        LockPanel.Visibility = Visibility.Visible;
+    }
+
+    private void HideContentPanels()
+    {
+        FirstRunPanel.Visibility = Visibility.Collapsed;
+        LockPanel.Visibility = Visibility.Collapsed;
+        PlaceholderPanel.Visibility = Visibility.Collapsed;
+        SettingsPanel.Visibility = Visibility.Collapsed;
+    }
+
     private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_allowClose)
@@ -183,6 +371,42 @@ public sealed partial class JournalWindow : Window
 
         args.Cancel = true;
         sender.Hide();
+    }
+
+    private static async Task<string> ValidateDataRootAsync(string selectedPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(selectedPath);
+
+        string normalizedPath = Path.GetFullPath(selectedPath);
+        if (!Directory.Exists(normalizedPath))
+        {
+            throw new DirectoryNotFoundException(normalizedPath);
+        }
+
+        string probePath = Path.Combine(normalizedPath, $".clipensk-write-probe-{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            await using var stream = new FileStream(
+                probePath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 4096,
+                options: FileOptions.Asynchronous);
+
+            stream.WriteByte(0x43);
+            await stream.FlushAsync();
+        }
+        finally
+        {
+            if (File.Exists(probePath))
+            {
+                File.Delete(probePath);
+            }
+        }
+
+        return normalizedPath;
     }
 
     private static IReadOnlyList<HotKeyOption> BuildHotKeyOptions()

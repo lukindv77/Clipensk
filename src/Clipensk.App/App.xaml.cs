@@ -1,3 +1,4 @@
+using Clipensk.Core.Application;
 using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
 using Clipensk.Core.Settings;
@@ -12,6 +13,7 @@ public partial class App : Application
 {
     private JournalWindow? _window;
     private IGlobalHotKeyService? _hotKeyService;
+    private ProtectedApplicationLifecycle? _lifecycle;
 
     public App()
     {
@@ -24,8 +26,11 @@ public partial class App : Application
         var settingsStore = new JsonApplicationSettingsStore(SettingsPathProvider.GetDefaultSettingsPath());
         ApplicationSettings settings = await settingsStore.LoadAsync();
 
+        _lifecycle = new ProtectedApplicationLifecycle(
+            isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));
+
         _hotKeyService = new GlobalHotKeyService();
-        _window = new JournalWindow(localization, settingsStore, _hotKeyService, settings);
+        _window = new JournalWindow(localization, settingsStore, _hotKeyService, settings, _lifecycle);
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;
 
@@ -58,5 +63,7 @@ public partial class App : Application
             _hotKeyService.Dispose();
             _hotKeyService = null;
         }
+
+        _lifecycle = null;
     }
 }

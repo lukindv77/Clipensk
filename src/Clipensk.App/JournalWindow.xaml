@@ -28,13 +28,38 @@
         </NavigationView.MenuItems>
 
         <Grid Padding="24">
-            <StackPanel x:Name="PlaceholderPanel" Spacing="12">
+            <StackPanel x:Name="FirstRunPanel" Spacing="14" MaxWidth="680" HorizontalAlignment="Left">
+                <TextBlock x:Name="FirstRunTitle" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="FirstRunBody" TextWrapping="Wrap" />
+                <Button x:Name="ChooseDataRootButton" HorizontalAlignment="Left" Click="OnChooseDataRootClicked" />
+                <InfoBar x:Name="DataRootInfo" IsOpen="False" IsClosable="True" />
+            </StackPanel>
+
+            <StackPanel x:Name="LockPanel" Spacing="14" MaxWidth="680" HorizontalAlignment="Left" Visibility="Collapsed">
+                <TextBlock x:Name="LockTitle" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="LockBody" TextWrapping="Wrap" />
+                <StackPanel Spacing="4">
+                    <TextBlock x:Name="PasswordHintTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="PasswordHintValue" TextWrapping="Wrap" />
+                </StackPanel>
+                <PasswordBox x:Name="PasswordEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek" />
+                <Button x:Name="UnlockButton" HorizontalAlignment="Left" Click="OnUnlockClicked" />
+                <InfoBar x:Name="LockInfo" IsOpen="False" IsClosable="True" />
+            </StackPanel>
+
+            <StackPanel x:Name="PlaceholderPanel" Spacing="12" Visibility="Collapsed">
                 <TextBlock x:Name="PageTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="PageBody" TextWrapping="Wrap" />
             </StackPanel>
 
             <StackPanel x:Name="SettingsPanel" Spacing="16" Visibility="Collapsed">
                 <TextBlock x:Name="SettingsTitle" Style="{StaticResource TitleTextBlockStyle}" />
+
+                <StackPanel Spacing="4">
+                    <TextBlock x:Name="DataRootTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="DataRootValue" TextWrapping="Wrap" />
+                </StackPanel>
+
                 <TextBlock x:Name="HotKeyTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
 
                 <StackPanel Orientation="Horizontal" Spacing="12">
