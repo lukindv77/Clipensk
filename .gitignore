@@ -3,6 +3,7 @@ bin/
 obj/
 artifacts/
 .vs/
+.native-build/
 *.user
 *.suo
 *.userosscache

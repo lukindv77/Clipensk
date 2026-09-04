@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Clipensk.SqlCipher.Smoke</RootNamespace>
+    <AssemblyName>Clipensk.SqlCipher.Smoke</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Clipensk.Storage\Clipensk.Storage.csproj" />
+  </ItemGroup>
+</Project>

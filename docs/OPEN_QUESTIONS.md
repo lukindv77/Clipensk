@@ -1,6 +1,6 @@
 # Открытые вопросы Clipensk
 
-Этот файл содержит только ещё не зафиксированные решения. Утверждённые требования находятся в `REQUIREMENTS.md`, техническая архитектура — в `ARCHITECTURE.md`, зафиксированный password → MasterKey и protected SQLite profile — в `CRYPTOGRAPHY.md`.
+Этот файл содержит только ещё не зафиксированные решения. Утверждённые требования находятся в `REQUIREMENTS.md`, техническая архитектура — в `ARCHITECTURE.md`, зафиксированный password → MasterKey profile и SQLCipher boundary — в `CRYPTOGRAPHY.md`.
 
 ## 1. Конкретная Open Source-лицензия
 
@@ -35,28 +35,26 @@
 
 Для MSIX уже зафиксировано, что при первом запуске пользователь выбирает каталог хранения данных. Текущий development-host собирается unpackaged и не фиксирует конечную схему распространения.
 
-## 4. Оставшаяся криптографическая и native-delivery работа
+## 4. Оставшаяся криптографическая/native конфигурация
 
-Уже зафиксировано в `CRYPTOGRAPHY.md`:
+Уже зафиксировано в `CRYPTOGRAPHY.md` и `NATIVE_SQLCIPHER_BUILD.md`:
 
 - один MasterKey для всех защищённых БД;
 - пароль не сохраняется;
-- Argon2id v1.3, production profile 64 MiB / 3 iterations / 4 lanes / 16-byte salt / 32-byte MasterKey;
-- `storage-crypto.json` содержит KDF metadata/verifier/StorageId и durable `StorageInitialized`, но не пароль и не MasterKey;
-- production SQLite boundary — `Microsoft.Data.Sqlite.Core` + `SQLitePCLRaw.provider.sqlcipher`;
-- native library — самостоятельно собираемая SQLCipher Community Edition под именем `sqlcipher.dll`;
-- deprecated bundled `e_sqlcipher` binaries не используются;
-- raw MasterKey передаётся как SQLCipher raw-key representation через `sqlite3_key`;
-- SQLCipher runtime должен быть не ниже 4.12 и пройти `cipher_version` + `cipher_status=1`;
-- compatibility profile — SQLCipher 4; `cipher_memory_security=ON`;
-- `UNLOCKED` разрешён только после фактического открытия Current/Catalog, `sqlite_master`, `quick_check` и проверки `DatabaseIdentity`.
+- KDF для новых storage — Argon2id v1.3;
+- production profile: 64 MiB, 3 iterations, 4 lanes, 16-byte salt, 32-byte MasterKey;
+- storage-wide `storage-crypto.json` содержит salt/profile/verifier, но не пароль и не MasterKey;
+- raw 32-byte MasterKey передаётся SQLCipher через `sqlite3_key`;
+- SQLCipher handle обязан подтвердить `cipher_version >= 4.12.0` и `cipher_status=1`;
+- Current/Catalog `DatabaseIdentity` является обязательным gate перед `UNLOCKED`;
+- production native SQLCipher строится из source, deprecated bundled `e_sqlcipher` binaries не используются;
+- для Windows x64 реализован pinned source-build/smoke pipeline на SQLCipher 4.17.0 + OpenSSL 3.5.8; его фактический PASS должен подтверждаться отдельным CI run.
 
 Остаётся определить/реализовать:
 
-- воспроизводимый native build pipeline SQLCipher для Windows x64 и ARM64;
-- provenance/hash/signing policy для собранного `sqlcipher.dll`;
-- точную packaging-интеграцию native library для MSIX/unpackaged вариантов;
-- Windows integration CI, доказывающий реальное SQLCipher encryption для обеих архитектур;
+- Windows ARM64 native SQLCipher source-build и smoke pipeline;
+- packaging и runtime delivery verified `sqlcipher.dll` для выбранной схемы распространения;
+- byte-for-byte reproducibility/provenance hardening;
 - процедуру смены пароля и/или MasterKey;
 - recovery procedure при потере/повреждении crypto metadata;
 - recovery для partial Current/Catalog и catalog rebuild.

@@ -11,4 +11,7 @@
     <Project Path="tests/Clipensk.Infrastructure.Tests/Clipensk.Infrastructure.Tests.csproj" />
     <Project Path="tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Clipensk.SqlCipher.Smoke/Clipensk.SqlCipher.Smoke.csproj" />
+  </Folder>
 </Solution>
