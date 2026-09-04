@@ -28,9 +28,29 @@
         </NavigationView.MenuItems>
 
         <Grid Padding="24">
-            <StackPanel Spacing="12">
+            <StackPanel x:Name="PlaceholderPanel" Spacing="12">
                 <TextBlock x:Name="PageTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="PageBody" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <StackPanel x:Name="SettingsPanel" Spacing="16" Visibility="Collapsed">
+                <TextBlock x:Name="SettingsTitle" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="HotKeyTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <CheckBox x:Name="ControlModifier" Content="Ctrl" />
+                    <CheckBox x:Name="AltModifier" Content="Alt" />
+                    <CheckBox x:Name="ShiftModifier" Content="Shift" />
+                    <CheckBox x:Name="WindowsModifier" Content="Win" />
+                </StackPanel>
+
+                <StackPanel Spacing="6">
+                    <TextBlock x:Name="HotKeyKeyLabel" />
+                    <ComboBox x:Name="HotKeyKey" Width="180" HorizontalAlignment="Left" DisplayMemberPath="DisplayName" />
+                </StackPanel>
+
+                <Button x:Name="ApplyHotKeyButton" HorizontalAlignment="Left" Click="OnApplyHotKeyClicked" />
+                <InfoBar x:Name="HotKeyInfo" IsOpen="False" IsClosable="True" />
             </StackPanel>
         </Grid>
     </NavigationView>
