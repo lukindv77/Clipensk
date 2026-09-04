@@ -1,10 +1,12 @@
 # Криптографический профиль Clipensk
 
-Статус: **частично реализовано; x64 native build pipeline implemented, но production native delivery ещё NOT READY; ARM64 NOT READY**.
+Статус: **частично реализовано; x64 native build pipeline implemented, но production native delivery ещё NOT READY.**
 
 Дата решения: 4 сентября 2026 года.
 
 Этот документ является authoritative для password → MasterKey lifecycle и защищённого SQLite boundary. Детали native source build находятся в `NATIVE_SQLCIPHER_BUILD.md`.
+
+Поддерживаемая архитектура Clipensk — только Windows x64 (AMD64). ARM64 не является product target.
 
 ## 1. Storage-wide MasterKey
 
@@ -75,7 +77,7 @@ Production boundary:
 
 Для x64 реализован pinned source-build pipeline и отдельный native smoke workflow. Его PASS должен подтверждаться конкретным CI run; наличие workflow само по себе не является evidence.
 
-ARM64 source build/smoke ещё не реализован. Packaging verified DLL в установленное приложение также остаётся отдельным delivery tranche.
+ARM64 build/smoke не требуется, поскольку ARM64 не поддерживается продуктом. Packaging verified DLL в установленное x64-приложение остаётся отдельным delivery tranche.
 
 ## 6. Передача raw MasterKey
 
@@ -176,7 +178,7 @@ UNLOCKED
 
 Обычный unit-test backend использует plain SQLite только для проверки layout/schema/DatabaseIdentity state machine. Его PASS **не доказывает encryption**.
 
-Для конкретной архитектуры SQLCipher integration считается подтверждённой только если native workflow:
+Для x64 SQLCipher integration считается подтверждённой только если native workflow:
 
 - собрал pinned native inputs;
 - проверил expected exports/architecture;
@@ -190,7 +192,6 @@ UNLOCKED
 
 Остаются:
 
-- ARM64 native SQLCipher build + smoke evidence;
 - packaging/delivery verified `sqlcipher.dll` для выбранной схемы распространения;
 - byte-for-byte reproducibility/provenance hardening;
 - таблицы clipboard history;

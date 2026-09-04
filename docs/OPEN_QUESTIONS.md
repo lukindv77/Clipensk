@@ -21,6 +21,7 @@
 - .NET 10;
 - Windows App SDK 2.4.0 Stable;
 - WinUI 3;
+- поддерживаемая архитектура продукта — только Windows x64 (AMD64); ARM64 вне product scope;
 - технический target текущего каркаса допускает Windows 10 build 19041 и выше.
 
 Нужно отдельно определить официально поддерживаемые пользователем версии Windows, в частности оставлять ли Windows 10 в продуктовой поддержке или ориентироваться только на Windows 11.
@@ -48,11 +49,11 @@
 - SQLCipher handle обязан подтвердить `cipher_version >= 4.12.0` и `cipher_status=1`;
 - Current/Catalog `DatabaseIdentity` является обязательным gate перед `UNLOCKED`;
 - production native SQLCipher строится из source, deprecated bundled `e_sqlcipher` binaries не используются;
-- для Windows x64 реализован pinned source-build/smoke pipeline на SQLCipher 4.17.0 + OpenSSL 3.5.8; его фактический PASS должен подтверждаться отдельным CI run.
+- для Windows x64 реализован pinned source-build/smoke pipeline на SQLCipher 4.17.0 + OpenSSL 3.5.8; его фактический PASS должен подтверждаться отдельным CI run;
+- ARM64 не поддерживается и не является будущим native target.
 
 Остаётся определить/реализовать:
 
-- Windows ARM64 native SQLCipher source-build и smoke pipeline;
 - packaging и runtime delivery verified `sqlcipher.dll` для выбранной схемы распространения;
 - byte-for-byte reproducibility/provenance hardening;
 - процедуру смены пароля и/или MasterKey;

@@ -1,10 +1,12 @@
 # Native SQLCipher build — Windows
 
-Статус: **x64 pipeline implemented; green native evidence is required before x64 is called PASS. ARM64 remains NOT READY.**
+Статус: **x64 pipeline implemented; green native evidence is required before x64 is called PASS.**
 
 Дата фиксации pipeline: 4 сентября 2026 года.
 
 Этот документ описывает воспроизводимый source-based native build для SQLCipher, используемого Clipensk. Он дополняет `CRYPTOGRAPHY.md` и не заменяет requirement о fresh CI evidence.
+
+Поддерживаемая архитектура Clipensk — только Windows x64 (AMD64). ARM64 не входит в product scope.
 
 ## 1. Pinned source inputs
 
@@ -100,7 +102,7 @@ Smoke обязан:
 5. убедиться, что другой случайный MasterKey не открывает storage;
 6. получить реальный `PRAGMA cipher_version` и `PRAGMA cipher_status=1` через production connection factory.
 
-Только успешный smoke с собранным native `sqlcipher.dll` считается evidence реальной SQLCipher integration для соответствующей архитектуры.
+Только успешный smoke с собранным native `sqlcipher.dll` считается evidence реальной SQLCipher integration для x64.
 
 ## 7. CI workflow
 
@@ -108,10 +110,10 @@ Workflow `.github/workflows/sqlcipher-native.yml` на x64 собирает pinn
 
 Обычный `.github/workflows/build.yml` продолжает проверять managed Restore/Build/Test. Его PASS не заменяет native SQLCipher evidence.
 
-## 8. ARM64
+## 8. Architecture scope
 
-ARM64 пока **NOT READY**. Нельзя автоматически переносить x64 PASS на ARM64. Нужны отдельные MSVC/OpenSSL target configuration, SQLCipher build recipe, PE architecture verification, native smoke и CI evidence.
+Clipensk поддерживает только Windows x64 (AMD64). ARM64 source-build/smoke pipeline намеренно отсутствует и не является незакрытым requirement.
 
 ## 9. Packaging boundary
 
-Даже green native build/smoke не означает, что production installer уже доставляет DLL. Отдельно остаётся включить verified `sqlcipher.dll` в выбранную схему распространения Clipensk для каждой архитектуры и проверить runtime loading из установленного приложения.
+Даже green native build/smoke не означает, что production installer уже доставляет DLL. Отдельно остаётся включить verified x64 `sqlcipher.dll` в выбранную схему распространения Clipensk и проверить runtime loading из установленного приложения.
