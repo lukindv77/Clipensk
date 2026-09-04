@@ -18,6 +18,11 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["Page.Maintenance.Title"] = "Обслуживание баз данных",
         ["Page.Settings.Title"] = "Настройки Clipensk",
         ["Page.About.Title"] = "О программе Clipensk",
+        ["Settings.HotKey.Title"] = "Горячая клавиша вызова журнала",
+        ["Settings.HotKey.Key"] = "Основная клавиша",
+        ["Settings.HotKey.Apply"] = "Применить горячую клавишу",
+        ["Settings.HotKey.Saved"] = "Горячая клавиша сохранена и активирована.",
+        ["Settings.HotKey.Failed"] = "Не удалось применить горячую клавишу. Прежняя комбинация сохранена.",
     };
 
     public string GetString(string key)
