@@ -28,4 +28,4 @@ jobs:
         run: dotnet build Clipensk.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test tests/Clipensk.Core.Tests/Clipensk.Core.Tests.csproj --configuration Release --no-build
+        run: dotnet test Clipensk.slnx --configuration Release --no-build
