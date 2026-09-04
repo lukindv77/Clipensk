@@ -23,27 +23,36 @@ Resident Core
       │        │         │
  current.db  Archive   Files
       │        │         │
-      └──── HistoryQueryService ──► WinUI 3
+      └──── HistoryQueryService ──► WinUI 3 Journal Shell
 ```
 
 WinUI 3 является UI-слоем. Clipboard monitoring, HWND, глобальные hotkeys, tray и системные события находятся в отдельном Windows/Interop слое.
 
-## 2. Предлагаемая структура solution
+## 2. Структура solution и технологический baseline
+
+Текущий baseline разработки:
+
+- C# / .NET 10;
+- WinUI 3;
+- Windows App SDK 2.4.0 Stable;
+- технический Target Framework Windows: `net10.0-windows10.0.26100.0`;
+- `SupportedOSPlatformVersion`: `10.0.19041.0`;
+- текущий development-host — unpackaged; финальная схема распространения остаётся отдельным решением.
 
 ```text
-Clipensk.sln
+Clipensk.slnx
 
 src/
-  Clipensk.App/             WinUI 3 UI, App lifecycle, ViewModels
+  Clipensk.App/             WinUI 3 UI, App lifecycle, Journal Shell
   Clipensk.Core/            Domain и application services
   Clipensk.Windows/         Win32/WinRT integration
-  Clipensk.Storage/         SQLite/SQLCipher/FTS/catalog/archive
-  Clipensk.Infrastructure/  configuration, logging, crypto helpers
+  Clipensk.Storage/         SQLite/SQLCipher/FTS/catalog/archive/files
+  Clipensk.Infrastructure/  configuration, logging, localization, crypto helpers
 
 tests/
   Clipensk.Core.Tests/
-  Clipensk.Storage.Tests/
-  Clipensk.Integration.Tests/
+  Clipensk.Storage.Tests/       planned
+  Clipensk.Integration.Tests/   planned
 ```
 
 `Clipensk.Core` не должен зависеть от WinUI, HWND или конкретной реализации SQLite.
@@ -52,7 +61,7 @@ tests/
 
 Приложение работает одним per-user процессом.
 
-Для приёма системных сообщений рекомендуется отдельное скрытое message-only окно:
+Для приёма системных сообщений используется отдельное скрытое message-only окно:
 
 ```text
 ResidentMessageWindow
@@ -62,7 +71,7 @@ ResidentMessageWindow
   └── session/system messages
 ```
 
-Закрытие Quick History или основного окна не завершает резидентный процесс. Полный выход выполняется отдельной командой.
+Закрытие основного окна журнала не должно завершать резидентный процесс. Полный выход выполняется отдельной командой.
 
 ## 4. Clipboard Capture Pipeline
 
@@ -97,7 +106,7 @@ Win32 используется для мониторинга и системно
 1. `SourceApplication` — приложение, поместившее данные в clipboard.
 2. `InvocationApplication` — приложение, из которого пользователь вызвал журнал Clipensk.
 
-При вызове Quick History сначала сохраняется foreground HWND/PID, и только потом активируется окно Clipensk.
+При вызове журнала глобальной горячей клавишей сначала сохраняется foreground HWND/PID, и только потом активируется окно Clipensk.
 
 Приложения имеют постоянную сущность `Application` и индивидуальную `ApplicationCapturePolicy`.
 
@@ -154,7 +163,8 @@ SQLCipher databases (кандидат)
 
   Files\
     YYYY-MM-DD\
-      <SHA256>.<ext>
+      <SHA256>.png
+      <SHA256>.<custom-extension>
 
   Trash\
     ...
@@ -208,7 +218,7 @@ DatabaseIdentity
 
 Это обеспечивает rebuild `storage-catalog.db` без исходного каталога.
 
-## 10. Календарное владение архивами
+## 10. Календарное владение архивами и временной контекст события
 
 Архивная модель основана на целых календарных днях.
 
@@ -224,6 +234,18 @@ DatabaseIdentity
 для любого CalendarDate
 ArchiveOwnerCount <= 1
 ```
+
+Каждое событие сохраняет временной контекст момента возникновения:
+
+```text
+EventTimeContext
+  UtcTimestamp
+  LocalOffset
+  WindowsTimeZoneId
+  CalendarDate
+```
+
+`CalendarDate` определяется по локальной Windows time zone на момент события. Последующая смена time zone Windows не должна перераспределять уже сохранённые события между календарными днями архивов.
 
 `storage-catalog.db` может содержать ускоряющую таблицу:
 
@@ -370,7 +392,7 @@ HTML и RTF должны иметь:
 
 Только:
 
-- изображения;
+- изображения, предварительно нормализованные в PNG;
 - explicitly enabled registered/private binary formats.
 
 ### Ignore completely
@@ -387,11 +409,23 @@ HTML и RTF должны иметь:
 SHA-256(exact stored bytes)
 ```
 
-При первом сохранении:
+Для изображения pipeline имеет обязательный порядок:
 
 ```text
-Files\YYYY-MM-DD\<SHA256>.<ext>
+clipboard image representation
+   ↓
+decode
+   ↓
+normalize to PNG
+   ↓
+SHA-256(normalized PNG bytes)
+   ↓
+Files\YYYY-MM-DD\<SHA256>.png
 ```
+
+Таким образом одинаковый нормализованный PNG получает один физический content ID независимо от исходного clipboard image representation.
+
+Для разрешённого custom binary payload SHA-256 считается от точных сохраняемых байтов, без обязательного преобразования.
 
 Повторный идентичный payload физически не дублируется.
 
@@ -518,8 +552,29 @@ UI использует ключи локализации через едины�
 
 Неполный перевод допустим: отсутствующие строки берутся из встроенного русского набора.
 
-Внутренние enum/status/DB values не локализуются.
+## 26. Journal Shell и глобальная горячая клавиша
 
-## 26. Отложенные архитектурные вопросы
+Основное окно приложения — `JournalWindow`/Journal Shell на WinUI 3.
 
-Механизм гарантированно согласованного hot backup/snapshot live SQLite хранилища сознательно не фиксируется на текущем этапе. Требование возможности стороннего read/copy доступа к файлам сохраняется, а окончательный backup-протокол будет выбран отдельно.
+```text
+Journal Shell
+  ├── Журнал
+  ├── Приложения
+  ├── Обслуживание
+  ├── Настройки
+  └── О программе
+```
+
+Из журнала доступны все функции управления Clipensk; отдельные окна или страницы могут использоваться для специализированных операций, но не должны создавать альтернативный изолированный контур управления.
+
+Глобальная горячая клавиша хранится в пользовательских настройках и обслуживается `IGlobalHotKeyService`. Win32-реализация использует `ResidentMessageWindow` и `RegisterHotKey`/`WM_HOTKEY`.
+
+При смене комбинации последовательность должна быть безопасной:
+
+1. запомнить действующую комбинацию;
+2. снять её регистрацию;
+3. попытаться зарегистрировать новую;
+4. при неуспехе восстановить прежнюю комбинацию;
+5. только после успешной регистрации считать новое значение действующим.
+
+Конкретная комбинация по умолчанию пока не зафиксирована.
