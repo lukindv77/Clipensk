@@ -6,4 +6,7 @@
     <Project Path="src/Clipensk.Storage/Clipensk.Storage.csproj" />
     <Project Path="src/Clipensk.Windows/Clipensk.Windows.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Clipensk.Core.Tests/Clipensk.Core.Tests.csproj" />
+  </Folder>
 </Solution>
