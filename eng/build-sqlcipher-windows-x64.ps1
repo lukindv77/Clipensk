@@ -155,7 +155,7 @@ endlocal
         throw "dumpbin /exports failed for sqlcipher.dll."
     }
     foreach ($requiredExport in @("sqlite3_open_v2", "sqlite3_key", "sqlite3_rekey")) {
-        if ($dumpbinExports -notmatch [regex]::Escape($requiredExport)) {
+        if (-not ($dumpbinExports -match [regex]::Escape($requiredExport))) {
             throw "sqlcipher.dll does not export required symbol $requiredExport."
         }
     }
@@ -164,7 +164,7 @@ endlocal
     if ($LASTEXITCODE -ne 0) {
         throw "dumpbin /headers failed for sqlcipher.dll."
     }
-    if ($dumpbinHeaders -notmatch "(?im)\b8664 machine \(x64\)") {
+    if (-not ($dumpbinHeaders -match "(?im)\b8664 machine \(x64\)")) {
         throw "sqlcipher.dll is not an x64 PE image."
     }
 
