@@ -20,6 +20,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify x64-only implementation scope
+        shell: pwsh
+        run: |
+          $patterns = 'arm64|windows-11-arm|VC-WIN64-ARM|amd64_arm64|aa64'
+          $matches = & git grep -n -i -E $patterns -- `
+            src tests tools eng `
+            .github/workflows/sqlcipher-native.yml `
+            Directory.Build.props Directory.Packages.props Clipensk.slnx
+          $grepExitCode = $LASTEXITCODE
+
+          if ($grepExitCode -eq 0) {
+            $matches | ForEach-Object { Write-Host $_ }
+            throw 'ARM64 implementation marker found. Clipensk supports Windows x64 only.'
+          }
+          if ($grepExitCode -ne 1) {
+            throw "git grep failed with exit code $grepExitCode."
+          }
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
