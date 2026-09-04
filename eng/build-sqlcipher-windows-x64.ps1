@@ -80,8 +80,8 @@ SQLITE3LIB=sqlcipher.lib
 SQLITE3EXE=sqlcipher.exe
 CCOPTS=-I$opensslInstall\include
 LDFLAGS=$opensslInstall\lib\libcrypto.lib
-LTLIBS=Advapi32.lib User32.lib Kernel32.lib Crypt32.lib Ws2_32.lib Bcrypt.lib
-OPT_FEATURE_FLAGS=-DSQLITE_TEMP_STORE=2 -DSQLITE_HAS_CODEC=1 -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_MAX_ATTACHED=125
+"LTLIBS=Advapi32.lib User32.lib Kernel32.lib Crypt32.lib Ws2_32.lib Bcrypt.lib"
+"OPT_FEATURE_FLAGS=-DSQLITE_TEMP_STORE=2 -DSQLITE_HAS_CODEC=1 -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLCIPHER_CRYPTO_OPENSSL=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_MAX_ATTACHED=125"
 "@ | Set-Content -Path $nmakeArgsPath -Encoding Ascii
 
     $buildBatch = Join-Path $workRoot "build-native.cmd"
