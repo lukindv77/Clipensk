@@ -75,10 +75,7 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
         }
         catch (JsonException)
         {
-            return new ProtectedStorageUnlockResult(
-                ProtectedStorageUnlockStatus.InvalidMetadata,
-                WasInitialized: false,
-                MasterKey: null);
+            return InvalidMetadataResult();
         }
 
         if (document is null)
@@ -88,10 +85,7 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
 
         if (!TryDecodeDocument(document, out DecodedCryptoMetadata decoded))
         {
-            return new ProtectedStorageUnlockResult(
-                ProtectedStorageUnlockStatus.InvalidMetadata,
-                WasInitialized: false,
-                MasterKey: null);
+            return InvalidMetadataResult();
         }
 
         byte[]? masterKey = await DeriveMasterKeyAsync(password, decoded.Salt, decoded.Profile, cancellationToken);
@@ -105,6 +99,8 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
                     return new ProtectedStorageUnlockResult(
                         ProtectedStorageUnlockStatus.InvalidPassword,
                         WasInitialized: false,
+                        IsStorageInitialized: decoded.StorageInitialized,
+                        StorageId: decoded.StorageId,
                         MasterKey: null);
                 }
             }
@@ -118,6 +114,8 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
             return new ProtectedStorageUnlockResult(
                 ProtectedStorageUnlockStatus.Success,
                 WasInitialized: false,
+                IsStorageInitialized: decoded.StorageInitialized,
+                StorageId: decoded.StorageId,
                 MasterKey: lease);
         }
         finally
@@ -127,6 +125,43 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
                 CryptographicOperations.ZeroMemory(masterKey);
             }
         }
+    }
+
+    public async Task MarkStorageInitializedAsync(
+        string dataRootPath,
+        Guid storageId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataRootPath);
+        if (storageId == Guid.Empty)
+        {
+            throw new ArgumentException("StorageId не может быть пустым.", nameof(storageId));
+        }
+
+        string metadataPath = GetMetadataPath(dataRootPath);
+        CryptoMetadataDocument? document;
+        try
+        {
+            document = await LoadDocumentAsync(metadataPath, cancellationToken);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("Криптографические метаданные повреждены.", exception);
+        }
+
+        if (!TryDecodeDocument(document, out DecodedCryptoMetadata decoded) ||
+            decoded.StorageId != storageId)
+        {
+            throw new InvalidDataException("Криптографические метаданные не соответствуют StorageId.");
+        }
+
+        if (decoded.StorageInitialized)
+        {
+            return;
+        }
+
+        CryptoMetadataDocument updated = document! with { StorageInitialized = true };
+        await SaveReplacingDocumentAsync(metadataPath, updated, cancellationToken);
     }
 
     private async Task<ProtectedStorageUnlockResult> InitializeAsync(
@@ -158,6 +193,7 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
                     MasterKeyLengthBytes = profile.MasterKeyLengthBytes,
                     SaltBase64 = Convert.ToBase64String(salt),
                     VerifierBase64 = Convert.ToBase64String(verifier),
+                    StorageInitialized = false,
                 };
 
                 await SaveNewDocumentAsync(
@@ -175,6 +211,8 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
             return new ProtectedStorageUnlockResult(
                 ProtectedStorageUnlockStatus.Success,
                 WasInitialized: true,
+                IsStorageInitialized: false,
+                StorageId: storageId,
                 MasterKey: lease);
         }
         finally
@@ -265,7 +303,12 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
                 return false;
             }
 
-            decoded = new DecodedCryptoMetadata(storageId, profile, salt, verifier);
+            decoded = new DecodedCryptoMetadata(
+                storageId,
+                profile,
+                salt,
+                verifier,
+                document.StorageInitialized);
             return true;
         }
         catch (Exception exception) when (
@@ -298,9 +341,26 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
             cancellationToken);
     }
 
-    private static async Task SaveNewDocumentAsync(
+    private static Task SaveNewDocumentAsync(
         string metadataPath,
         CryptoMetadataDocument document,
+        CancellationToken cancellationToken)
+    {
+        return SaveDocumentAsync(metadataPath, document, overwrite: false, cancellationToken);
+    }
+
+    private static Task SaveReplacingDocumentAsync(
+        string metadataPath,
+        CryptoMetadataDocument document,
+        CancellationToken cancellationToken)
+    {
+        return SaveDocumentAsync(metadataPath, document, overwrite: true, cancellationToken);
+    }
+
+    private static async Task SaveDocumentAsync(
+        string metadataPath,
+        CryptoMetadataDocument document,
+        bool overwrite,
         CancellationToken cancellationToken)
     {
         string temporaryPath = metadataPath + ".tmp-" + Guid.NewGuid().ToString("N");
@@ -323,7 +383,7 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
                 await stream.FlushAsync(cancellationToken);
             }
 
-            File.Move(temporaryPath, metadataPath, overwrite: false);
+            File.Move(temporaryPath, metadataPath, overwrite);
         }
         finally
         {
@@ -340,6 +400,16 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
         return Path.Combine(Path.GetFullPath(dataRootPath), MetadataFileName);
     }
 
+    private static ProtectedStorageUnlockResult InvalidMetadataResult()
+    {
+        return new ProtectedStorageUnlockResult(
+            ProtectedStorageUnlockStatus.InvalidMetadata,
+            WasInitialized: false,
+            IsStorageInitialized: false,
+            StorageId: Guid.Empty,
+            MasterKey: null);
+    }
+
     private sealed record CryptoMetadataDocument
     {
         public int SchemaVersion { get; init; }
@@ -354,11 +424,13 @@ public sealed class FileProtectedStorageCredentialService : IProtectedStorageCre
         public int MasterKeyLengthBytes { get; init; }
         public string? SaltBase64 { get; init; }
         public string? VerifierBase64 { get; init; }
+        public bool StorageInitialized { get; init; }
     }
 
     private readonly record struct DecodedCryptoMetadata(
         Guid StorageId,
         KeyDerivationProfile Profile,
         byte[] Salt,
-        byte[] Verifier);
+        byte[] Verifier,
+        bool StorageInitialized);
 }

@@ -30,6 +30,9 @@ public sealed class ProtectedStorageCredentialServiceTests
                 await service.UnlockOrInitializeAsync(root, "пароль-Clipensk-1");
             Assert.True(first.IsSuccess);
             Assert.True(first.WasInitialized);
+            Assert.False(first.IsStorageInitialized);
+            Assert.NotEqual(Guid.Empty, first.StorageId);
+            Guid storageId = first.StorageId;
             using (Assert.IsType<MasterKeyLease>(first.MasterKey))
             {
             }
@@ -42,7 +45,20 @@ public sealed class ProtectedStorageCredentialServiceTests
                 await service.UnlockOrInitializeAsync(root, "пароль-Clipensk-1");
             Assert.True(second.IsSuccess);
             Assert.False(second.WasInitialized);
+            Assert.False(second.IsStorageInitialized);
+            Assert.Equal(storageId, second.StorageId);
             using (Assert.IsType<MasterKeyLease>(second.MasterKey))
+            {
+            }
+
+            await service.MarkStorageInitializedAsync(root, storageId);
+
+            ProtectedStorageUnlockResult marked =
+                await service.UnlockOrInitializeAsync(root, "пароль-Clipensk-1");
+            Assert.True(marked.IsSuccess);
+            Assert.True(marked.IsStorageInitialized);
+            Assert.Equal(storageId, marked.StorageId);
+            using (Assert.IsType<MasterKeyLease>(marked.MasterKey))
             {
             }
 
@@ -54,6 +70,7 @@ public sealed class ProtectedStorageCredentialServiceTests
             string metadata = await File.ReadAllTextAsync(
                 Path.Combine(root, FileProtectedStorageCredentialService.MetadataFileName));
             Assert.DoesNotContain("пароль-Clipensk-1", metadata, StringComparison.Ordinal);
+            Assert.Contains("\"StorageInitialized\": true", metadata, StringComparison.Ordinal);
         }
         finally
         {
@@ -80,6 +97,7 @@ public sealed class ProtectedStorageCredentialServiceTests
 
             Assert.Equal(ProtectedStorageUnlockStatus.InvalidMetadata, result.Status);
             Assert.Null(result.MasterKey);
+            Assert.Equal(Guid.Empty, result.StorageId);
             Assert.Equal("{ definitely-not-valid-json", await File.ReadAllTextAsync(metadataPath));
         }
         finally

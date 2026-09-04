@@ -3,9 +3,11 @@ using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
 using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
+using Clipensk.Core.Storage;
 using Clipensk.Infrastructure.Localization;
 using Clipensk.Infrastructure.Security;
 using Clipensk.Infrastructure.Settings;
+using Clipensk.Storage.Databases;
 using Clipensk.Windows.Input;
 using Microsoft.UI.Xaml;
 
@@ -17,6 +19,7 @@ public partial class App : Application
     private IGlobalHotKeyService? _hotKeyService;
     private ProtectedApplicationLifecycle? _lifecycle;
     private IProtectedStorageCredentialService? _credentialService;
+    private IProtectedStorageDatabaseService? _databaseService;
 
     public App()
     {
@@ -33,6 +36,8 @@ public partial class App : Application
             isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));
 
         _credentialService = new FileProtectedStorageCredentialService();
+        _databaseService = new ProtectedStorageDatabaseService();
+
         ProtectedStorageCredentialState credentialState = ProtectedStorageCredentialState.Uninitialized;
         if (!string.IsNullOrWhiteSpace(settings.DataRootPath))
         {
@@ -55,6 +60,7 @@ public partial class App : Application
             settings,
             _lifecycle,
             _credentialService,
+            _databaseService,
             credentialState);
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;
@@ -89,6 +95,7 @@ public partial class App : Application
             _hotKeyService = null;
         }
 
+        _databaseService = null;
         _credentialService = null;
         _lifecycle = null;
     }

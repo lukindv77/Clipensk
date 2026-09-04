@@ -17,9 +17,14 @@ public enum ProtectedStorageUnlockStatus
 public sealed record ProtectedStorageUnlockResult(
     ProtectedStorageUnlockStatus Status,
     bool WasInitialized,
+    bool IsStorageInitialized,
+    Guid StorageId,
     MasterKeyLease? MasterKey)
 {
-    public bool IsSuccess => Status == ProtectedStorageUnlockStatus.Success && MasterKey is not null;
+    public bool IsSuccess =>
+        Status == ProtectedStorageUnlockStatus.Success &&
+        StorageId != Guid.Empty &&
+        MasterKey is not null;
 }
 
 public interface IProtectedStorageCredentialService
@@ -31,5 +36,10 @@ public interface IProtectedStorageCredentialService
     Task<ProtectedStorageUnlockResult> UnlockOrInitializeAsync(
         string dataRootPath,
         string password,
+        CancellationToken cancellationToken = default);
+
+    Task MarkStorageInitializedAsync(
+        string dataRootPath,
+        Guid storageId,
         CancellationToken cancellationToken = default);
 }

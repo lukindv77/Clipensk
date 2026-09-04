@@ -3,6 +3,7 @@ using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
 using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
+using Clipensk.Core.Storage;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,6 +19,7 @@ public sealed partial class JournalWindow : Window
     private readonly IGlobalHotKeyService _hotKeyService;
     private readonly ProtectedApplicationLifecycle _lifecycle;
     private readonly IProtectedStorageCredentialService _credentialService;
+    private readonly IProtectedStorageDatabaseService _databaseService;
     private ApplicationSettings _settings;
     private ProtectedStorageCredentialState _credentialState;
     private MasterKeyLease? _masterKeyLease;
@@ -30,6 +32,7 @@ public sealed partial class JournalWindow : Window
         ApplicationSettings settings,
         ProtectedApplicationLifecycle lifecycle,
         IProtectedStorageCredentialService credentialService,
+        IProtectedStorageDatabaseService databaseService,
         ProtectedStorageCredentialState credentialState)
     {
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
@@ -38,6 +41,7 @@ public sealed partial class JournalWindow : Window
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         _credentialService = credentialService ?? throw new ArgumentNullException(nameof(credentialService));
+        _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
         _credentialState = credentialState;
 
         InitializeComponent();
@@ -249,7 +253,8 @@ public sealed partial class JournalWindow : Window
                 return;
             }
 
-            acquiredKey = result.MasterKey;
+            acquiredKey = result.MasterKey
+                ?? throw new InvalidDataException("Credential service не вернул MasterKey.");
             _credentialState = ProtectedStorageCredentialState.Ready;
 
             if (result.WasInitialized)
@@ -265,6 +270,26 @@ public sealed partial class JournalWindow : Window
                 {
                     // Ошибка сохранения необязательной подсказки не должна уничтожать уже созданный crypto profile.
                 }
+            }
+
+            ProtectedStorageDatabaseResult storageResult =
+                await _databaseService.InitializeOrValidateAsync(
+                    _settings.DataRootPath,
+                    result.StorageId,
+                    acquiredKey.DangerousGetMemory(),
+                    allowInitialize: !result.IsStorageInitialized);
+
+            if (!storageResult.IsSuccess)
+            {
+                ShowStorageFailure(storageResult.Status);
+                return;
+            }
+
+            if (!result.IsStorageInitialized)
+            {
+                await _credentialService.MarkStorageInitializedAsync(
+                    _settings.DataRootPath,
+                    result.StorageId);
             }
 
             _lifecycle.CompleteUnlock();
@@ -486,6 +511,21 @@ public sealed partial class JournalWindow : Window
     {
         LockInfo.Severity = InfoBarSeverity.Error;
         LockInfo.Message = _localization.GetString("Lock.InvalidMetadata");
+        LockInfo.IsOpen = true;
+    }
+
+    private void ShowStorageFailure(ProtectedStorageDatabaseStatus status)
+    {
+        string key = status switch
+        {
+            ProtectedStorageDatabaseStatus.EncryptionEngineUnavailable => "Lock.EncryptionEngineUnavailable",
+            ProtectedStorageDatabaseStatus.MissingOrPartialStorage => "Lock.StorageMissingOrPartial",
+            ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity => "Lock.StorageIdentityInvalid",
+            _ => "Lock.StorageOpenFailed",
+        };
+
+        LockInfo.Severity = InfoBarSeverity.Error;
+        LockInfo.Message = _localization.GetString(key);
         LockInfo.IsOpen = true;
     }
 

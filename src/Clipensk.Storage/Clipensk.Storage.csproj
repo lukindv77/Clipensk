@@ -5,6 +5,10 @@
     <AssemblyName>Clipensk.Storage</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+    <PackageReference Include="SQLitePCLRaw.provider.sqlcipher" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Clipensk.Core\Clipensk.Core.csproj" />
   </ItemGroup>
 </Project>
