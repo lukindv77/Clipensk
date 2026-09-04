@@ -122,7 +122,16 @@ endlocal
         -RedirectStandardOutput $nativeStdoutPath `
         -RedirectStandardError $nativeStderrPath
 
+    $sqlcipherDll = Join-Path $sqlcipherSource "sqlcipher.dll"
+    $sqlcipherLib = Join-Path $sqlcipherSource "sqlcipher.lib"
+    $sqlcipherExp = Join-Path $sqlcipherSource "sqlcipher.exp"
+
     @(
+        "=== PROCESS ==="
+        "ExitCode=$($nativeProcess.ExitCode)"
+        "sqlcipher.dll exists: $(Test-Path -LiteralPath $sqlcipherDll)"
+        "sqlcipher.lib exists: $(Test-Path -LiteralPath $sqlcipherLib)"
+        "sqlcipher.exp exists: $(Test-Path -LiteralPath $sqlcipherExp)"
         "=== STDOUT ==="
         if (Test-Path $nativeStdoutPath) { Get-Content $nativeStdoutPath }
         "=== STDERR ==="
@@ -134,8 +143,6 @@ endlocal
         throw "Native SQLCipher build failed with exit code $($nativeProcess.ExitCode). See native-cmd.log for compiler/linker output."
     }
 
-    $sqlcipherDll = Join-Path $sqlcipherSource "sqlcipher.dll"
-    $sqlcipherLib = Join-Path $sqlcipherSource "sqlcipher.lib"
     if (-not (Test-Path $sqlcipherDll)) {
         throw "SQLCipher build did not produce sqlcipher.dll."
     }
