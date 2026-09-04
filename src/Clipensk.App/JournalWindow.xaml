@@ -1,0 +1,37 @@
+<Window
+    x:Class="Clipensk.App.JournalWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <NavigationView
+        x:Name="ShellNavigation"
+        IsSettingsVisible="False"
+        IsBackButtonVisible="Collapsed"
+        SelectionChanged="OnSelectionChanged">
+
+        <NavigationView.MenuItems>
+            <NavigationViewItem x:Name="JournalItem" Tag="journal">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Paste" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="ApplicationsItem" Tag="applications">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="AllApps" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="MaintenanceItem" Tag="maintenance">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Repair" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="SettingsItem" Tag="settings">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="AboutItem" Tag="about">
+                <NavigationViewItem.Icon><SymbolIcon Symbol="Help" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+
+        <Grid Padding="24">
+            <StackPanel Spacing="12">
+                <TextBlock x:Name="PageTitle" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="PageBody" TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
+    </NavigationView>
+</Window>
