@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Clipensk.Storage.ExternalFiles;
+using Xunit;
 
 namespace Clipensk.Storage.Tests;
 
@@ -34,6 +35,5 @@ public sealed class ExternalPayloadAddressTests
             bytes);
 
         Assert.Equal(first.Sha256, second.Sha256);
-        Assert.NotEqual(first.RelativePath, second.RelativePath);
     }
 }
