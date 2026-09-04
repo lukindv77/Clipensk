@@ -7,7 +7,9 @@ on:
       - '.github/workflows/sqlcipher-native.yml'
       - 'eng/build-sqlcipher-windows-x64.ps1'
       - 'eng/add-native-provenance.ps1'
+      - 'eng/publish-windows-x64.ps1'
       - 'tools/Clipensk.SqlCipher.Smoke/**'
+      - 'src/Clipensk.App/Clipensk.App.csproj'
       - 'src/Clipensk.Storage/**'
       - 'src/Clipensk.Core/Storage/**'
       - 'Directory.Packages.props'
@@ -65,6 +67,10 @@ jobs:
           dotnet (Join-Path $smokeDirectory 'Clipensk.SqlCipher.Smoke.dll')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Publish unpackaged Clipensk x64 runtime
+        shell: pwsh
+        run: ./eng/publish-windows-x64.ps1
+
       - name: Upload native SQLCipher x64 evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,4 +78,12 @@ jobs:
           name: clipensk-sqlcipher-win-x64
           path: artifacts/native/win-x64/
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload unpackaged Clipensk x64 runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipensk-app-win-x64-unpackaged
+          path: artifacts/publish/win-x64/
+          if-no-files-found: error
           retention-days: 14
