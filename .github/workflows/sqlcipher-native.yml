@@ -6,7 +6,6 @@ on:
     paths:
       - '.github/workflows/sqlcipher-native.yml'
       - 'eng/build-sqlcipher-windows-x64.ps1'
-      - 'eng/build-sqlcipher-windows-arm64.ps1'
       - 'tools/Clipensk.SqlCipher.Smoke/**'
       - 'src/Clipensk.Storage/**'
       - 'src/Clipensk.Core/Storage/**'
@@ -63,50 +62,5 @@ jobs:
         with:
           name: clipensk-sqlcipher-win-x64
           path: artifacts/native/win-x64/
-          if-no-files-found: warn
-          retention-days: 14
-
-  win-arm64:
-    runs-on: windows-11-arm
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Build pinned SQLCipher ARM64
-        shell: pwsh
-        run: ./eng/build-sqlcipher-windows-arm64.ps1
-
-      - name: Publish SQLCipher smoke host ARM64
-        shell: pwsh
-        run: |
-          dotnet publish tools/Clipensk.SqlCipher.Smoke/Clipensk.SqlCipher.Smoke.csproj `
-            --configuration Release `
-            --runtime win-arm64 `
-            --self-contained false `
-            --output artifacts/smoke/win-arm64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          Copy-Item artifacts/native/win-arm64/sqlcipher.dll artifacts/smoke/win-arm64/sqlcipher.dll -Force
-
-      - name: Verify encrypted storage ARM64
-        shell: pwsh
-        run: |
-          $smokeDirectory = (Resolve-Path artifacts/smoke/win-arm64).Path
-          $env:PATH = "$smokeDirectory;$env:PATH"
-          dotnet (Join-Path $smokeDirectory 'Clipensk.SqlCipher.Smoke.dll')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Upload native SQLCipher ARM64 evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: clipensk-sqlcipher-win-arm64
-          path: artifacts/native/win-arm64/
           if-no-files-found: warn
           retention-days: 14
