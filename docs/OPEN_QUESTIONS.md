@@ -1,6 +1,6 @@
 # Открытые вопросы Clipensk
 
-Этот файл содержит только ещё не зафиксированные решения. Утверждённые требования находятся в `REQUIREMENTS.md`, техническая архитектура — в `ARCHITECTURE.md`.
+Этот файл содержит только ещё не зафиксированные решения. Утверждённые требования находятся в `REQUIREMENTS.md`, техническая архитектура — в `ARCHITECTURE.md`, зафиксированный password → MasterKey profile — в `CRYPTOGRAPHY.md`.
 
 ## 1. Конкретная Open Source-лицензия
 
@@ -35,22 +35,25 @@
 
 Для MSIX уже зафиксировано, что при первом запуске пользователь выбирает каталог хранения данных. Текущий development-host собирается unpackaged и не фиксирует конечную схему распространения.
 
-## 4. Криптографическая конфигурация
+## 4. Оставшаяся криптографическая конфигурация
 
-Зафиксировано:
+Уже зафиксировано в `CRYPTOGRAPHY.md`:
 
 - один MasterKey для всех защищённых БД;
 - пароль не сохраняется;
-- Argon2id — базовый кандидат KDF;
-- SQLCipher — базовый кандидат шифрования SQLite.
+- KDF для новых storage — Argon2id v1.3;
+- production profile: 64 MiB, 3 iterations, 4 lanes, 16-byte salt, 32-byte MasterKey;
+- storage-wide `storage-crypto.json` содержит salt/profile/verifier, но не пароль и не MasterKey;
+- transient password bytes и MasterKey buffers очищаются best-effort; managed `string` из WinUI нельзя гарантированно стереть из CLR memory.
 
-Нужно выбрать:
+Остаётся определить:
 
-- точные параметры Argon2id;
-- точный способ передачи raw MasterKey в SQLCipher;
-- параметры SQLCipher;
-- политику очистки чувствительной памяти;
-- процедуру смены пароля и/или MasterKey.
+- конкретную native SQLCipher distribution/integration для Windows x64/ARM64;
+- точный способ передачи raw 32-byte MasterKey в SQLCipher;
+- параметры SQLCipher cipher/KDF/page configuration;
+- проверку protected database identity как обязательную часть финального unlock;
+- процедуру смены пароля и/или MasterKey;
+- recovery procedure при потере/повреждении crypto metadata.
 
 ## 5. Hot backup / snapshot
 

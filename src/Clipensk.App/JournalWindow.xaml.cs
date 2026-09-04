@@ -1,6 +1,7 @@
 using Clipensk.Core.Application;
 using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
+using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -16,7 +17,10 @@ public sealed partial class JournalWindow : Window
     private readonly IApplicationSettingsStore _settingsStore;
     private readonly IGlobalHotKeyService _hotKeyService;
     private readonly ProtectedApplicationLifecycle _lifecycle;
+    private readonly IProtectedStorageCredentialService _credentialService;
     private ApplicationSettings _settings;
+    private ProtectedStorageCredentialState _credentialState;
+    private MasterKeyLease? _masterKeyLease;
     private bool _allowClose;
 
     public JournalWindow(
@@ -24,16 +28,21 @@ public sealed partial class JournalWindow : Window
         IApplicationSettingsStore settingsStore,
         IGlobalHotKeyService hotKeyService,
         ApplicationSettings settings,
-        ProtectedApplicationLifecycle lifecycle)
+        ProtectedApplicationLifecycle lifecycle,
+        IProtectedStorageCredentialService credentialService,
+        ProtectedStorageCredentialState credentialState)
     {
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         _hotKeyService = hotKeyService ?? throw new ArgumentNullException(nameof(hotKeyService));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
+        _credentialService = credentialService ?? throw new ArgumentNullException(nameof(credentialService));
+        _credentialState = credentialState;
 
         InitializeComponent();
         AppWindow.Closing += OnAppWindowClosing;
+        Closed += OnJournalWindowClosed;
 
         InitializeLocalizedText();
         InitializeHotKeyEditor();
@@ -79,11 +88,12 @@ public sealed partial class JournalWindow : Window
         FirstRunBody.Text = _localization.GetString("FirstRun.Body");
         ChooseDataRootButton.Content = _localization.GetString("FirstRun.ChooseDataRoot");
 
-        LockTitle.Text = _localization.GetString("Lock.Title");
-        LockBody.Text = _localization.GetString("Lock.Body");
         PasswordHintTitle.Text = _localization.GetString("Lock.PasswordHint");
         PasswordEntry.PlaceholderText = _localization.GetString("Lock.PasswordPlaceholder");
-        UnlockButton.Content = _localization.GetString("Lock.Unlock");
+        PasswordSetupHintLabel.Text = _localization.GetString("Lock.SetupHint");
+        PasswordHintEditor.PlaceholderText = _localization.GetString("Lock.SetupHintPlaceholder");
+        PasswordConfirmationLabel.Text = _localization.GetString("Lock.ConfirmPassword");
+        PasswordConfirmationEntry.PlaceholderText = _localization.GetString("Lock.ConfirmPasswordPlaceholder");
 
         SettingsTitle.Text = _localization.GetString("Page.Settings.Title");
         DataRootTitle.Text = _localization.GetString("Settings.DataRoot.Title");
@@ -141,11 +151,18 @@ public sealed partial class JournalWindow : Window
             }
 
             string validatedPath = await ValidateDataRootAsync(folder.Path);
-            ApplicationSettings updated = _settings with { DataRootPath = validatedPath };
+            ProtectedStorageCredentialState credentialState =
+                await _credentialService.GetStateAsync(validatedPath);
+            if (credentialState == ProtectedStorageCredentialState.Invalid)
+            {
+                throw new InvalidDataException("Криптографические метаданные выбранного каталога повреждены или не поддерживаются.");
+            }
 
+            ApplicationSettings updated = _settings with { DataRootPath = validatedPath };
             await _settingsStore.SaveAsync(updated);
 
             _settings = updated;
+            _credentialState = credentialState;
             _lifecycle.CompleteFirstRunConfiguration();
             DataRootValue.Text = validatedPath;
 
@@ -168,9 +185,19 @@ public sealed partial class JournalWindow : Window
         }
     }
 
-    private void OnUnlockClicked(object sender, RoutedEventArgs e)
+    private async void OnUnlockClicked(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(PasswordEntry.Password))
+        if (_credentialState == ProtectedStorageCredentialState.Invalid ||
+            string.IsNullOrWhiteSpace(_settings.DataRootPath))
+        {
+            ShowInvalidCryptoMetadata();
+            return;
+        }
+
+        string password = PasswordEntry.Password;
+        string confirmation = PasswordConfirmationEntry.Password;
+
+        if (string.IsNullOrEmpty(password))
         {
             LockInfo.Severity = InfoBarSeverity.Error;
             LockInfo.Message = _localization.GetString("Lock.PasswordRequired");
@@ -178,25 +205,100 @@ public sealed partial class JournalWindow : Window
             return;
         }
 
-        if (!_lifecycle.TryBeginUnlock())
+        if (_credentialState == ProtectedStorageCredentialState.Uninitialized &&
+            !string.Equals(password, confirmation, StringComparison.Ordinal))
         {
-            PasswordEntry.Password = string.Empty;
+            LockInfo.Severity = InfoBarSeverity.Error;
+            LockInfo.Message = _localization.GetString("Lock.PasswordMismatch");
+            LockInfo.IsOpen = true;
             return;
         }
 
+        if (!_lifecycle.TryBeginUnlock())
+        {
+            PasswordEntry.Password = string.Empty;
+            PasswordConfirmationEntry.Password = string.Empty;
+            return;
+        }
+
+        bool unlockCompleted = false;
+        MasterKeyLease? acquiredKey = null;
+        UnlockButton.IsEnabled = false;
+        LockInfo.IsOpen = false;
+
         try
         {
-            // На этом tranche пароль намеренно не передаётся и не сохраняется:
-            // криптографический unlock provider будет реализован отдельным решением.
-            LockInfo.Severity = InfoBarSeverity.Warning;
-            LockInfo.Message = _localization.GetString("Lock.CryptoNotReady");
+            ProtectedStorageUnlockResult result = await _credentialService.UnlockOrInitializeAsync(
+                _settings.DataRootPath,
+                password);
+
+            if (!result.IsSuccess)
+            {
+                if (result.Status == ProtectedStorageUnlockStatus.InvalidMetadata)
+                {
+                    _credentialState = ProtectedStorageCredentialState.Invalid;
+                    ShowInvalidCryptoMetadata();
+                }
+                else
+                {
+                    LockInfo.Severity = InfoBarSeverity.Error;
+                    LockInfo.Message = _localization.GetString("Lock.InvalidPassword");
+                    LockInfo.IsOpen = true;
+                }
+
+                return;
+            }
+
+            acquiredKey = result.MasterKey;
+            _credentialState = ProtectedStorageCredentialState.Ready;
+
+            if (result.WasInitialized)
+            {
+                string hint = PasswordHintEditor.Text.Trim();
+                ApplicationSettings updated = _settings with { PasswordHint = hint };
+                try
+                {
+                    await _settingsStore.SaveAsync(updated);
+                    _settings = updated;
+                }
+                catch
+                {
+                    // Ошибка сохранения необязательной подсказки не должна уничтожать уже созданный crypto profile.
+                }
+            }
+
+            _lifecycle.CompleteUnlock();
+            unlockCompleted = true;
+
+            _masterKeyLease?.Dispose();
+            _masterKeyLease = acquiredKey;
+            acquiredKey = null;
+
+            RefreshLifecycleUi();
+        }
+        catch (Exception)
+        {
+            LockInfo.Severity = InfoBarSeverity.Error;
+            LockInfo.Message = _localization.GetString("Lock.UnlockFailed");
             LockInfo.IsOpen = true;
         }
         finally
         {
+            acquiredKey?.Dispose();
             PasswordEntry.Password = string.Empty;
-            _lifecycle.CancelUnlock();
-            RefreshNavigationAvailability();
+            PasswordConfirmationEntry.Password = string.Empty;
+            password = string.Empty;
+            confirmation = string.Empty;
+
+            if (!unlockCompleted && _lifecycle.LockState == ApplicationLockState.Unlocking)
+            {
+                _lifecycle.CancelUnlock();
+            }
+
+            if (!_lifecycle.CanAccessProtectedData)
+            {
+                RefreshCredentialUi();
+            }
         }
     }
 
@@ -337,6 +439,34 @@ public sealed partial class JournalWindow : Window
         AboutItem.IsEnabled = true;
     }
 
+    private void RefreshCredentialUi()
+    {
+        bool isSetup = _credentialState == ProtectedStorageCredentialState.Uninitialized;
+        bool isInvalid = _credentialState == ProtectedStorageCredentialState.Invalid;
+
+        LockTitle.Text = _localization.GetString(isSetup ? "Lock.SetupTitle" : "Lock.Title");
+        LockBody.Text = _localization.GetString(isSetup ? "Lock.SetupBody" : "Lock.Body");
+        UnlockButton.Content = _localization.GetString(isSetup ? "Lock.InitializeAndUnlock" : "Lock.Unlock");
+
+        PasswordHintDisplayPanel.Visibility = isSetup ? Visibility.Collapsed : Visibility.Visible;
+        PasswordSetupHintPanel.Visibility = isSetup ? Visibility.Visible : Visibility.Collapsed;
+        PasswordConfirmationPanel.Visibility = isSetup ? Visibility.Visible : Visibility.Collapsed;
+
+        PasswordEntry.IsEnabled = !isInvalid;
+        PasswordConfirmationEntry.IsEnabled = !isInvalid;
+        PasswordHintEditor.IsEnabled = !isInvalid;
+        UnlockButton.IsEnabled = !isInvalid;
+
+        PasswordHintValue.Text = string.IsNullOrWhiteSpace(_settings.PasswordHint)
+            ? _localization.GetString("Lock.PasswordHintEmpty")
+            : _settings.PasswordHint;
+
+        if (isInvalid)
+        {
+            ShowInvalidCryptoMetadata();
+        }
+    }
+
     private void ShowFirstRunPanel()
     {
         ShellNavigation.SelectedItem = null;
@@ -348,10 +478,15 @@ public sealed partial class JournalWindow : Window
     {
         ShellNavigation.SelectedItem = null;
         HideContentPanels();
-        PasswordHintValue.Text = string.IsNullOrWhiteSpace(_settings.PasswordHint)
-            ? _localization.GetString("Lock.PasswordHintEmpty")
-            : _settings.PasswordHint;
+        RefreshCredentialUi();
         LockPanel.Visibility = Visibility.Visible;
+    }
+
+    private void ShowInvalidCryptoMetadata()
+    {
+        LockInfo.Severity = InfoBarSeverity.Error;
+        LockInfo.Message = _localization.GetString("Lock.InvalidMetadata");
+        LockInfo.IsOpen = true;
     }
 
     private void HideContentPanels()
@@ -371,6 +506,12 @@ public sealed partial class JournalWindow : Window
 
         args.Cancel = true;
         sender.Hide();
+    }
+
+    private void OnJournalWindowClosed(object sender, WindowEventArgs args)
+    {
+        _masterKeyLease?.Dispose();
+        _masterKeyLease = null;
     }
 
     private static async Task<string> ValidateDataRootAsync(string selectedPath)

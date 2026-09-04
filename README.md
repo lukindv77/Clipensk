@@ -4,7 +4,7 @@ Clipensk — Open Source Windows-приложение для долговрем�
 
 ## Статус проекта
 
-Проект находится на стадии архитектурного проектирования и формализации требований.
+Проект находится на стадии архитектурного проектирования и ранней реализации protected application lifecycle.
 
 Основная Windows-платформа интерфейса: **WinUI 3 / Windows App SDK**.
 
@@ -26,6 +26,7 @@ Clipensk — Open Source Windows-приложение для долговрем�
 
 - [Требования](docs/REQUIREMENTS.md)
 - [Архитектура](docs/ARCHITECTURE.md)
+- [Криптографический профиль и текущий MasterKey lifecycle](docs/CRYPTOGRAPHY.md)
 - [Открытые вопросы](docs/OPEN_QUESTIONS.md)
 - [Обязательное правило перехода в новый чат](docs/WORKFLOW_NEW_CHAT_HANDOFF.md)
 - [Правила для AI/агентов](AGENTS.md)

@@ -5,6 +5,9 @@
     <AssemblyName>Clipensk.Infrastructure</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Clipensk.Core\Clipensk.Core.csproj" />
   </ItemGroup>
 </Project>

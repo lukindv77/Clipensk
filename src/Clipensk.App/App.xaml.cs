@@ -1,8 +1,10 @@
 using Clipensk.Core.Application;
 using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
+using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
 using Clipensk.Infrastructure.Localization;
+using Clipensk.Infrastructure.Security;
 using Clipensk.Infrastructure.Settings;
 using Clipensk.Windows.Input;
 using Microsoft.UI.Xaml;
@@ -14,6 +16,7 @@ public partial class App : Application
     private JournalWindow? _window;
     private IGlobalHotKeyService? _hotKeyService;
     private ProtectedApplicationLifecycle? _lifecycle;
+    private IProtectedStorageCredentialService? _credentialService;
 
     public App()
     {
@@ -29,8 +32,30 @@ public partial class App : Application
         _lifecycle = new ProtectedApplicationLifecycle(
             isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));
 
+        _credentialService = new FileProtectedStorageCredentialService();
+        ProtectedStorageCredentialState credentialState = ProtectedStorageCredentialState.Uninitialized;
+        if (!string.IsNullOrWhiteSpace(settings.DataRootPath))
+        {
+            try
+            {
+                credentialState = await _credentialService.GetStateAsync(settings.DataRootPath);
+            }
+            catch
+            {
+                // Любая ошибка чтения криптографических метаданных должна оставлять приложение заблокированным.
+                credentialState = ProtectedStorageCredentialState.Invalid;
+            }
+        }
+
         _hotKeyService = new GlobalHotKeyService();
-        _window = new JournalWindow(localization, settingsStore, _hotKeyService, settings, _lifecycle);
+        _window = new JournalWindow(
+            localization,
+            settingsStore,
+            _hotKeyService,
+            settings,
+            _lifecycle,
+            _credentialService,
+            credentialState);
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;
 
@@ -64,6 +89,7 @@ public partial class App : Application
             _hotKeyService = null;
         }
 
+        _credentialService = null;
         _lifecycle = null;
     }
 }

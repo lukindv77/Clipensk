@@ -38,11 +38,24 @@
             <StackPanel x:Name="LockPanel" Spacing="14" MaxWidth="680" HorizontalAlignment="Left" Visibility="Collapsed">
                 <TextBlock x:Name="LockTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="LockBody" TextWrapping="Wrap" />
-                <StackPanel Spacing="4">
+
+                <StackPanel x:Name="PasswordHintDisplayPanel" Spacing="4">
                     <TextBlock x:Name="PasswordHintTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
                     <TextBlock x:Name="PasswordHintValue" TextWrapping="Wrap" />
                 </StackPanel>
+
+                <StackPanel x:Name="PasswordSetupHintPanel" Spacing="6" Visibility="Collapsed">
+                    <TextBlock x:Name="PasswordSetupHintLabel" />
+                    <TextBox x:Name="PasswordHintEditor" Width="460" HorizontalAlignment="Left" />
+                </StackPanel>
+
                 <PasswordBox x:Name="PasswordEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek" />
+
+                <StackPanel x:Name="PasswordConfirmationPanel" Spacing="6" Visibility="Collapsed">
+                    <TextBlock x:Name="PasswordConfirmationLabel" />
+                    <PasswordBox x:Name="PasswordConfirmationEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek" />
+                </StackPanel>
+
                 <Button x:Name="UnlockButton" HorizontalAlignment="Left" Click="OnUnlockClicked" />
                 <InfoBar x:Name="LockInfo" IsOpen="False" IsClosable="True" />
             </StackPanel>
