@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/sqlcipher-native.yml'
       - 'eng/build-sqlcipher-windows-x64.ps1'
+      - 'eng/add-native-provenance.ps1'
       - 'tools/Clipensk.SqlCipher.Smoke/**'
       - 'src/Clipensk.Storage/**'
       - 'src/Clipensk.Core/Storage/**'
@@ -35,6 +36,14 @@ jobs:
       - name: Build pinned SQLCipher x64
         shell: pwsh
         run: ./eng/build-sqlcipher-windows-x64.ps1
+
+      - name: Record native SQLCipher x64 provenance
+        shell: pwsh
+        run: |
+          ./eng/add-native-provenance.ps1 `
+            -Architecture win-x64 `
+            -ArtifactDirectory artifacts/native/win-x64 `
+            -BuildScript eng/build-sqlcipher-windows-x64.ps1
 
       - name: Publish SQLCipher smoke host
         shell: pwsh
