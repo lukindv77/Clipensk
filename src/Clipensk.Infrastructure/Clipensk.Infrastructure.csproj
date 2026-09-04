@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Clipensk.Infrastructure</RootNamespace>
+    <AssemblyName>Clipensk.Infrastructure</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Clipensk.Core\Clipensk.Core.csproj" />
+  </ItemGroup>
+</Project>
