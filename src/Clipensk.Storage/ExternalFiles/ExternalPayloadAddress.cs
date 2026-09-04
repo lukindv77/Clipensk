@@ -24,7 +24,7 @@ public static class ExternalPayloadAddressFactory
             extension = ".bin";
         }
 
-        if (!extension.StartsWith('.', StringComparison.Ordinal))
+        if (!extension.StartsWith(".", StringComparison.Ordinal))
         {
             extension = "." + extension;
         }
