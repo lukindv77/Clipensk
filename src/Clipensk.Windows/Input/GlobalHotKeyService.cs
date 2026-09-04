@@ -7,10 +7,12 @@ namespace Clipensk.Windows.Input;
 
 public sealed class GlobalHotKeyService : IGlobalHotKeyService
 {
-    private const int JournalHotKeyId = 1;
+    private const int HotKeyIdA = 1;
+    private const int HotKeyIdB = 2;
     private const uint ModNoRepeat = 0x4000;
 
     private readonly ResidentMessageWindow _messageWindow;
+    private int? _activeHotKeyId;
     private bool _disposed;
 
     public GlobalHotKeyService()
@@ -21,7 +23,7 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
 
     public event EventHandler? Pressed;
 
-    public bool IsRegistered { get; private set; }
+    public bool IsRegistered => _activeHotKeyId.HasValue;
 
     public HotKeyGesture? CurrentGesture { get; private set; }
 
@@ -31,29 +33,24 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
         ArgumentNullException.ThrowIfNull(gesture);
         gesture.Validate();
 
-        HotKeyGesture? previousGesture = CurrentGesture;
-        bool hadPreviousRegistration = IsRegistered;
-
-        if (hadPreviousRegistration)
-        {
-            UnregisterInternal();
-        }
-
+        int candidateId = _activeHotKeyId == HotKeyIdA ? HotKeyIdB : HotKeyIdA;
         uint modifiers = (uint)gesture.Modifiers | ModNoRepeat;
-        if (!RegisterHotKey(_messageWindow.Handle, JournalHotKeyId, modifiers, gesture.VirtualKey))
+
+        if (!RegisterHotKey(_messageWindow.Handle, candidateId, modifiers, gesture.VirtualKey))
         {
-            int error = Marshal.GetLastWin32Error();
-
-            if (hadPreviousRegistration && previousGesture is not null)
-            {
-                TryRestore(previousGesture);
-            }
-
-            throw new Win32Exception(error, "Не удалось зарегистрировать глобальную горячую клавишу Clipensk.");
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "Не удалось зарегистрировать новую глобальную горячую клавишу Clipensk. Прежняя комбинация сохранена.");
         }
 
+        int? previousId = _activeHotKeyId;
+        _activeHotKeyId = candidateId;
         CurrentGesture = gesture;
-        IsRegistered = true;
+
+        if (previousId.HasValue)
+        {
+            UnregisterHotKey(_messageWindow.Handle, previousId.Value);
+        }
     }
 
     public void Unregister()
@@ -69,11 +66,7 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
             return;
         }
 
-        if (IsRegistered)
-        {
-            UnregisterInternal();
-        }
-
+        UnregisterInternal();
         _messageWindow.HotKeyReceived -= OnHotKeyReceived;
         _messageWindow.Dispose();
         _disposed = true;
@@ -82,7 +75,7 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
 
     private void OnHotKeyReceived(int hotKeyId)
     {
-        if (hotKeyId == JournalHotKeyId)
+        if (_activeHotKeyId == hotKeyId)
         {
             Pressed?.Invoke(this, EventArgs.Empty);
         }
@@ -90,24 +83,15 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
 
     private void UnregisterInternal()
     {
-        if (!IsRegistered)
+        if (!_activeHotKeyId.HasValue)
         {
+            CurrentGesture = null;
             return;
         }
 
-        UnregisterHotKey(_messageWindow.Handle, JournalHotKeyId);
-        IsRegistered = false;
+        UnregisterHotKey(_messageWindow.Handle, _activeHotKeyId.Value);
+        _activeHotKeyId = null;
         CurrentGesture = null;
-    }
-
-    private void TryRestore(HotKeyGesture gesture)
-    {
-        uint modifiers = (uint)gesture.Modifiers | ModNoRepeat;
-        if (RegisterHotKey(_messageWindow.Handle, JournalHotKeyId, modifiers, gesture.VirtualKey))
-        {
-            CurrentGesture = gesture;
-            IsRegistered = true;
-        }
     }
 
     [DllImport("user32.dll", SetLastError = true)]
