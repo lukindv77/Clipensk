@@ -1,6 +1,7 @@
 using Clipensk.Core.Application;
 using Clipensk.Core.History;
 using Clipensk.Core.Storage;
+using Xunit;
 
 namespace Clipensk.Core.Tests;
 
