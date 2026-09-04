@@ -8,5 +8,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Clipensk.Core.Tests/Clipensk.Core.Tests.csproj" />
+    <Project Path="tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj" />
   </Folder>
 </Solution>
