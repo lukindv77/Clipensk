@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Clipensk.App/Clipensk.App.csproj" />
+    <Project Path="src/Clipensk.Core/Clipensk.Core.csproj" />
+    <Project Path="src/Clipensk.Infrastructure/Clipensk.Infrastructure.csproj" />
+    <Project Path="src/Clipensk.Storage/Clipensk.Storage.csproj" />
+    <Project Path="src/Clipensk.Windows/Clipensk.Windows.csproj" />
+  </Folder>
+</Solution>
