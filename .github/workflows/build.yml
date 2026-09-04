@@ -24,18 +24,23 @@ jobs:
         shell: pwsh
         run: |
           $patterns = 'arm64|windows-11-arm|VC-WIN64-ARM|amd64_arm64|aa64'
-          $matches = & git grep -n -i -E $patterns -- `
+          $implementationFiles = & git ls-files -- `
             src tests tools eng `
             .github/workflows/sqlcipher-native.yml `
             Directory.Build.props Directory.Packages.props Clipensk.slnx
-          $grepExitCode = $LASTEXITCODE
+          if ($LASTEXITCODE -ne 0) {
+            throw "git ls-files failed with exit code $LASTEXITCODE."
+          }
 
-          if ($grepExitCode -eq 0) {
+          $matches = @(
+            foreach ($file in $implementationFiles) {
+              Select-String -LiteralPath $file -Pattern $patterns -CaseSensitive:$false
+            }
+          )
+
+          if ($matches.Count -gt 0) {
             $matches | ForEach-Object { Write-Host $_ }
             throw 'ARM64 implementation marker found. Clipensk supports Windows x64 only.'
-          }
-          if ($grepExitCode -ne 1) {
-            throw "git grep failed with exit code $grepExitCode."
           }
 
       - name: Setup .NET 10
