@@ -27,6 +27,8 @@ Clipensk — Open Source Windows-приложение для долговрем�
 - [Требования](docs/REQUIREMENTS.md)
 - [Архитектура](docs/ARCHITECTURE.md)
 - [Открытые вопросы](docs/OPEN_QUESTIONS.md)
+- [Обязательное правило перехода в новый чат](docs/WORKFLOW_NEW_CHAT_HANDOFF.md)
+- [Правила для AI/агентов](AGENTS.md)
 
 ## Лицензия
 
