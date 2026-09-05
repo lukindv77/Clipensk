@@ -4,6 +4,7 @@ using Clipensk.Core.Localization;
 using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
+using Clipensk.Infrastructure.Clipboard;
 using Clipensk.Infrastructure.Localization;
 using Clipensk.Infrastructure.Security;
 using Clipensk.Infrastructure.Settings;
@@ -54,7 +55,8 @@ public partial class App : Application
             }
         }
 
-        _residentWindowsHost = new ResidentWindowsHost();
+        _residentWindowsHost = new ResidentWindowsHost(
+            new HtmlAgilityPackClipboardHtmlSearchTextConverter());
         _hotKeyService = _residentWindowsHost.HotKeyService;
         _lifecycle.ProtectedDataAccessChanged += OnProtectedDataAccessChanged;
         _window = new JournalWindow(
