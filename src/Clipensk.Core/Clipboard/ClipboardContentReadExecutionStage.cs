@@ -7,19 +7,22 @@ public sealed class ClipboardContentReadExecutionStage
     private readonly IClipboardLinkContentReader _linkReader;
     private readonly IClipboardStorageItemsContentReader _storageItemsReader;
     private readonly IClipboardCustomBinaryContentReader? _customBinaryReader;
+    private readonly IClipboardTextSearchTextExtractor? _textSearchTextExtractor;
 
     public ClipboardContentReadExecutionStage(
         IClipboardTextContentReader textReader,
         IClipboardPngImageContentReader pngImageReader,
         IClipboardLinkContentReader linkReader,
         IClipboardStorageItemsContentReader storageItemsReader,
-        IClipboardCustomBinaryContentReader? customBinaryReader = null)
+        IClipboardCustomBinaryContentReader? customBinaryReader = null,
+        IClipboardTextSearchTextExtractor? textSearchTextExtractor = null)
     {
         _textReader = textReader ?? throw new ArgumentNullException(nameof(textReader));
         _pngImageReader = pngImageReader ?? throw new ArgumentNullException(nameof(pngImageReader));
         _linkReader = linkReader ?? throw new ArgumentNullException(nameof(linkReader));
         _storageItemsReader = storageItemsReader ?? throw new ArgumentNullException(nameof(storageItemsReader));
         _customBinaryReader = customBinaryReader;
+        _textSearchTextExtractor = textSearchTextExtractor;
     }
 
     public async ValueTask<ClipboardContentReadExecution> ExecuteAsync(
@@ -56,15 +59,23 @@ public sealed class ClipboardContentReadExecutionStage
                         .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureUtf8Text(value);
-                    if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
-                    {
-                        capturedContent.Add(new ClipboardCapturedTextContent(route, value, byteCount));
-                    }
-                    else
+                    if (!ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
                     {
                         sizeRejectedFormats.Add(selectedFormat);
+                        break;
                     }
 
+                    string? searchText = null;
+                    if (_textSearchTextExtractor is not null)
+                    {
+                        searchText = await _textSearchTextExtractor
+                            .TryExtractAsync(formatName, value, cancellationToken)
+                            .ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
+                    capturedContent.Add(
+                        new ClipboardCapturedTextContent(route, value, byteCount, searchText));
                     break;
                 }
 
