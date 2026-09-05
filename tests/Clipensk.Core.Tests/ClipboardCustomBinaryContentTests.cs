@@ -46,10 +46,11 @@ public sealed class ClipboardCustomBinaryContentTests
         Assert.Equal(4, captured.CanonicalByteCount);
         Assert.Empty(result.SizeRejectedFormats);
         Assert.Equal(1, customReader.ReadCount);
+        Assert.Equal(4, customReader.ObservedMaxBytes);
     }
 
     [Fact]
-    public async Task ExecuteAsync_RejectsCustomBinaryPayloadAboveExactByteLimit()
+    public async Task ExecuteAsync_RejectsCustomBinaryPayloadDuringSizePreflight()
     {
         var customReader = new StubCustomBinaryReader("Custom.Binary", [1, 2, 3]);
         var stage = CreateExecutionStage(customReader);
@@ -62,6 +63,7 @@ public sealed class ClipboardCustomBinaryContentTests
         Assert.Empty(result.CapturedContent);
         Assert.Equal(selected, Assert.Single(result.SizeRejectedFormats));
         Assert.Equal(1, customReader.ReadCount);
+        Assert.Equal(2, customReader.ObservedMaxBytes);
     }
 
     [Fact]
@@ -129,17 +131,26 @@ public sealed class ClipboardCustomBinaryContentTests
 
         public int ReadCount { get; private set; }
 
+        public long? ObservedMaxBytes { get; private set; }
+
         public bool SupportsFormat(string formatName) =>
             string.Equals(formatName, _format, StringComparison.Ordinal);
 
-        public ValueTask<byte[]> ReadAsync(
+        public ValueTask<byte[]?> ReadWithinLimitAsync(
             IClipboardContentSnapshot contentSnapshot,
             string formatName,
+            long? maxBytes,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
-            return ValueTask.FromResult(_bytes);
+            ObservedMaxBytes = maxBytes;
+            if (maxBytes.HasValue && _bytes.LongLength > maxBytes.Value)
+            {
+                return ValueTask.FromResult<byte[]?>(null);
+            }
+
+            return ValueTask.FromResult<byte[]?>(_bytes);
         }
     }
 
