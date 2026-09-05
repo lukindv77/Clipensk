@@ -82,18 +82,24 @@ if ($null -eq $nativeManifest.provenance -or
 Remove-Item -LiteralPath $verificationDirectoryPath -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $verificationDirectoryPath -Force | Out-Null
 
-Get-ChildItem -LiteralPath $smokeDirectoryPath -File | ForEach-Object {
-    if ($_.Name -ne "sqlcipher.dll") {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $verificationDirectoryPath $_.Name)
-    }
-}
+Copy-Item `
+    -Path (Join-Path $smokeDirectoryPath "*") `
+    -Destination $verificationDirectoryPath `
+    -Recurse `
+    -Force
+
+Get-ChildItem `
+    -LiteralPath $verificationDirectoryPath `
+    -Filter "sqlcipher.dll" `
+    -File `
+    -Recurse | Remove-Item -Force
 
 $verificationSmokeHostPath = Join-Path $verificationDirectoryPath "Clipensk.SqlCipher.Smoke.dll"
 if (-not (Test-Path -LiteralPath $verificationSmokeHostPath)) {
     throw "Verification smoke host was not copied to $verificationSmokeHostPath."
 }
-if (Test-Path -LiteralPath (Join-Path $verificationDirectoryPath "sqlcipher.dll")) {
-    throw "Verification directory must not contain its own sqlcipher.dll."
+if (Get-ChildItem -LiteralPath $verificationDirectoryPath -Filter "sqlcipher.dll" -File -Recurse) {
+    throw "Verification tree must not contain its own sqlcipher.dll."
 }
 
 $originalPath = $env:PATH
