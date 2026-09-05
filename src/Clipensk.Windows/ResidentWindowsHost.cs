@@ -29,6 +29,7 @@ public sealed class ResidentWindowsHost : IDisposable
         LinkContentReader = new WindowsClipboardLinkContentReader();
         StorageItemsContentReader = new WindowsClipboardStorageItemsContentReader();
         CustomBinaryContentReader = new WindowsClipboardCustomBinaryContentReader();
+        TextSearchTextExtractor = new WindowsClipboardTextSearchTextExtractor();
         ContentReaderRouter = new ClipboardContentReaderRouter(
             TextContentReader,
             PngImageContentReader,
@@ -41,7 +42,8 @@ public sealed class ResidentWindowsHost : IDisposable
             PngImageContentReader,
             LinkContentReader,
             StorageItemsContentReader,
-            CustomBinaryContentReader);
+            CustomBinaryContentReader,
+            TextSearchTextExtractor);
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -65,6 +67,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public IClipboardStorageItemsContentReader StorageItemsContentReader { get; }
 
     public IClipboardCustomBinaryContentReader CustomBinaryContentReader { get; }
+
+    public IClipboardTextSearchTextExtractor TextSearchTextExtractor { get; }
 
     public ClipboardContentReaderRouter ContentReaderRouter { get; }
 
