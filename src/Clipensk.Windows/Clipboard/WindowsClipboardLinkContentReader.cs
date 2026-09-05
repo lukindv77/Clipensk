@@ -13,10 +13,12 @@ internal sealed class WindowsClipboardLinkContentReader : IClipboardLinkContentR
 
     public async ValueTask<Uri> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName)
+        string formatName,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!SupportsFormat(formatName))
         {
@@ -39,9 +41,15 @@ internal sealed class WindowsClipboardLinkContentReader : IClipboardLinkContentR
 
         if (string.Equals(formatName, StandardDataFormats.WebLink, StringComparison.Ordinal))
         {
-            return await windowsSnapshot.Content.GetWebLinkAsync();
+            return await windowsSnapshot.Content
+                .GetWebLinkAsync()
+                .AsTask(cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        return await windowsSnapshot.Content.GetApplicationLinkAsync();
+        return await windowsSnapshot.Content
+            .GetApplicationLinkAsync()
+            .AsTask(cancellationToken)
+            .ConfigureAwait(false);
     }
 }

@@ -14,10 +14,12 @@ internal sealed class WindowsClipboardTextContentReader : IClipboardTextContentR
 
     public async ValueTask<string> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName)
+        string formatName,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!SupportsFormat(formatName))
         {
@@ -40,14 +42,14 @@ internal sealed class WindowsClipboardTextContentReader : IClipboardTextContentR
         DataPackageView content = windowsSnapshot.Content;
         if (string.Equals(formatName, StandardDataFormats.Text, StringComparison.Ordinal))
         {
-            return await content.GetTextAsync();
+            return await content.GetTextAsync().AsTask(cancellationToken).ConfigureAwait(false);
         }
 
         if (string.Equals(formatName, StandardDataFormats.Html, StringComparison.Ordinal))
         {
-            return await content.GetHtmlFormatAsync();
+            return await content.GetHtmlFormatAsync().AsTask(cancellationToken).ConfigureAwait(false);
         }
 
-        return await content.GetRtfAsync();
+        return await content.GetRtfAsync().AsTask(cancellationToken).ConfigureAwait(false);
     }
 }

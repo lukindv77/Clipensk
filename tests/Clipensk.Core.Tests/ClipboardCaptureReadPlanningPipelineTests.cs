@@ -121,7 +121,9 @@ public sealed class ClipboardCaptureReadPlanningPipelineTests
 
         public ValueTask<string> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new InvalidOperationException("Read must not be called while planning.");
+            string formatName,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Read must not be called while planning.");
     }
 
     private sealed class StubPngImageReader : StubReaderBase, IClipboardPngImageContentReader
@@ -135,7 +137,9 @@ public sealed class ClipboardCaptureReadPlanningPipelineTests
 
         public ValueTask<byte[]> ReadNormalizedPngAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new InvalidOperationException("Read must not be called while planning.");
+            string formatName,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Read must not be called while planning.");
     }
 
     private sealed class StubLinkReader : StubReaderBase, IClipboardLinkContentReader
@@ -149,7 +153,9 @@ public sealed class ClipboardCaptureReadPlanningPipelineTests
 
         public ValueTask<Uri> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new InvalidOperationException("Read must not be called while planning.");
+            string formatName,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Read must not be called while planning.");
     }
 
     private sealed class StubStorageItemsReader : StubReaderBase, IClipboardStorageItemsContentReader
@@ -163,6 +169,8 @@ public sealed class ClipboardCaptureReadPlanningPipelineTests
 
         public ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new InvalidOperationException("Read must not be called while planning.");
+            string formatName,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Read must not be called while planning.");
     }
 }

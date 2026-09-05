@@ -13,10 +13,12 @@ internal sealed class WindowsClipboardStorageItemsContentReader : IClipboardStor
 
     public async ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName)
+        string formatName,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!SupportsFormat(formatName))
         {
@@ -37,13 +39,18 @@ internal sealed class WindowsClipboardStorageItemsContentReader : IClipboardStor
                 $"Clipboard content snapshot does not contain format '{formatName}'.");
         }
 
-        IReadOnlyList<IStorageItem> storageItems = await windowsSnapshot.Content.GetStorageItemsAsync();
+        IReadOnlyList<IStorageItem> storageItems = await windowsSnapshot.Content
+            .GetStorageItemsAsync()
+            .AsTask(cancellationToken)
+            .ConfigureAwait(false);
         ClipboardPreferredFileOperation preferredOperation = MapPreferredOperation(
             windowsSnapshot.Content.RequestedOperation);
         var result = new ClipboardStorageItemMetadata[storageItems.Count];
 
         for (int index = 0; index < storageItems.Count; index++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             IStorageItem item = storageItems[index];
             bool isDirectory = item.IsOfType(StorageItemTypes.Folder);
             string extension = isDirectory ? string.Empty : Path.GetExtension(item.Name);

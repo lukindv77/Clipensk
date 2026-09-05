@@ -48,7 +48,9 @@ public sealed class ClipboardContentReadExecutionStage
                 case ClipboardContentReaderKind.Text:
                 {
                     EnsureSupported(_textReader.SupportsFormat(formatName), route);
-                    string value = await _textReader.ReadAsync(contentSnapshot!, formatName);
+                    string value = await _textReader
+                        .ReadAsync(contentSnapshot!, formatName, cancellationToken)
+                        .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureUtf8Text(value);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
@@ -66,7 +68,9 @@ public sealed class ClipboardContentReadExecutionStage
                 case ClipboardContentReaderKind.PngImage:
                 {
                     EnsureSupported(_pngImageReader.SupportsFormat(formatName), route);
-                    byte[] pngBytes = await _pngImageReader.ReadNormalizedPngAsync(contentSnapshot!, formatName);
+                    byte[] pngBytes = await _pngImageReader
+                        .ReadNormalizedPngAsync(contentSnapshot!, formatName, cancellationToken)
+                        .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureBinary(pngBytes);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
@@ -84,7 +88,9 @@ public sealed class ClipboardContentReadExecutionStage
                 case ClipboardContentReaderKind.Link:
                 {
                     EnsureSupported(_linkReader.SupportsFormat(formatName), route);
-                    Uri value = await _linkReader.ReadAsync(contentSnapshot!, formatName);
+                    Uri value = await _linkReader
+                        .ReadAsync(contentSnapshot!, formatName, cancellationToken)
+                        .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureLink(value);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
@@ -108,8 +114,9 @@ public sealed class ClipboardContentReadExecutionStage
                     }
 
                     EnsureSupported(_storageItemsReader.SupportsFormat(formatName), route);
-                    IReadOnlyList<ClipboardStorageItemMetadata> items =
-                        await _storageItemsReader.ReadAsync(contentSnapshot!, formatName);
+                    IReadOnlyList<ClipboardStorageItemMetadata> items = await _storageItemsReader
+                        .ReadAsync(contentSnapshot!, formatName, cancellationToken)
+                        .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     capturedContent.Add(new ClipboardCapturedStorageItemsContent(route, items));
                     break;

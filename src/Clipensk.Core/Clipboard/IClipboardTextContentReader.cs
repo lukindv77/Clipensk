@@ -6,5 +6,6 @@ public interface IClipboardTextContentReader
 
     ValueTask<string> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName);
+        string formatName,
+        CancellationToken cancellationToken = default);
 }

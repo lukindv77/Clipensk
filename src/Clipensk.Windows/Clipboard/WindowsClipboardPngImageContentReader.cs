@@ -20,10 +20,12 @@ internal sealed class WindowsClipboardPngImageContentReader : IClipboardPngImage
 
     public async ValueTask<byte[]> ReadNormalizedPngAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName)
+        string formatName,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!SupportsFormat(formatName))
         {
@@ -44,8 +46,16 @@ internal sealed class WindowsClipboardPngImageContentReader : IClipboardPngImage
                 $"Clipboard content snapshot does not contain format '{formatName}'.");
         }
 
-        RandomAccessStreamReference bitmapReference = await windowsSnapshot.Content.GetBitmapAsync();
-        using IRandomAccessStreamWithContentType bitmapStream = await bitmapReference.OpenReadAsync();
-        return await _normalizer.NormalizeAsync(bitmapStream);
+        RandomAccessStreamReference bitmapReference = await windowsSnapshot.Content
+            .GetBitmapAsync()
+            .AsTask(cancellationToken)
+            .ConfigureAwait(false);
+        using IRandomAccessStreamWithContentType bitmapStream = await bitmapReference
+            .OpenReadAsync()
+            .AsTask(cancellationToken)
+            .ConfigureAwait(false);
+        return await _normalizer
+            .NormalizeAsync(bitmapStream, cancellationToken)
+            .ConfigureAwait(false);
     }
 }

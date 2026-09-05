@@ -6,5 +6,6 @@ public interface IClipboardPngImageContentReader
 
     ValueTask<byte[]> ReadNormalizedPngAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName);
+        string formatName,
+        CancellationToken cancellationToken = default);
 }

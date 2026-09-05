@@ -7,7 +7,7 @@ namespace Clipensk.Core.Tests;
 public sealed class ClipboardContentReadExecutionCancellationTests
 {
     [Fact]
-    public async Task ExecuteAsync_DoesNotPublishPayloadAfterCancellationDuringRead()
+    public async Task ExecuteAsync_PassesCancellationTokenIntoReaderAndDoesNotPublishCancelledPayload()
     {
         using var cancellation = new CancellationTokenSource();
         var textReader = new CancellingTextReader(cancellation);
@@ -22,6 +22,7 @@ public sealed class ClipboardContentReadExecutionCancellationTests
             stage.ExecuteAsync(plan, cancellation.Token).AsTask());
 
         Assert.Equal(1, textReader.ReadCount);
+        Assert.Equal(cancellation.Token, textReader.ReceivedToken);
     }
 
     private static ClipboardContentReadPlan CreateTextPlan()
@@ -65,14 +66,18 @@ public sealed class ClipboardContentReadExecutionCancellationTests
 
         public int ReadCount { get; private set; }
 
+        public CancellationToken ReceivedToken { get; private set; }
+
         public bool SupportsFormat(string formatName) =>
             string.Equals(formatName, "Text", StringComparison.Ordinal);
 
         public ValueTask<string> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName)
+            string formatName,
+            CancellationToken cancellationToken = default)
         {
             ReadCount++;
+            ReceivedToken = cancellationToken;
             _cancellation.Cancel();
             return ValueTask.FromResult("must-not-be-published");
         }
@@ -84,7 +89,8 @@ public sealed class ClipboardContentReadExecutionCancellationTests
 
         public ValueTask<byte[]> ReadNormalizedPngAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new NotSupportedException();
+            string formatName,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedLinkReader : IClipboardLinkContentReader
@@ -93,7 +99,8 @@ public sealed class ClipboardContentReadExecutionCancellationTests
 
         public ValueTask<Uri> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new NotSupportedException();
+            string formatName,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedStorageItemsReader : IClipboardStorageItemsContentReader
@@ -102,6 +109,7 @@ public sealed class ClipboardContentReadExecutionCancellationTests
 
         public ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName) => throw new NotSupportedException();
+            string formatName,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

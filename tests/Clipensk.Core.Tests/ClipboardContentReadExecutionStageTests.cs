@@ -127,7 +127,7 @@ public sealed class ClipboardContentReadExecutionStageTests
     [Fact]
     public async Task ExecuteAsync_HonorsCancellationBeforeReadingNextRoute()
     {
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         cts.Cancel();
         var textReader = new StubTextReader("Text", "value");
         var stage = new ClipboardContentReadExecutionStage(
@@ -199,8 +199,10 @@ public sealed class ClipboardContentReadExecutionStageTests
 
         public ValueTask<string> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName)
+            string formatName,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
             return ValueTask.FromResult(_value);
         }
@@ -224,8 +226,10 @@ public sealed class ClipboardContentReadExecutionStageTests
 
         public ValueTask<byte[]> ReadNormalizedPngAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName)
+            string formatName,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
             return ValueTask.FromResult(_value);
         }
@@ -249,8 +253,10 @@ public sealed class ClipboardContentReadExecutionStageTests
 
         public ValueTask<Uri> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName)
+            string formatName,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
             return ValueTask.FromResult(_value);
         }
@@ -276,8 +282,10 @@ public sealed class ClipboardContentReadExecutionStageTests
 
         public ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
             IClipboardContentSnapshot contentSnapshot,
-            string formatName)
+            string formatName,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
             return ValueTask.FromResult(_items);
         }

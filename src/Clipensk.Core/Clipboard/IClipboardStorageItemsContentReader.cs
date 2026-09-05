@@ -6,5 +6,6 @@ public interface IClipboardStorageItemsContentReader
 
     ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
-        string formatName);
+        string formatName,
+        CancellationToken cancellationToken = default);
 }
