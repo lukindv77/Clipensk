@@ -43,10 +43,10 @@ public sealed class ClipboardCustomBinaryContentTests
         ClipboardCapturedCustomBinaryContent captured = Assert.IsType<ClipboardCapturedCustomBinaryContent>(
             Assert.Single(result.CapturedContent));
         Assert.Equal(sourceBytes, captured.Bytes.ToArray());
-        Assert.Equal(4, captured.CanonicalByteCount);
+        Assert.Equal(4L, captured.CanonicalByteCount);
         Assert.Empty(result.SizeRejectedFormats);
         Assert.Equal(1, customReader.ReadCount);
-        Assert.Equal(4, customReader.ObservedMaxBytes);
+        Assert.Equal(4L, customReader.ObservedMaxBytes);
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public sealed class ClipboardCustomBinaryContentTests
         Assert.Empty(result.CapturedContent);
         Assert.Equal(selected, Assert.Single(result.SizeRejectedFormats));
         Assert.Equal(1, customReader.ReadCount);
-        Assert.Equal(2, customReader.ObservedMaxBytes);
+        Assert.Equal(2L, customReader.ObservedMaxBytes);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class ClipboardCustomBinaryContentTests
         Assert.Empty(result.CapturedContent);
         Assert.Equal(selected, Assert.Single(result.SizeRejectedFormats));
         Assert.Equal(1, customReader.ReadCount);
-        Assert.Equal(2, customReader.ObservedMaxBytes);
+        Assert.Equal(2L, customReader.ObservedMaxBytes);
     }
 
     [Fact]
