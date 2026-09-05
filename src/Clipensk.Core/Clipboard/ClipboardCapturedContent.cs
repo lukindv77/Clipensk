@@ -83,7 +83,21 @@ public sealed class ClipboardCapturedStorageItemsContent : ClipboardCapturedCont
 {
     public ClipboardCapturedStorageItemsContent(
         ClipboardContentReaderRoute route,
-        IEnumerable<ClipboardStorageItemMetadata> items,
+        IEnumerable<ClipboardStorageItemMetadata> items)
+        : this(route, Materialize(items))
+    {
+    }
+
+    private ClipboardCapturedStorageItemsContent(
+        ClipboardContentReaderRoute route,
+        ClipboardStorageItemMetadata[] items)
+        : this(route, items, ClipboardStorageItemsCanonicalizer.Create(items))
+    {
+    }
+
+    internal ClipboardCapturedStorageItemsContent(
+        ClipboardContentReaderRoute route,
+        IReadOnlyList<ClipboardStorageItemMetadata> items,
         ClipboardStorageItemsCanonicalRepresentation canonicalRepresentation)
         : base(
             route,
@@ -97,4 +111,11 @@ public sealed class ClipboardCapturedStorageItemsContent : ClipboardCapturedCont
     public IReadOnlyList<ClipboardStorageItemMetadata> Items { get; }
 
     public string CanonicalRepresentation { get; }
+
+    private static ClipboardStorageItemMetadata[] Materialize(
+        IEnumerable<ClipboardStorageItemMetadata> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        return items.ToArray();
+    }
 }
