@@ -25,6 +25,7 @@ public sealed class ResidentWindowsHost : IDisposable
         FormatSelectionStage = new ClipboardFormatSelectionStage();
         TextContentReader = new WindowsClipboardTextContentReader();
         PngImageContentReader = new WindowsClipboardPngImageContentReader();
+        LinkContentReader = new WindowsClipboardLinkContentReader();
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -42,6 +43,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public IClipboardTextContentReader TextContentReader { get; }
 
     public IClipboardPngImageContentReader PngImageContentReader { get; }
+
+    public IClipboardLinkContentReader LinkContentReader { get; }
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
 
