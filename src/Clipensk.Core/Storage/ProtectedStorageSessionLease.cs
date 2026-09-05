@@ -30,6 +30,17 @@ public sealed class ProtectedStorageSessionLease : IDisposable
 
     public Guid StorageId { get; }
 
+    public bool IsActive
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return !_disposed && _masterKeyLease is not null;
+            }
+        }
+    }
+
     public CancellationToken CancellationToken => _accessLease.CancellationToken;
 
     public static ProtectedStorageSessionLease Create(

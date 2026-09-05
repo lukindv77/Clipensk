@@ -114,12 +114,13 @@ public partial class App : Application
 
         // CompleteUnlock raises ProtectedDataAccessChanged before JournalWindow finishes
         // establishing ProtectedStorageSessionLease. Defer listener startup until the
-        // current unlock handler returns, then re-check the same lifecycle/host.
+        // current unlock handler returns, then re-check lifecycle, host, and session readiness.
         window.DispatcherQueue.TryEnqueue(() =>
         {
             if (!ReferenceEquals(_residentWindowsHost, host) ||
                 !ReferenceEquals(_lifecycle, lifecycle) ||
-                !lifecycle.CanAccessProtectedData)
+                !lifecycle.CanAccessProtectedData ||
+                !window.HasActiveProtectedStorageSession)
             {
                 return;
             }

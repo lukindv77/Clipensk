@@ -22,6 +22,7 @@ public sealed class ProtectedStorageSessionLeaseTests
 
         Assert.Equal(@"C:\ClipenskData", session.DataRootPath);
         Assert.Equal(storageId, session.StorageId);
+        Assert.True(session.IsActive);
         Assert.False(session.CancellationToken.IsCancellationRequested);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, session.DangerousGetMasterKeyMemory().ToArray());
     }
@@ -40,6 +41,7 @@ public sealed class ProtectedStorageSessionLeaseTests
 
         Assert.True(lifecycle.TryBeginLock());
 
+        Assert.False(session.IsActive);
         Assert.True(token.IsCancellationRequested);
         Assert.All(key, value => Assert.Equal((byte)0, value));
         Assert.Throws<InvalidOperationException>(() => session.DangerousGetMasterKeyMemory());
@@ -58,6 +60,7 @@ public sealed class ProtectedStorageSessionLeaseTests
 
         session.Dispose();
 
+        Assert.False(session.IsActive);
         Assert.All(key, value => Assert.Equal((byte)0, value));
         Assert.Throws<ObjectDisposedException>(() => session.DangerousGetMasterKeyMemory());
     }
