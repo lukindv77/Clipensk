@@ -78,7 +78,7 @@
 - лимиты explicitly enabled custom binary formats;
 - ограничения `CF_HDROP` по количеству элементов/размеру текстовой записи.
 
-Отдельно нужно определить **семантику измерения `MaxBytes`**, а не только числовые значения лимитов. Для каждого класса payload должно быть явно зафиксировано, к какому representation применяется лимит: raw clipboard bytes, decoded representation, нормализованные/stored bytes или другая однозначно определённая форма. До этого production read/enforcement stage не должен молча выбирать собственную трактовку.
+Семантика измерения `MaxBytes` для уже канонизированных payload зафиксирована в `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`: текстовые representations и ссылки измеряются в UTF-8, изображения — по нормализованным PNG bytes, custom binary — по точным сохраняемым bytes. Для `CF_HDROP` canonical persisted metadata representation всё ещё нужно определить вместе с его лимитами; произвольная сериализация запрещена.
 
 Уже зафиксировано:
 
