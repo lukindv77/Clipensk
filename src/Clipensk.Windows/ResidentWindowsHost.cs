@@ -1,3 +1,4 @@
+using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Input;
 using Clipensk.Core.Storage;
@@ -85,13 +86,18 @@ public sealed class ResidentWindowsHost : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(policyProvider);
 
-        return new ClipboardCapturePipeline(
-            CaptureSourceStage,
-            new ClipboardCapturePolicyResolutionStage(
-                policyProvider,
-                new ClipboardCapturePolicyEvaluator()),
-            FormatDiscoveryStage,
-            FormatSelectionStage);
+        return CreateCapturePipelineCore(policyProvider, identityRegistry: null);
+    }
+
+    public ClipboardCapturePipeline CreateCapturePipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+
+        return CreateCapturePipelineCore(policyProvider, identityRegistry);
     }
 
     public ClipboardCaptureReadPlanningPipeline CreateCaptureReadPlanningPipeline(
@@ -102,6 +108,19 @@ public sealed class ResidentWindowsHost : IDisposable
 
         return new ClipboardCaptureReadPlanningPipeline(
             CreateCapturePipeline(policyProvider),
+            ContentReadPlanStage);
+    }
+
+    public ClipboardCaptureReadPlanningPipeline CreateCaptureReadPlanningPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+
+        return new ClipboardCaptureReadPlanningPipeline(
+            CreateCapturePipeline(policyProvider, identityRegistry),
             ContentReadPlanStage);
     }
 
@@ -116,6 +135,19 @@ public sealed class ResidentWindowsHost : IDisposable
             ContentReadExecutionStage);
     }
 
+    public ClipboardCaptureReadExecutionPipeline CreateCaptureReadExecutionPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+
+        return new ClipboardCaptureReadExecutionPipeline(
+            CreateCaptureReadPlanningPipeline(policyProvider, identityRegistry),
+            ContentReadExecutionStage);
+    }
+
     public ClipboardAcceptedCaptureDeliveryPipeline CreateAcceptedCaptureDeliveryPipeline(
         IClipboardCapturePolicyProvider policyProvider,
         IClipboardAcceptedCaptureSink sink)
@@ -126,6 +158,23 @@ public sealed class ResidentWindowsHost : IDisposable
 
         return new ClipboardAcceptedCaptureDeliveryPipeline(
             CreateCaptureReadExecutionPipeline(policyProvider),
+            new ClipboardAcceptedCaptureSinkStage(
+                new ClipboardAcceptedCaptureStage(),
+                sink));
+    }
+
+    public ClipboardAcceptedCaptureDeliveryPipeline CreateAcceptedCaptureDeliveryPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IClipboardAcceptedCaptureSink sink,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+
+        return new ClipboardAcceptedCaptureDeliveryPipeline(
+            CreateCaptureReadExecutionPipeline(policyProvider, identityRegistry),
             new ClipboardAcceptedCaptureSinkStage(
                 new ClipboardAcceptedCaptureStage(),
                 sink));
@@ -146,6 +195,23 @@ public sealed class ResidentWindowsHost : IDisposable
             session);
     }
 
+    public IClipboardAcceptedCaptureDelivery CreateProtectedAcceptedCaptureDelivery(
+        IClipboardCapturePolicyProvider policyProvider,
+        IClipboardAcceptedCaptureSink sink,
+        ProtectedStorageSessionLease session,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+
+        return new ProtectedClipboardAcceptedCaptureDelivery(
+            CreateAcceptedCaptureDeliveryPipeline(policyProvider, sink, identityRegistry),
+            session);
+    }
+
     public IClipboardAcceptedCaptureDelivery CreateProtectedGlobalOnlyAcceptedCaptureDelivery(
         ClipboardCapturePolicy globalPolicy,
         IClipboardAcceptedCaptureSink sink,
@@ -161,6 +227,26 @@ public sealed class ResidentWindowsHost : IDisposable
                 new GlobalOnlyClipboardCapturePolicyRepository(globalPolicy)),
             sink,
             session);
+    }
+
+    public IClipboardAcceptedCaptureDelivery CreateProtectedGlobalOnlyAcceptedCaptureDelivery(
+        ClipboardCapturePolicy globalPolicy,
+        IClipboardAcceptedCaptureSink sink,
+        ProtectedStorageSessionLease session,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(globalPolicy);
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+
+        return CreateProtectedAcceptedCaptureDelivery(
+            new RepositoryClipboardCapturePolicyProvider(
+                new GlobalOnlyClipboardCapturePolicyRepository(globalPolicy)),
+            sink,
+            session,
+            identityRegistry);
     }
 
     public void StartClipboardMonitoring()
@@ -187,5 +273,27 @@ public sealed class ResidentWindowsHost : IDisposable
         _messageWindow.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
+    }
+
+    private ClipboardCapturePipeline CreateCapturePipelineCore(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry? identityRegistry)
+    {
+        var policyStage = new ClipboardCapturePolicyResolutionStage(
+            policyProvider,
+            new ClipboardCapturePolicyEvaluator());
+
+        return identityRegistry is null
+            ? new ClipboardCapturePipeline(
+                CaptureSourceStage,
+                policyStage,
+                FormatDiscoveryStage,
+                FormatSelectionStage)
+            : new ClipboardCapturePipeline(
+                CaptureSourceStage,
+                new ClipboardCaptureApplicationIdentityStage(identityRegistry),
+                policyStage,
+                FormatDiscoveryStage,
+                FormatSelectionStage);
     }
 }
