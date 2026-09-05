@@ -62,10 +62,31 @@
 - `Basis` — evidence, по которому выполнено разрешение (`PackagedApplicationUserModelId` или `ExecutablePathAlias`);
 - `WasCreated` — был ли создан новый durable identity на этом вызове.
 
-Если observation не содержит ни AUMID, ни executable path, registry может вернуть `null`; он не должен создавать анонимную durable application identity из PID/HWND.
+Если observation не содержит ни AUMID, ни executable path, registry возвращает `null`; он не создаёт анонимную durable application identity из PID/HWND.
+
+`RepositoryApplicationIdentityRegistry` действует fail-closed:
+
+- известный AUMID имеет приоритет;
+- если AUMID и path уже связаны с разными `ApplicationId`, выбрасывается `ApplicationIdentityConflictException`;
+- новый AUMID не привязывается автоматически к path, уже принадлежащему другой identity;
+- известному AUMID можно добавить ранее неизвестный path alias, если repository подтверждает uniqueness;
+- path-only observation использует существующий exact path alias либо создаёт новую identity.
 
 ## 7. Persistence implication
 
 Concrete policy/history schema может ссылаться на `ApplicationId` и больше не должна ждать универсального Windows-native durable key.
 
 Отдельно остаются задачи реализации registry storage, alias uniqueness/conflict handling, explicit merge/rebind workflow, optional future alias canonicalization и UI для управления найденными приложениями. Эти задачи не разрешают менять durable key на path/AUMID.
+
+## 8. Repository atomicity
+
+`IApplicationIdentityRepository` является persistence boundary, но не задаёт конкретную SQLite schema.
+
+Его write operations должны обеспечивать alias uniqueness атомарно:
+
+- `CreateAndBindAsync` создаёт `ApplicationId` и все разрешённые aliases observation как одну логическую операцию;
+- `BindExecutablePathAliasAsync` не может молча перепривязать path, уже принадлежащий другому `ApplicationId`;
+- concurrent resolve/create для одного alias не должен создавать две durable identities;
+- race/conflict должен завершаться `ApplicationIdentityConflictException` (либо эквивалентным repository conflict, преобразованным в него), а не last-write-wins.
+
+Конкретные SQL transactions, unique indexes и merge/rebind migrations реализуются в Storage tranche после этого contract boundary.
