@@ -66,7 +66,9 @@ Canonical bytes — точные bytes stream, которые Clipensk соби�
 CanonicalByteCount = exact preserved binary byte count
 ```
 
-`MaxBytes` применяется к этим exact bytes до persistence. Captured payload владеет собственной копией byte snapshot, чтобы последующее изменение исходного buffer не меняло принятое clipboard event representation.
+Если `MaxBytes` задан, Windows reader сначала сравнивает объявленный `IRandomAccessStream.Size` с лимитом и отклоняет заведомо oversized stream **до выделения полного byte buffer**. После фактического чтения Core повторно измеряет exact captured bytes и ещё раз применяет `MaxBytes`; preflight не заменяет canonical post-read check.
+
+Captured payload владеет собственной копией byte snapshot, чтобы последующее изменение исходного buffer не меняло принятое clipboard event representation.
 
 Unknown registered/private binary formats остаются выключенными по умолчанию; этот reader не вводит default allow-list и не задаёт default size limits.
 
