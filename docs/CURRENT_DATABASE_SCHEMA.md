@@ -6,14 +6,14 @@ Schema versions принадлежат конкретной роли БД, а н
 
 Текущее состояние:
 
-- `current.db`: schema version **2**;
+- `current.db`: schema version **3**;
 - `storage-catalog.db`: schema version **1**.
 
-`storage-catalog.db` остаётся rebuildable accelerator и не является source of truth для application identity.
+`storage-catalog.db` остаётся rebuildable accelerator и не является source of truth для application identity или индивидуальных capture policies.
 
-## Current v2
+## Current v2 — durable application identity
 
-Current schema v2 добавляет durable application identity registry:
+Current schema v2 добавила durable application identity registry:
 
 - `ApplicationIdentity`
   - `ApplicationId` — Clipensk-owned GUID, primary key;
@@ -27,32 +27,73 @@ Current schema v2 добавляет durable application identity registry:
   - FK на `ApplicationIdentity` с `ON DELETE CASCADE`;
   - index по `ApplicationId`.
 
-SQLite default `BINARY` comparison соответствует текущему fail-closed identity contract: executable path alias сравнивается как exact observed string. Более широкая path canonicalization не вводится этой migration.
+SQLite default `BINARY` comparison соответствует текущему fail-closed identity contract: executable path alias сравнивается как exact observed string. Более широкая path canonicalization не вводится migration.
+
+## Current v3 — per-application capture policies
+
+Current schema v3 добавляет только индивидуальные policy overrides, привязанные к durable `ApplicationId`:
+
+- `ApplicationCapturePolicy`
+  - `ApplicationId` — primary key и FK на `ApplicationIdentity(ApplicationId)`;
+  - `CaptureRule` — exact enum string `Inherit`, `Allow` или `Deny`;
+  - удаление `ApplicationIdentity` каскадно удаляет policy;
+- `ApplicationFormatCapturePolicy`
+  - `ApplicationId`;
+  - `FormatName` — непустое точное имя clipboard format;
+  - `CaptureRule` — `Inherit`, `Allow` или `Deny`;
+  - `MaxBytes` — nullable, но при наличии строго больше нуля;
+  - primary key `(ApplicationId, FormatName)`;
+  - FK на `ApplicationCapturePolicy(ApplicationId)` с `ON DELETE CASCADE`.
+
+Global capture policy **не** seed-ится схемой и не получает скрытого значения по умолчанию. `SqliteClipboardCapturePolicyRepository` принимает global policy явной constructor dependency и читает из Current только per-application overrides.
+
+`ApplicationId`, а не PID, HWND, executable path или AUMID, является durable FK для policy data.
 
 ## New storage initialization
 
 Новый storage создаётся staging-парой:
 
-1. `current.db` создаётся сразу как v2 вместе с application identity tables;
+1. `current.db` создаётся сразу как v3 вместе с identity и application-policy tables;
 2. `storage-catalog.db` создаётся как v1;
 3. обе БД полностью валидируются;
 4. только после этого staging `Current` перемещается на финальный путь.
 
-## Legacy Current v1 migration
+## Resumable legacy migration
 
-Для существующей пары `Current v1 / Catalog v1` порядок обязателен:
+Проверка всей пары выполняется до mutation Current: Catalog v1 должен быть успешно открыт и подтверждён до начала schema changes.
 
-1. открыть и проверить Current v1 без mutation;
-2. открыть и проверить Catalog v1;
-3. только если **обе** проверки успешны, открыть Current на запись;
-4. в одной SQLite transaction создать v2 identity tables, обновить `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` до 2;
-5. commit;
-6. повторно валидировать Current как v2, включая точную table/PK/FK/index shape.
+Migration разбита на отдельные транзакционные шаги.
 
-Если Catalog невалиден, migration Current не начинается. Если transaction не commit-ится, legacy Current остаётся v1.
+### Current v1 → v2
+
+1. создать `ApplicationIdentity` и `ApplicationIdentityAlias`;
+2. обновить `DatabaseIdentity.SchemaVersion` с 1 до 2;
+3. выставить `PRAGMA user_version = 2`;
+4. commit.
+
+Если transaction не commit-ится, Current остаётся v1.
+
+### Current v2 → v3
+
+1. строго валидировать существующую identity schema v2;
+2. создать `ApplicationCapturePolicy` и `ApplicationFormatCapturePolicy`;
+3. обновить `DatabaseIdentity.SchemaVersion` с 2 до 3;
+4. выставить `PRAGMA user_version = 3`;
+5. commit.
+
+Если второй шаг migration не commit-ится, Current остаётся полноценным v2. Следующая разблокировка может безопасно продолжить v2 → v3; уже сохранённые application identities и aliases не пересоздаются и не теряются.
+
+Для legacy пары v1/v1 последовательность выполняется как два отдельных durable шага `v1 → v2 → v3`, а не как одна неразличимая mutation.
 
 ## Fail-closed validation
 
-Недостаточно только выставить `SchemaVersion=2`. Current v2 обязан иметь ожидаемую структуру `ApplicationIdentity` и `ApplicationIdentityAlias`.
+Одного `SchemaVersion` недостаточно.
 
-Repository не создаёт schema лениво. `SqliteApplicationIdentityRepository` принимает только уже валидный Current v2, связанный с активным `ProtectedStorageSessionLease` и тем же `StorageId`.
+- Current v2+ обязан иметь точную identity table/PK/FK/index shape.
+- Current v3+ дополнительно обязан иметь точную application-policy table/PK/FK shape.
+- `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
+- malformed v3 не принимается только потому, что таблицы имеют правильные имена.
+
+Repositories не создают schema лениво. Schema creation/migration принадлежит `ProtectedStorageDatabaseService` до установления рабочего protected storage lifecycle.
+
+`SqliteApplicationIdentityRepository` работает с Current v2 и более поздними версиями при сохранении identity schema contract. `SqliteClipboardCapturePolicyRepository` требует Current v3 или более позднюю совместимую схему.
