@@ -121,18 +121,27 @@ public sealed class ClipboardContentReadExecutionStage
 
                 case ClipboardContentReaderKind.StorageItems:
                 {
-                    if (selectedFormat.MaxBytes.HasValue)
-                    {
-                        deferredFormats.Add(selectedFormat);
-                        break;
-                    }
-
                     EnsureSupported(_storageItemsReader.SupportsFormat(formatName), route);
                     IReadOnlyList<ClipboardStorageItemMetadata> items = await _storageItemsReader
                         .ReadAsync(contentSnapshot!, formatName, cancellationToken)
                         .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
-                    capturedContent.Add(new ClipboardCapturedStorageItemsContent(route, items));
+
+                    ClipboardStorageItemsCanonicalRepresentation canonicalRepresentation =
+                        ClipboardStorageItemsCanonicalizer.Create(items);
+                    if (!ClipboardCanonicalPayloadSize.IsWithinLimit(
+                            canonicalRepresentation.ByteCount,
+                            selectedFormat.MaxBytes))
+                    {
+                        sizeRejectedFormats.Add(selectedFormat);
+                        break;
+                    }
+
+                    capturedContent.Add(
+                        new ClipboardCapturedStorageItemsContent(
+                            route,
+                            items,
+                            canonicalRepresentation));
                     break;
                 }
 
