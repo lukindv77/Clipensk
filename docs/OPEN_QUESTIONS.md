@@ -159,3 +159,18 @@
 `SourceApplication` и `InvocationApplication` остаются разными runtime concepts и не должны неявно объединяться одним guessed key.
 
 До фиксации unpackaged fallback concrete per-application policy repository/storage schema и универсальный durable application key не вводятся.
+
+## 12. Production-safe RTF SearchText extraction
+
+Требование остаётся неизменным: исходный RTF хранится как raw text representation, а для поиска должен существовать отдельный plain-text `SearchText`.
+
+Технически подтверждено, что `Microsoft.UI.Text.RichEditTextDocument` умеет принимать RTF через `SetText(TextSetOptions.FormatRtf, ...)` и выдавать текст через `GetText(...)`. Однако documented acquisition этого объекта в Windows App SDK идёт через `RichEditBox.TextDocument`; отдельный подтверждённый non-UI construction contract для background capture pipeline не зафиксирован.
+
+До решения нельзя:
+
+- создавать скрытый `RichEditBox` в clipboard worker без явного Dispatcher/UI-thread lifecycle;
+- выполнять RichEdit/XAML работу в `WM_CLIPBOARDUPDATE` callback;
+- вводить самописный упрощённый RTF parser и считать его эквивалентом Windows RichEdit semantics;
+- сохранять производный raw RTF markup как будто это готовый `SearchText`.
+
+Нужно выбрать и проверить один production boundary: либо документированный non-UI text-services host, либо изолированный Dispatcher/UI-thread projection service с cancellation/lifecycle contract. До этого RTF capture может сохранять raw representation на capture boundary, но persistence schema не должна считать `SearchText` заполненным.
