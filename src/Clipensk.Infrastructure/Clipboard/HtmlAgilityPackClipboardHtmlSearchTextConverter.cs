@@ -12,6 +12,24 @@ public sealed partial class HtmlAgilityPackClipboardHtmlSearchTextConverter : IC
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
 
+    private static readonly HashSet<string> ExcludedElementNames = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        "script",
+        "style",
+        "noscript",
+        "template",
+    };
+
+    private static readonly HashSet<string> SeparatorElementNames = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt",
+        "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4",
+        "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section",
+        "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul",
+    };
+
     public string? TryConvert(string clipboardHtml)
     {
         ArgumentNullException.ThrowIfNull(clipboardHtml);
@@ -27,18 +45,53 @@ public sealed partial class HtmlAgilityPackClipboardHtmlSearchTextConverter : IC
         };
         document.LoadHtml(fragment);
 
-        HtmlNodeCollection? excludedNodes = document.DocumentNode.SelectNodes(
-            "//script|//style|//noscript|//template");
-        if (excludedNodes is not null)
+        var visibleText = new StringBuilder(fragment.Length);
+        AppendVisibleText(document.DocumentNode, visibleText);
+        return NormalizeWhitespace(visibleText.ToString());
+    }
+
+    private static void AppendVisibleText(HtmlNode node, StringBuilder builder)
+    {
+        if (node.NodeType == HtmlNodeType.Comment)
         {
-            foreach (HtmlNode node in excludedNodes.ToArray())
-            {
-                node.Remove();
-            }
+            return;
         }
 
-        string decoded = HtmlEntity.DeEntitize(document.DocumentNode.InnerText);
-        return NormalizeWhitespace(decoded);
+        if (node.NodeType == HtmlNodeType.Text)
+        {
+            builder.Append(HtmlEntity.DeEntitize(node.InnerText));
+            return;
+        }
+
+        if (node.NodeType == HtmlNodeType.Element && ExcludedElementNames.Contains(node.Name))
+        {
+            return;
+        }
+
+        bool separates = node.NodeType == HtmlNodeType.Element &&
+            SeparatorElementNames.Contains(node.Name);
+        if (separates)
+        {
+            AppendSeparator(builder);
+        }
+
+        foreach (HtmlNode child in node.ChildNodes)
+        {
+            AppendVisibleText(child, builder);
+        }
+
+        if (separates)
+        {
+            AppendSeparator(builder);
+        }
+    }
+
+    private static void AppendSeparator(StringBuilder builder)
+    {
+        if (builder.Length > 0 && !char.IsWhiteSpace(builder[^1]))
+        {
+            builder.Append(' ');
+        }
     }
 
     private static bool TryExtractFragment(string clipboardHtml, out string fragment)
