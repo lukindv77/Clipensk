@@ -49,11 +49,11 @@ public sealed class ApplicationIdentityContractTests
         var packaged = new ApplicationIdentityResolution(
             id,
             ApplicationIdentityResolutionBasis.PackagedApplicationUserModelId,
-            WasCreated: false);
+            wasCreated: false);
         var unpackaged = new ApplicationIdentityResolution(
             id,
             ApplicationIdentityResolutionBasis.ExecutablePathAlias,
-            WasCreated: true);
+            wasCreated: true);
 
         Assert.Equal(id, packaged.ApplicationId);
         Assert.Equal(id, unpackaged.ApplicationId);
@@ -61,5 +61,25 @@ public sealed class ApplicationIdentityContractTests
         Assert.Equal(ApplicationIdentityResolutionBasis.ExecutablePathAlias, unpackaged.Basis);
         Assert.False(packaged.WasCreated);
         Assert.True(unpackaged.WasCreated);
+    }
+
+    [Fact]
+    public void Resolution_RejectsMissingDurableKey()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new ApplicationIdentityResolution(
+                null!,
+                ApplicationIdentityResolutionBasis.ExecutablePathAlias,
+                wasCreated: false));
+    }
+
+    [Fact]
+    public void Resolution_RejectsUnknownBasis()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ApplicationIdentityResolution(
+                ApplicationId.New(),
+                (ApplicationIdentityResolutionBasis)999,
+                wasCreated: false));
     }
 }
