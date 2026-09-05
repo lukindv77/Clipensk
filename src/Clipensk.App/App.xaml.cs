@@ -99,11 +99,45 @@ public partial class App : Application
             return;
         }
 
+        if (!canAccessProtectedData)
+        {
+            TrySetClipboardMonitoring(host, start: false);
+            return;
+        }
+
+        JournalWindow? window = _window;
+        ProtectedApplicationLifecycle? lifecycle = _lifecycle;
+        if (window is null || lifecycle is null)
+        {
+            return;
+        }
+
+        // CompleteUnlock raises ProtectedDataAccessChanged before JournalWindow finishes
+        // establishing ProtectedStorageSessionLease. Defer listener startup until the
+        // current unlock handler returns, then re-check the same lifecycle/host.
+        window.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!ReferenceEquals(_residentWindowsHost, host) ||
+                !ReferenceEquals(_lifecycle, lifecycle) ||
+                !lifecycle.CanAccessProtectedData)
+            {
+                return;
+            }
+
+            TrySetClipboardMonitoring(host, start: true);
+        });
+    }
+
+    private static void TrySetClipboardMonitoring(ResidentWindowsHost host, bool start)
+    {
         try
         {
-            if (canAccessProtectedData)
+            if (start)
             {
-                host.StartClipboardMonitoring();
+                if (!host.IsClipboardMonitoring)
+                {
+                    host.StartClipboardMonitoring();
+                }
             }
             else if (host.IsClipboardMonitoring)
             {
