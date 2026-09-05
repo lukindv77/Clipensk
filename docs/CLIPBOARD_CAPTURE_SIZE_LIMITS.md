@@ -27,7 +27,13 @@
 CanonicalByteCount = UTF8.GetByteCount(originalRepresentation)
 ```
 
-Для HTML/RTF извлекаемый позднее `SearchText` является производным индексируемым representation и не участвует в `MaxBytes`.
+`SearchText` является отдельной производной проекцией и не участвует в `MaxBytes`. Он вычисляется только после того, как raw representation прошёл canonical size check.
+
+Для plain text `SearchText` совпадает с исходной строкой.
+
+Для HTML Windows boundary сохраняет исходный CF_HTML representation без изменений, затем получает static fragment через `HtmlFormatHelper.GetStaticFragment` и преобразует fragment в plain text через `Windows.Data.Html.HtmlUtilities.ConvertToText`. Результат хранится отдельно как `SearchText`; raw HTML и его `CanonicalByteCount` не изменяются.
+
+Для RTF raw representation уже читается и измеряется корректно, но отдельный production-safe SearchText extractor пока не зафиксирован. `Microsoft.UI.Text.RichEditTextDocument` предоставляет RTF conversion APIs, однако documented acquisition идёт через `RichEditBox.TextDocument`; до решения UI/thread hosting RTF extractor не подменяется самописным parser и может оставлять `SearchText = null`.
 
 ## 3. WebLink / ApplicationLink
 
