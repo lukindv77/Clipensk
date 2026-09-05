@@ -65,6 +65,20 @@ public sealed class ProtectedClipboardAcceptedCaptureDeliveryTests
         }
     }
 
+    [Fact]
+    public async Task ProcessNextAsync_AfterSessionDisposeCancelsBeforeInnerDelivery()
+    {
+        var (_, session) = CreateUnlockedSession();
+        var inner = new RecordingDelivery(result: true);
+        var delivery = new ProtectedClipboardAcceptedCaptureDelivery(inner, session);
+
+        session.Dispose();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await delivery.ProcessNextAsync());
+        Assert.Equal(0, inner.CallCount);
+    }
+
     private static (ProtectedApplicationLifecycle Lifecycle, ProtectedStorageSessionLease Session)
         CreateUnlockedSession()
     {
@@ -90,10 +104,13 @@ public sealed class ProtectedClipboardAcceptedCaptureDeliveryTests
             _result = result;
         }
 
+        public int CallCount { get; private set; }
+
         public CancellationToken ObservedCancellationToken { get; private set; }
 
         public ValueTask<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
         {
+            CallCount++;
             cancellationToken.ThrowIfCancellationRequested();
             ObservedCancellationToken = cancellationToken;
             return ValueTask.FromResult(_result);
