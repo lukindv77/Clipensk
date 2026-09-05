@@ -22,7 +22,7 @@ public sealed partial class JournalWindow : Window
     private readonly IProtectedStorageDatabaseService _databaseService;
     private ApplicationSettings _settings;
     private ProtectedStorageCredentialState _credentialState;
-    private MasterKeyLease? _masterKeyLease;
+    private ProtectedStorageSessionLease? _protectedStorageSession;
     private bool _allowClose;
 
     public JournalWindow(
@@ -293,11 +293,28 @@ public sealed partial class JournalWindow : Window
             }
 
             _lifecycle.CompleteUnlock();
-            unlockCompleted = true;
 
-            _masterKeyLease?.Dispose();
-            _masterKeyLease = acquiredKey;
-            acquiredKey = null;
+            try
+            {
+                _protectedStorageSession?.Dispose();
+                _protectedStorageSession = ProtectedStorageSessionLease.Create(
+                    _lifecycle,
+                    _settings.DataRootPath,
+                    result.StorageId,
+                    acquiredKey);
+                acquiredKey = null;
+                unlockCompleted = true;
+            }
+            catch
+            {
+                if (_lifecycle.LockState == ApplicationLockState.Unlocked &&
+                    _lifecycle.TryBeginLock())
+                {
+                    _lifecycle.CompleteLock();
+                }
+
+                throw;
+            }
 
             RefreshLifecycleUi();
         }
@@ -550,8 +567,8 @@ public sealed partial class JournalWindow : Window
 
     private void OnJournalWindowClosed(object sender, WindowEventArgs args)
     {
-        _masterKeyLease?.Dispose();
-        _masterKeyLease = null;
+        _protectedStorageSession?.Dispose();
+        _protectedStorageSession = null;
     }
 
     private static async Task<string> ValidateDataRootAsync(string selectedPath)
