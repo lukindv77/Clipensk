@@ -7,6 +7,7 @@ internal sealed class ResidentMessageWindow : IDisposable
 {
     private const int ErrorClassAlreadyExists = 1410;
     private const uint WmHotKey = 0x0312;
+    private const uint WmClipboardUpdate = 0x031D;
     private static readonly nint HwndMessage = new(-3);
 
     private readonly string _className;
@@ -62,6 +63,8 @@ internal sealed class ResidentMessageWindow : IDisposable
 
     public event Action<int>? HotKeyReceived;
 
+    public event Action? ClipboardUpdated;
+
     public void Dispose()
     {
         if (_disposed)
@@ -86,6 +89,12 @@ internal sealed class ResidentMessageWindow : IDisposable
         if (message == WmHotKey)
         {
             HotKeyReceived?.Invoke(unchecked((int)wParam));
+            return 0;
+        }
+
+        if (message == WmClipboardUpdate)
+        {
+            ClipboardUpdated?.Invoke();
             return 0;
         }
 

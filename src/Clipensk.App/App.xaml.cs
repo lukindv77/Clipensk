@@ -8,7 +8,7 @@ using Clipensk.Infrastructure.Localization;
 using Clipensk.Infrastructure.Security;
 using Clipensk.Infrastructure.Settings;
 using Clipensk.Storage.Databases;
-using Clipensk.Windows.Input;
+using Clipensk.Windows;
 using Microsoft.UI.Xaml;
 
 namespace Clipensk.App;
@@ -16,6 +16,7 @@ namespace Clipensk.App;
 public partial class App : Application
 {
     private JournalWindow? _window;
+    private ResidentWindowsHost? _residentWindowsHost;
     private IGlobalHotKeyService? _hotKeyService;
     private ProtectedApplicationLifecycle? _lifecycle;
     private IProtectedStorageCredentialService? _credentialService;
@@ -52,7 +53,8 @@ public partial class App : Application
             }
         }
 
-        _hotKeyService = new GlobalHotKeyService();
+        _residentWindowsHost = new ResidentWindowsHost();
+        _hotKeyService = _residentWindowsHost.HotKeyService;
         _window = new JournalWindow(
             localization,
             settingsStore,
@@ -91,10 +93,11 @@ public partial class App : Application
         if (_hotKeyService is not null)
         {
             _hotKeyService.Pressed -= OnJournalHotKeyPressed;
-            _hotKeyService.Dispose();
             _hotKeyService = null;
         }
 
+        _residentWindowsHost?.Dispose();
+        _residentWindowsHost = null;
         _databaseService = null;
         _credentialService = null;
         _lifecycle = null;

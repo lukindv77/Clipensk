@@ -15,9 +15,9 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
     private int? _activeHotKeyId;
     private bool _disposed;
 
-    public GlobalHotKeyService()
+    internal GlobalHotKeyService(ResidentMessageWindow messageWindow)
     {
-        _messageWindow = new ResidentMessageWindow();
+        _messageWindow = messageWindow ?? throw new ArgumentNullException(nameof(messageWindow));
         _messageWindow.HotKeyReceived += OnHotKeyReceived;
     }
 
@@ -73,7 +73,6 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
 
         UnregisterInternal();
         _messageWindow.HotKeyReceived -= OnHotKeyReceived;
-        _messageWindow.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
     }
