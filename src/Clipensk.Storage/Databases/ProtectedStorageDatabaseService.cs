@@ -1,5 +1,6 @@
 using System.Globalization;
 using Clipensk.Core.Storage;
+using Clipensk.Storage.Applications;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
 
@@ -7,7 +8,10 @@ namespace Clipensk.Storage.Databases;
 
 public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseService
 {
-    public const int CurrentSchemaVersion = 1;
+    private const int LegacyCurrentSchemaVersion = 1;
+
+    public const int CurrentSchemaVersion = 2;
+    public const int CatalogSchemaVersion = 1;
     public const int CurrentEncryptionVersion = 1;
 
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
@@ -78,18 +82,40 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         {
             if (currentExists)
             {
-                ValidateDatabase(
+                int currentSchemaVersion = ValidateDatabase(
                     currentDatabasePath,
                     storageId,
                     DatabaseRole.Current,
                     masterKey,
-                    cancellationToken);
+                    cancellationToken,
+                    LegacyCurrentSchemaVersion,
+                    CurrentSchemaVersion);
+
+                // Critical rule: validate the whole protected pair before mutating Current.
                 ValidateDatabase(
                     catalogDatabasePath,
                     storageId,
                     DatabaseRole.StorageCatalog,
                     masterKey,
-                    cancellationToken);
+                    cancellationToken,
+                    CatalogSchemaVersion);
+
+                if (currentSchemaVersion == LegacyCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV1ToV2(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                }
+
+                ValidateDatabase(
+                    currentDatabasePath,
+                    storageId,
+                    DatabaseRole.Current,
+                    masterKey,
+                    cancellationToken,
+                    CurrentSchemaVersion);
 
                 EnsureAncillaryDirectories(dataRootPath);
                 return new ProtectedStorageDatabaseResult(
@@ -191,13 +217,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 storageId,
                 DatabaseRole.Current,
                 masterKey,
-                cancellationToken);
+                cancellationToken,
+                CurrentSchemaVersion);
             ValidateDatabase(
                 catalogPath,
                 storageId,
                 DatabaseRole.StorageCatalog,
                 masterKey,
-                cancellationToken);
+                cancellationToken,
+                CatalogSchemaVersion);
 
             cancellationToken.ThrowIfCancellationRequested();
             Directory.Move(stagingCurrentDirectory, finalCurrentDirectory);
@@ -219,12 +247,14 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        int schemaVersion = GetSchemaVersion(role);
 
         using SqliteConnection connection = _connectionFactory.Open(
             databasePath,
             masterKey,
             SqliteOpenMode.ReadWriteCreate);
 
+        EnableForeignKeys(connection);
         using SqliteTransaction transaction = connection.BeginTransaction();
 
         using (SqliteCommand create = connection.CreateCommand())
@@ -270,7 +300,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             insert.Parameters.AddWithValue("$storageId", storageId.ToString("D"));
             insert.Parameters.AddWithValue("$databaseId", Guid.NewGuid().ToString("D"));
             insert.Parameters.AddWithValue("$role", role.ToString());
-            insert.Parameters.AddWithValue("$schemaVersion", CurrentSchemaVersion);
+            insert.Parameters.AddWithValue("$schemaVersion", schemaVersion);
             insert.Parameters.AddWithValue("$encryptionVersion", CurrentEncryptionVersion);
             insert.Parameters.AddWithValue(
                 "$createdAtUtc",
@@ -278,20 +308,25 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             insert.ExecuteNonQuery();
         }
 
+        if (role == DatabaseRole.Current)
+        {
+            ApplicationIdentitySqlSchema.CreateTables(connection, transaction);
+        }
+
         using (SqliteCommand userVersion = connection.CreateCommand())
         {
             userVersion.Transaction = transaction;
-            userVersion.CommandText = $"PRAGMA user_version = {CurrentSchemaVersion};";
+            userVersion.CommandText = $"PRAGMA user_version = {schemaVersion};";
             userVersion.ExecuteNonQuery();
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
     }
 
-    private void ValidateDatabase(
+    private void MigrateCurrentFromV1ToV2(
         string databasePath,
         Guid expectedStorageId,
-        DatabaseRole expectedRole,
         ReadOnlyMemory<byte> masterKey,
         CancellationToken cancellationToken)
     {
@@ -301,6 +336,63 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             databasePath,
             masterKey,
             SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ApplicationIdentitySqlSchema.CreateTables(connection, transaction);
+
+        using (SqliteCommand updateIdentity = connection.CreateCommand())
+        {
+            updateIdentity.Transaction = transaction;
+            updateIdentity.CommandText = """
+                UPDATE DatabaseIdentity
+                SET SchemaVersion = $newSchemaVersion
+                WHERE SingletonId = 1
+                  AND StorageId = $storageId
+                  AND DatabaseRole = $role
+                  AND SchemaVersion = $oldSchemaVersion;
+                """;
+            updateIdentity.Parameters.AddWithValue("$newSchemaVersion", CurrentSchemaVersion);
+            updateIdentity.Parameters.AddWithValue("$storageId", expectedStorageId.ToString("D"));
+            updateIdentity.Parameters.AddWithValue("$role", DatabaseRole.Current.ToString());
+            updateIdentity.Parameters.AddWithValue("$oldSchemaVersion", LegacyCurrentSchemaVersion);
+            if (updateIdentity.ExecuteNonQuery() != 1)
+            {
+                throw new InvalidDataException(
+                    "Current v1 identity changed before schema migration could be committed.");
+            }
+        }
+
+        using (SqliteCommand userVersion = connection.CreateCommand())
+        {
+            userVersion.Transaction = transaction;
+            userVersion.CommandText = $"PRAGMA user_version = {CurrentSchemaVersion};";
+            userVersion.ExecuteNonQuery();
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private int ValidateDatabase(
+        string databasePath,
+        Guid expectedStorageId,
+        DatabaseRole expectedRole,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken,
+        params int[] allowedSchemaVersions)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (allowedSchemaVersions.Length == 0)
+        {
+            throw new ArgumentException("At least one schema version must be allowed.", nameof(allowedSchemaVersions));
+        }
+
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath,
+            masterKey,
+            SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
 
         // Это первая операция, читающая страницы БД. Для SQLCipher она одновременно
         // подтверждает, что переданный ключ действительно открывает файл.
@@ -329,6 +421,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             }
         }
 
+        int schemaVersion;
         using (SqliteCommand identity = connection.CreateCommand())
         {
             identity.CommandText = """
@@ -345,13 +438,14 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 throw new InvalidDataException("DatabaseIdentity отсутствует.");
             }
 
+            schemaVersion = reader.GetInt32(3);
             if (!Guid.TryParse(reader.GetString(0), out Guid storageId) ||
                 storageId != expectedStorageId ||
                 !Guid.TryParse(reader.GetString(1), out Guid databaseId) ||
                 databaseId == Guid.Empty ||
                 !Enum.TryParse(reader.GetString(2), ignoreCase: false, out DatabaseRole role) ||
                 role != expectedRole ||
-                reader.GetInt32(3) != CurrentSchemaVersion ||
+                !allowedSchemaVersions.Contains(schemaVersion) ||
                 reader.GetInt32(4) != CurrentEncryptionVersion ||
                 !DateTimeOffset.TryParse(
                     reader.GetString(5),
@@ -375,11 +469,36 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         using (SqliteCommand userVersion = connection.CreateCommand())
         {
             userVersion.CommandText = "PRAGMA user_version;";
-            if (Convert.ToInt32(userVersion.ExecuteScalar(), CultureInfo.InvariantCulture) != CurrentSchemaVersion)
+            if (Convert.ToInt32(userVersion.ExecuteScalar(), CultureInfo.InvariantCulture) != schemaVersion)
             {
                 throw new InvalidDataException("SQLite user_version не соответствует schema version.");
             }
         }
+
+        if (expectedRole == DatabaseRole.Current && schemaVersion == CurrentSchemaVersion)
+        {
+            ApplicationIdentitySqlSchema.ValidateTables(connection);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return schemaVersion;
+    }
+
+    private static int GetSchemaVersion(DatabaseRole role)
+    {
+        return role switch
+        {
+            DatabaseRole.Current => CurrentSchemaVersion,
+            DatabaseRole.StorageCatalog => CatalogSchemaVersion,
+            _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unsupported database role."),
+        };
+    }
+
+    private static void EnableForeignKeys(SqliteConnection connection)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "PRAGMA foreign_keys = ON;";
+        command.ExecuteNonQuery();
     }
 
     private static bool HasArchiveDatabase(string dataRootPath)
