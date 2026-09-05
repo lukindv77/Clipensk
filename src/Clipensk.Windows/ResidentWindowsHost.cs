@@ -28,17 +28,20 @@ public sealed class ResidentWindowsHost : IDisposable
         PngImageContentReader = new WindowsClipboardPngImageContentReader();
         LinkContentReader = new WindowsClipboardLinkContentReader();
         StorageItemsContentReader = new WindowsClipboardStorageItemsContentReader();
+        CustomBinaryContentReader = new WindowsClipboardCustomBinaryContentReader();
         ContentReaderRouter = new ClipboardContentReaderRouter(
             TextContentReader,
             PngImageContentReader,
             LinkContentReader,
-            StorageItemsContentReader);
+            StorageItemsContentReader,
+            CustomBinaryContentReader);
         ContentReadPlanStage = new ClipboardContentReadPlanStage(ContentReaderRouter);
         ContentReadExecutionStage = new ClipboardContentReadExecutionStage(
             TextContentReader,
             PngImageContentReader,
             LinkContentReader,
-            StorageItemsContentReader);
+            StorageItemsContentReader,
+            CustomBinaryContentReader);
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -60,6 +63,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public IClipboardLinkContentReader LinkContentReader { get; }
 
     public IClipboardStorageItemsContentReader StorageItemsContentReader { get; }
+
+    public IClipboardCustomBinaryContentReader CustomBinaryContentReader { get; }
 
     public ClipboardContentReaderRouter ContentReaderRouter { get; }
 
