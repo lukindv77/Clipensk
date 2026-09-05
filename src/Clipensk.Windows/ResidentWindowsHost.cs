@@ -26,6 +26,7 @@ public sealed class ResidentWindowsHost : IDisposable
         TextContentReader = new WindowsClipboardTextContentReader();
         PngImageContentReader = new WindowsClipboardPngImageContentReader();
         LinkContentReader = new WindowsClipboardLinkContentReader();
+        StorageItemsContentReader = new WindowsClipboardStorageItemsContentReader();
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -45,6 +46,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public IClipboardPngImageContentReader PngImageContentReader { get; }
 
     public IClipboardLinkContentReader LinkContentReader { get; }
+
+    public IClipboardStorageItemsContentReader StorageItemsContentReader { get; }
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
 
