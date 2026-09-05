@@ -33,6 +33,11 @@ public sealed class ResidentWindowsHost : IDisposable
             LinkContentReader,
             StorageItemsContentReader);
         ContentReadPlanStage = new ClipboardContentReadPlanStage(ContentReaderRouter);
+        ContentReadExecutionStage = new ClipboardContentReadExecutionStage(
+            TextContentReader,
+            PngImageContentReader,
+            LinkContentReader,
+            StorageItemsContentReader);
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -58,6 +63,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public ClipboardContentReaderRouter ContentReaderRouter { get; }
 
     public ClipboardContentReadPlanStage ContentReadPlanStage { get; }
+
+    public ClipboardContentReadExecutionStage ContentReadExecutionStage { get; }
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
 
