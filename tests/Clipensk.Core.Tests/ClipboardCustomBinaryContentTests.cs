@@ -67,6 +67,26 @@ public sealed class ClipboardCustomBinaryContentTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RejectsOversizedBytesEvenWhenReaderIgnoresPreflight()
+    {
+        var customReader = new StubCustomBinaryReader(
+            "Custom.Binary",
+            [1, 2, 3],
+            honorLimit: false);
+        var stage = CreateExecutionStage(customReader);
+        ClipboardSelectedFormat selected = new("Custom.Binary", 2);
+        ClipboardContentReadPlan plan = CreatePlan(
+            new ClipboardContentReaderRoute(selected, ClipboardContentReaderKind.CustomBinary));
+
+        ClipboardContentReadExecution result = await stage.ExecuteAsync(plan);
+
+        Assert.Empty(result.CapturedContent);
+        Assert.Equal(selected, Assert.Single(result.SizeRejectedFormats));
+        Assert.Equal(1, customReader.ReadCount);
+        Assert.Equal(2, customReader.ObservedMaxBytes);
+    }
+
+    [Fact]
     public void CapturedCustomBinaryContent_OwnsItsByteSnapshot()
     {
         byte[] sourceBytes = [1, 2, 3];
@@ -122,11 +142,16 @@ public sealed class ClipboardCustomBinaryContentTests
     {
         private readonly string _format;
         private readonly byte[] _bytes;
+        private readonly bool _honorLimit;
 
-        public StubCustomBinaryReader(string format, byte[] bytes)
+        public StubCustomBinaryReader(
+            string format,
+            byte[] bytes,
+            bool honorLimit = true)
         {
             _format = format;
             _bytes = bytes;
+            _honorLimit = honorLimit;
         }
 
         public int ReadCount { get; private set; }
@@ -145,7 +170,7 @@ public sealed class ClipboardCustomBinaryContentTests
             cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
             ObservedMaxBytes = maxBytes;
-            if (maxBytes.HasValue && _bytes.LongLength > maxBytes.Value)
+            if (_honorLimit && maxBytes.HasValue && _bytes.LongLength > maxBytes.Value)
             {
                 return ValueTask.FromResult<byte[]?>(null);
             }
