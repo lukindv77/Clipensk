@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Clipensk.Core.Clipboard;
+using Clipensk.Core.History;
 using Clipensk.Windows.Interop;
 
 namespace Clipensk.Windows.Clipboard;
@@ -79,7 +80,7 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
 
     private void OnClipboardUpdated()
     {
-        _captureQueue.TryEnqueue(new ClipboardCaptureRequest(DateTimeOffset.UtcNow));
+        _captureQueue.TryEnqueue(new ClipboardCaptureRequest(EventTimeContext.CaptureNow()));
     }
 
     [DllImport("user32.dll", SetLastError = true)]
