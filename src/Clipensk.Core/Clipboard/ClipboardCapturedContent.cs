@@ -60,6 +60,21 @@ public sealed class ClipboardCapturedPngImageContent : ClipboardCapturedContent
     public ReadOnlyMemory<byte> PngBytes => _pngBytes;
 }
 
+public sealed class ClipboardCapturedCustomBinaryContent : ClipboardCapturedContent
+{
+    private readonly byte[] _bytes;
+
+    public ClipboardCapturedCustomBinaryContent(
+        ClipboardContentReaderRoute route,
+        ReadOnlySpan<byte> bytes)
+        : base(route, bytes.Length)
+    {
+        _bytes = bytes.ToArray();
+    }
+
+    public ReadOnlyMemory<byte> Bytes => _bytes;
+}
+
 public sealed class ClipboardCapturedStorageItemsContent : ClipboardCapturedContent
 {
     public ClipboardCapturedStorageItemsContent(
