@@ -5,6 +5,7 @@ namespace Clipensk.Storage.Applications;
 internal static class ApplicationIdentitySqlSchema
 {
     public const int MinimumCurrentSchemaVersion = 2;
+    public const int RequiredCurrentSchemaVersion = MinimumCurrentSchemaVersion;
     public const string AumidAliasType = "Aumid";
     public const string ExecutablePathAliasType = "ExecutablePath";
 
