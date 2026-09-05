@@ -1,6 +1,7 @@
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Xunit;
+using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.Core.Tests;
 
@@ -18,13 +19,13 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task GetApplicationPolicyAsync_DoesNotUseTransientSourceAsDurableIdentity()
+    public async Task GetApplicationPolicyAsync_ReturnsNoOverrideForDurableApplicationId()
     {
         var globalPolicy = new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow);
         var repository = new GlobalOnlyClipboardCapturePolicyRepository(globalPolicy);
-        var sourceApplication = new ClipboardSourceApplication(4242, @"C:\Apps\Source.exe");
 
-        ClipboardCapturePolicy? result = await repository.GetApplicationPolicyAsync(sourceApplication);
+        ClipboardCapturePolicy? result = await repository.GetApplicationPolicyAsync(
+            DurableApplicationId.New());
 
         Assert.Null(result);
     }
@@ -34,7 +35,7 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
     {
         var repository = new GlobalOnlyClipboardCapturePolicyRepository(
             new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny));
-        var sourceApplication = new ClipboardSourceApplication(4242, @"C:\Apps\Source.exe");
+        DurableApplicationId applicationId = DurableApplicationId.New();
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
@@ -44,12 +45,12 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
         });
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
         {
-            await repository.GetApplicationPolicyAsync(sourceApplication, cancellation.Token);
+            await repository.GetApplicationPolicyAsync(applicationId, cancellation.Token);
         });
     }
 
     [Fact]
-    public async Task RepositoryProvider_KeepsKnownRuntimeSourceOnGlobalOnlyPolicy()
+    public async Task RepositoryProvider_KeepsKnownRuntimeSourceWithoutDurableIdOnGlobalOnlyPolicy()
     {
         var globalPolicy = new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow);
         var provider = new RepositoryClipboardCapturePolicyProvider(
