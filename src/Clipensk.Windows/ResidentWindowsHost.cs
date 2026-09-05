@@ -135,6 +135,23 @@ public sealed class ResidentWindowsHost : IDisposable
             session);
     }
 
+    public IClipboardAcceptedCaptureDelivery CreateProtectedGlobalOnlyAcceptedCaptureDelivery(
+        ClipboardCapturePolicy globalPolicy,
+        IClipboardAcceptedCaptureSink sink,
+        ProtectedStorageSessionLease session)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(globalPolicy);
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(session);
+
+        return CreateProtectedAcceptedCaptureDelivery(
+            new RepositoryClipboardCapturePolicyProvider(
+                new GlobalOnlyClipboardCapturePolicyRepository(globalPolicy)),
+            sink,
+            session);
+    }
+
     public void StartClipboardMonitoring()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
