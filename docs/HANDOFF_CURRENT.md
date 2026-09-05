@@ -2,18 +2,16 @@
 
 Дата checkpoint: 2026-09-05.
 
-Этот файл является durable operational checkpoint по правилу `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`. Изменяемое состояние GitHub всегда имеет приоритет; перед следующей durable записью обязательна fresh TOCTOU-проверка.
+Этот файл — durable operational checkpoint. Изменяемое состояние GitHub и GitHub Actions всегда является source of truth; перед любой durable записью в `main` нужна fresh TOCTOU-проверка.
 
 ## A. Project identity
 
 - Проект: **Clipensk** — Open Source Windows clipboard-history manager.
 - Репозиторий: `lukindv77/Clipensk`.
-- Основная ветка: `main`.
-- Source state непосредственно перед этим handoff docs-only checkpoint: `d76e7ec699980cea006ebeb33d197ba877c6ab4b` (`feat: bind clipboard monitoring to protected access`).
-- Поддерживаемая архитектура продукта: **только Windows x64 (AMD64)**. ARM64 вне product scope.
-- App runtime contract: `Platforms=x64`, `RuntimeIdentifiers=win-x64`, текущий development host unpackaged (`WindowsPackageType=None`).
-- Финальная схема распространения MSIX/portable/оба ещё не выбрана.
-- Fresh проверка перед handoff: open PR = 0, open Issues = 0.
+- Product architecture: **только Windows x64 (AMD64)**. ARM64 полностью вне scope.
+- Runtime contract: `Platforms=x64`, `RuntimeIdentifiers=win-x64`.
+- Текущий development host: unpackaged (`WindowsPackageType=None`).
+- Финальная схема распространения MSIX / portable / оба — не выбрана.
 
 Authoritative документы:
 
@@ -26,239 +24,188 @@ Authoritative документы:
 - `docs/OPEN_QUESTIONS.md`;
 - этот `docs/HANDOFF_CURRENT.md`.
 
-## B. User intent
+## B. Mandatory workflow rules
 
-Конечная цель: довести Clipensk до рабочего защищённого Windows x64 приложения с резидентным журналированием clipboard, поиском, Current/Archive storage, обслуживанием и безопасным password → MasterKey lifecycle.
+- GitHub repository и GitHub Actions — source of truth для mutable state.
+- Перед durable write в `main` — fresh TOCTOU.
+- `main` никогда не force-update.
+- Работа failure-driven; не делать speculative fixes.
+- Не объявлять PASS/build/release/encryption gate без точного evidence.
+- `WM_CLIPBOARDUPDATE` WndProc остаётся signal/enqueue only: никаких clipboard reads, process resolution, DB/persistence или другой тяжёлой работы.
+- Clipboard monitoring разрешён только при protected data access = `UNLOCKED`.
+- SourceApplication и InvocationApplication — разные понятия и разные runtime boundaries.
+- Event time сохраняется как `EventTimeContext`: UTC timestamp + local offset + Windows time-zone ID + calendar date.
+- Не вводить конкретные clipboard format defaults/size limits без отдельного решения.
+- Полную history/catalog/archive schema не придумывать внутри capture tranches.
+- Если GitHub Actions выполняется, сначала делать независимую полезную работу. Если её нет — можно ожидать завершения run не более 2 минут. Если run не завершился за это окно — остановиться, дать сводку, точный run ID/SHA/gate и resume point.
 
-Постоянные правила работы:
+## C. Current authoritative source state
 
-- GitHub repository/Actions — primary source of truth для изменяемого состояния;
-- перед durable write делать fresh TOCTOU-проверку `main`;
-- работать failure-driven, не вносить speculative fixes;
-- не объявлять PASS/build/release/encryption gate без фактического evidence;
-- не возвращать ARM64 implementation;
-- не переоткрывать уже утверждённую crypto/storage архитектуру без подтверждённой причины;
-- managed tests не являются доказательством SQLCipher encryption;
-- **не выполнять пустой polling GitHub Actions**: пока run идёт, делать другую независимую полезную работу; если такой работы нет или безопасно продолжать нельзя — подвести итог, сообщить run ID и ждать следующей команды пользователя; на следующем `продолжай` первым делом fresh проверить этот run;
-- параллельную работу во время Actions допускается готовить в отдельной ветке, но нельзя продвигать её в `main`, если это отменит/перезапустит текущий evidence run.
+Текущий функциональный `main` на момент этого docs checkpoint:
 
-## C. Current authoritative state
+- `b25b4dac9a79f0530a299ba37e06554478f608e2`
+- `feat: resolve journal invocation application`
 
-### Source / branches
+Последний подтверждённый managed CI:
 
-Fresh pre-handoff state:
+- **Build #65**
+- run `33943886744`
+- SHA `b25b4dac9a79f0530a299ba37e06554478f608e2`
+- conclusion: `SUCCESS`
+- обязательные шаги `Verify x64-only implementation scope`, `Restore`, `Build`, `Test` — `SUCCESS`.
 
-- `main`: `d76e7ec699980cea006ebeb33d197ba877c6ab4b`, tree `3c3937eb49ae78fc246a6fa3358e6ebc93210c23`, branch unprotected.
-- `feat/capture-time-context`: `a93fe4d7ea93852d0064ee07075cc4c64a52338a` (`feat: preserve clipboard event time context`). Перед handoff docs commit она была **ahead 1 / behind 0** относительно `d76e7ec...` и меняла только:
-  - `src/Clipensk.Core/Clipboard/ClipboardCaptureRequest.cs`;
-  - `src/Clipensk.Windows/Clipboard/ClipboardUpdateMonitor.cs`;
-  - `tests/Clipensk.Core.Tests/ClipboardCaptureQueueTests.cs`.
-- `feat/clipboard-listener-boundary`: `631e2dc56f0f1bdc03bfe1be56883b1dad9cd9ce`, уже ancestor `main`; ветка функционально избыточна.
-- `chore/native-provenance-hardening` и `chore/x64-runtime-delivery` остаются как старые рабочие ветки уже завершённых tranches; их не использовать как source of truth вместо `main`.
-- Во время подготовки handoff была ошибочно создана no-op ветка `__noop_should_not_create__`, указывающая на `d76e7ec...`. Текущий connector не предоставляет delete-ref action; ветка не содержит уникальных commits и безопасна для последующего удаления/игнорирования.
+При публикации этого handoff docs-only commit `main` изменится; следующий чат должен fresh проверить фактический SHA и соответствующий Build run.
 
-**Важно:** этот handoff публикуется docs-only commit поверх `d76e7ec...`, поэтому после записи `main` изменится и `feat/capture-time-context` перестанет быть fast-forward относительно нового `main`. Новый чат обязан fresh сравнить ветку с `main`; ожидаемая логика — перенести один feature commit поверх свежего docs-only `main` без изменения его содержимого, а не force-merge старую базу.
-
-### Managed CI
-
-- Build #44, run `33937739276`, SHA `631e2dc56f0f1bdc03bfe1be56883b1dad9cd9ce`: `SUCCESS` — x64 guard / Restore / Build / Test.
-- Build #45, run `33938504886`, SHA `d76e7ec699980cea006ebeb33d197ba877c6ab4b`: `SUCCESS` — x64 guard / Restore / Build / Test.
-- `feat/capture-time-context` **не считать PASS**: отдельного подтверждённого CI evidence для этого commit нет; после переноса/merge в `main` нужен новый Build run.
-
-### Native SQLCipher / runtime delivery
-
-Native/provenance/runtime tranche закрыт:
-
-- Native SQLCipher #9, run `33906431371`, SHA `9b8f8aef6080d858d2433be022127b157758ec9a`: `SUCCESS`; подтвердил x64 source build, provenance collector и production encrypted-storage smoke.
-- Native SQLCipher #10, run `33935810021`, SHA `3a0ee374b6108ffb12d432c5805a1dad07d30af3`: `SUCCESS` по всем ключевым шагам:
-  - Build pinned SQLCipher x64;
-  - Record native SQLCipher x64 provenance;
-  - Publish SQLCipher smoke host;
-  - Verify encrypted storage x64;
-  - Publish unpackaged Clipensk x64 runtime;
-  - Upload native evidence;
-  - Upload unpackaged runtime.
-- Artifacts #10:
-  - `clipensk-sqlcipher-win-x64`, artifact ID `9960499242`;
-  - `clipensk-app-win-x64-unpackaged`, artifact ID `9960500027`.
-- Runtime artifact был скачан и проверен: присутствуют `Clipensk.App.exe`, `Clipensk.App.dll`, verified `sqlcipher.dll`; `e_sqlcipher.dll` отсутствует; App EXE и SQLCipher DLL — PE x64 (`0x8664`); `runtime-delivery-manifest.json` содержит `win-x64`; SHA staged DLL совпадает с native manifest; SHA copied native manifest совпадает с ссылкой runtime manifest; provenance repository commit согласован с источником Native #10; native license files присутствуют.
-
-Статус: **x64 unpackaged runtime staging PASS**. Это **не** доказательство финального installer/package и **не** отдельный installed-app runtime-loading/launch PASS.
-
-## D. Current owner / active task
-
-Текущий owner: **продолжить clipboard capture pipeline после уже работающей listener/lifecycle boundary, начиная с переноса полного event-time context в capture request**.
-
-Root gap:
-
-- `WM_CLIPBOARDUPDATE` listener и bounded coalescing queue уже созданы;
-- monitoring теперь включается только при доступе к protected data (`UNLOCKED`) и выключается при начале lock;
-- но `ClipboardCaptureRequest` в `main` пока содержит только UTC timestamp и теряет уже существующую модель `EventTimeContext` (local offset, calendar date, Windows time-zone ID), необходимую требованиям архивной календарной принадлежности.
-
-Подготовлен fix в `feat/capture-time-context` / `a93fe4d7...`:
-
-- request несёт `EventTimeContext`;
-- monitor захватывает `EventTimeContext.CaptureNow()` в момент clipboard update;
-- tests обновлены для coalescing и сохранения time context.
-
-Acceptance criteria ближайшего tranche:
-
-1. Fresh проверить `main` после handoff docs commit и состояние `feat/capture-time-context`.
-2. Убедиться, что единственное содержательное расхождение feature branch — три ожидаемых файла и один feature commit.
-3. Перенести/cherry-pick/rebase этот feature commit поверх свежего `main` без force на `main`.
-4. Запустить/получить managed Build evidence и считать tranche PASS только после x64 guard + Restore + Build + Test = SUCCESS.
-5. После PASS перейти к следующему capture stage; не смешивать это с ещё не определённой history DB schema.
-
-## E. What has been completed
-
-### First-run / protected storage lifecycle
-
-DONE:
-
-- выбор DataRoot при первом запуске;
-- storage-wide `storage-crypto.json`;
-- Argon2id v1.3 production profile: 64 MiB, 3 iterations, 4 lanes, 16-byte salt, 32-byte MasterKey;
-- MasterKey verifier;
-- LOCKED / UNLOCKING / UNLOCKED lifecycle;
-- password hint без persistence пароля;
-- protected initial `Current/current.db` + `Current/storage-catalog.db`;
-- atomic initial pair staging/publish;
-- `DatabaseIdentity` validation;
-- partial Current/Catalog fail-closed behavior;
-- archive-presence recovery gate.
-
-### SQLCipher production boundary
+## D. Protected storage / SQLCipher status
 
 DONE / VERIFIED:
 
-- `Microsoft.Data.Sqlite.Core` + `SQLitePCLRaw.provider.sqlcipher`;
-- self-built `sqlcipher.dll`;
-- raw 32-byte MasterKey через `sqlite3_key`;
+- first-run DataRoot;
+- `storage-crypto.json`;
+- Argon2id v1.3 production profile: 64 MiB / 3 iterations / 4 lanes / 16-byte salt / 32-byte MasterKey;
+- MasterKey verifier;
+- LOCKED / UNLOCKING / UNLOCKED;
+- password не persistится;
+- protected `Current/current.db` и `Current/storage-catalog.db`;
+- atomic initial Current/Catalog pair;
+- `DatabaseIdentity` validation;
+- partial Current/Catalog fail-closed;
+- archive-presence recovery gate;
+- production SQLCipher boundary: `Microsoft.Data.Sqlite.Core` + `SQLitePCLRaw.provider.sqlcipher` + self-built `sqlcipher.dll`;
+- raw 32-byte key через `sqlite3_key`;
 - `cipher_compatibility=4`, `cipher_memory_security=ON`;
-- gates: `cipher_version >= 4.12.0`, `cipher_status=1`, `sqlite_master`, `quick_check`, `DatabaseIdentity`;
+- gates `cipher_version >= 4.12.0`, `cipher_status=1`, `sqlite_master`, `quick_check`, `DatabaseIdentity`;
 - SQLCipher Community 4.17.0 commit `810db22f575ee7cf94ea96a3e91622b5fcece3dc`;
-- OpenSSL 3.5.8 tarball SHA-256 `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`;
-- x64-only source build, provenance and smoke evidence;
-- unpackaged x64 publish staging exact verified native DLL + manifests/licenses.
+- OpenSSL 3.5.8 SHA-256 `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`.
 
-### x64-only scope guard
+Native evidence:
 
-DONE:
+- Native SQLCipher #9 run `33906431371` — SUCCESS.
+- Native SQLCipher #10 run `33935810021` — SUCCESS.
+- artifact `clipensk-sqlcipher-win-x64` id `9960499242`.
+- artifact `clipensk-app-win-x64-unpackaged` id `9960500027`.
+- unpackaged runtime staging verified x64, exact `sqlcipher.dll`, no `e_sqlcipher.dll`, manifests/hashes/licenses present.
 
-- ARM64 implementation removed;
-- App/runtime/native workflow only x64/win-x64;
-- managed Build contains permanent x64-only implementation guard;
-- intentional ARM64 mentions остаются только в docs как `unsupported/out of product scope`.
+Не считать это финальным installer/installed-launch evidence.
 
-### Clipboard listener boundary
+## E. Clipboard capture pipeline — completed tranches
 
-DONE on `main`:
+### Listener + protected access
 
-- commit `631e2dc56f0f1bdc03bfe1be56883b1dad9cd9ce` — shared `ResidentMessageWindow` receives `WM_HOTKEY` and `WM_CLIPBOARDUPDATE`;
-- `ResidentWindowsHost` владеет одним message-only HWND, hotkey service, monitor и queue;
-- `ClipboardUpdateMonitor` использует `AddClipboardFormatListener` / `RemoveClipboardFormatListener`;
-- message handler не читает clipboard и не выполняет тяжёлую работу, а только enqueue capture request;
-- `ClipboardCaptureQueue` — bounded capacity 1, `DropOldest`, single reader; множественные pending updates коалесцируются к последнему;
-- Build #44 PASS.
+- `631e2dc56f0f1bdc03bfe1be56883b1dad9cd9ce` — resident message window, WM_HOTKEY, WM_CLIPBOARDUPDATE, bounded capture queue capacity 1 / DropOldest / single reader, Add/RemoveClipboardFormatListener.
+- Build #44 run `33937739276` — SUCCESS.
+- `d76e7ec699980cea006ebeb33d197ba877c6ab4b` — monitoring starts only UNLOCKED and stops on protected-access exit.
+- Build #45 run `33938504886` — SUCCESS.
 
-### Protected-access binding
+### Event/source/policy/discovery
 
-DONE on `main`:
+- `bc02cb58a5a9c7357358c549841cb772746128ec` — preserve `EventTimeContext`; Build #47 run `33939070986` — SUCCESS.
+- `d60d461c35b6b4af329b800e6d55d837a42c57c7` — resolve clipboard SourceApplication; Build #48 run `33939545079` — SUCCESS.
+- `1d4f9d07af177a2bdacab16c1c7c8dd99dcd707e` — capture policy boundary; Build #49 run `33939777749` — SUCCESS.
+- `9c246d46d26ac2554777505a8b10a97ddf577488` — clipboard format discovery; Build #50 — SUCCESS.
+- `6e85835460536440cbb1597d818d6a93b8697aef` — retain one clipboard content snapshot / one `DataPackageView`; Build #51 — SUCCESS.
+- `ab04088d...` — format selection: only explicitly allowed available formats proceed; Build #52 — SUCCESS.
+- `7817134c...` — policy-provider boundary; Build #53 — SUCCESS.
+- `6fee56bb...` — single-shot capture pipeline; Build #54 — SUCCESS.
 
-- commit `d76e7ec699980cea006ebeb33d197ba877c6ab4b` — monitoring привязан к lifecycle protected access;
-- listener стартует после успешного перехода в `UNLOCKED`;
-- listener останавливается при уходе из protected-access state / начале lock;
-- unit tests проверяют lifecycle access transition;
-- Build #45 PASS.
+### Reader capabilities
 
-## F. Current conclusions
+- `106b8fa3...` — standard Text / HTML / RTF reader capability, using retained snapshot; Build #55 — SUCCESS.
+- `134c209c...` — host composition with explicit policy provider; Build #56 — SUCCESS.
+- `4096d387...` — policy repository boundary without hardcoded persistent application key/schema; Build #57 — SUCCESS.
+- `3048e094...` — Bitmap → normalized PNG capability; Build #58 — SUCCESS.
+- `f80fceb8471948a5d82147e1080b6e6d02e99325` — WebLink/ApplicationLink reader; Build #59 run `33941383433` — SUCCESS.
+- `138d7a45a2f9777bb4440cb16b751bcb6d15c8c7` — StorageItems/CF_HDROP metadata reader; Build #60 run `33941909260` — SUCCESS.
 
-1. Product platform: только Windows x64 (AMD64); ARM64 не возвращать.
-2. App baseline: .NET 10 + WinUI 3 + Windows App SDK 2.4.0 Stable.
-3. Distribution: verified unpackaged x64 staging есть; финальная MSIX/portable стратегия всё ещё отдельное решение.
-4. Crypto: один storage-wide MasterKey; пароль не хранится; Argon2id profile v1 зафиксирован.
-5. Database encryption: production boundary — self-built SQLCipher Community, не bundled/deprecated `e_sqlcipher`.
-6. Metadata verifier сам по себе не unlock gate; нужен успешный protected DB open/identity validation.
-7. Provenance подтверждает source/toolchain/run metadata и hashes, но **не** byte-for-byte reproducibility.
-8. `WM_CLIPBOARDUPDATE` handler должен оставаться минимальным: signal/enqueue only; чтение форматов, source resolution, policy, normalization и persistence выполняются вне WndProc.
-9. Clipboard monitoring запрещён в LOCKED state; запуск происходит только после protected data access.
-10. Queue intentionally coalesces pending system notifications; это не history storage queue и не обещает по событию на каждое низкоуровневое WM сообщение.
-11. `EventTimeContext` — утверждённая модель времени события: UTC timestamp + local offset + Windows time-zone ID + сохранённая calendar date semantics; capture boundary должен не терять её.
-12. Полная history/catalog/archive schema ещё не согласована/реализована; нельзя выдумывать её в следующем atomic capture tranche.
+### Planning, routing and invocation context
 
-## G. Important invariants
+- `4d481223b8ed93acbeb7eb55e9c2cfc5f243024f` — route selected formats to reader capabilities; Build #61 run `33942004626` — SUCCESS.
+- `362ff6ef3993f9392d437ce8339ce4effda91cfb` — create read plan without payload access; Build #62 run `33942111178` — SUCCESS.
+- `beb089bcbd24fc04a2f6f4fe79d1de1b034e1fe7` — compose read planning in Windows host; Build #63 run `33942221332` — SUCCESS.
+- `e20fc6006fa5e29deb5f4b1bc5c5a29e75f255cf` — single-shot capture → read-plan pipeline, still no payload execution; Build #64 run `33943770538` — SUCCESS.
+- `b25b4dac9a79f0530a299ba37e06554478f608e2` — resolve InvocationApplication from foreground window on global-hotkey boundary; Build #65 run `33943886744` — SUCCESS.
 
-- Password никогда не persistится.
-- MasterKey не хранится в открытом виде.
-- Все protected DB одного storage используют один MasterKey.
-- Любой crypto/provider/identity failure оставляет приложение LOCKED.
-- `DatabaseIdentity` обязателен на protected open.
-- Current/Catalog initial pair публикуется только после создания и повторной проверки обеих DB.
-- Partial pair не auto-repair поверх неизвестного состояния.
-- Архивные DB обычным journal path открываются read-only.
-- Calendar day нельзя делить между archive owners.
-- ARM64 не должен появляться в RuntimeIdentifiers, Platforms, native jobs/scripts или delivery artifacts.
-- Нельзя считать managed Build/Test native encryption evidence.
-- Нельзя объявлять CI/native/runtime gate PASS без run/step/artifact evidence.
-- Нельзя выполнять тяжёлую clipboard работу внутри `WM_CLIPBOARDUPDATE` WndProc.
-- Нельзя запускать clipboard capture monitoring до `UNLOCKED`.
-- Не выполнять пустой polling Actions; правило полностью зафиксировано в `AGENTS.md`.
-- Не force-update `main`; перед write fresh TOCTOU.
+InvocationApplication implementation details:
 
-## H. Known risks and unresolved questions
+- отдельный `InvocationApplication`, не `ClipboardSourceApplication`;
+- foreground HWND определяется через `GetForegroundWindow` при WM_HOTKEY handling, до активации журнала;
+- PID определяется через `GetWindowThreadProcessId`;
+- executable path — через `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `QueryFullProcessImageName`;
+- если path недоступен, PID сохраняется с `ExecutablePath = null`;
+- hotkey event теперь несёт `JournalHotKeyPressedEventArgs` с InvocationApplication;
+- App удерживает текущий journal invocation context.
 
-ACTIVE / NOT READY:
+## F. Current architecture facts
 
-- `feat/capture-time-context` подготовлена, но **UNVERIFIED by CI**.
-- После docs-only handoff commit feature branch будет основана на предыдущем `main`; требуется аккуратный rebase/cherry-pick одного feature commit поверх fresh `main`.
-- Capture worker, который dequeues requests и выполняет Source App Resolution → Policy Evaluation → Format Readers → Normalization → Deduplication → Persistence, ещё не реализован.
-- SourceApplication / InvocationApplication runtime resolution ещё не реализованы.
-- Clipboard format defaults/limits остаются open product questions.
-- History tables, catalog index schema, archive schema — NOT READY.
-- FTS/search — NOT READY.
-- Current→Archive transfer/split/catalog rebuild — NOT READY.
-- Password/MasterKey change, crypto metadata recovery, partial Current/Catalog recovery — NOT READY.
-- Auto-lock end-to-end UI/handle teardown не закрыт как отдельный tranche, хотя lifecycle primitives и monitor stop boundary уже существуют.
-- Final installed-app/native loading launch evidence — NOT READY.
-- MSIX vs portable distribution — NOT READY.
-- Byte-for-byte native reproducibility — NOT READY.
-- Hot backup/snapshot protocol — intentionally deferred.
-- No-op branch `__noop_should_not_create__` — harmless repo hygiene item; delete when a suitable GitHub ref-delete capability is available.
+- Capture queue хранит signal requests, а не историю.
+- `ClipboardCapturePipeline` выполняет queue → source resolution → policy resolution → format discovery → format selection.
+- `ClipboardCaptureReadPlanningPipeline` добавляет routing/read-plan, но **не читает payload**.
+- Один `DataPackageView` удерживается от format discovery до будущих reader calls; повторный `Clipboard.GetContent()` для payload не нужен.
+- Format selection допускает только effective per-format `Allow`.
+- Unknown/unroutable selected format явно остаётся unsupported в read-plan.
+- Text/HTML/RTF, Bitmap→PNG, WebLink/ApplicationLink и StorageItems имеют capability readers.
+- Reader routing fail-closed при неоднозначной поддержке одного format несколькими reader'ами.
+- Actual background capture worker ещё не запущен автоматически.
+- Policy persistence implementation ещё не выбрана: repository/provider contracts есть, persistent Application identity/schema ещё нет.
 
-## I. Remaining work
+## G. Current blocker before actual payload execution
 
-Приоритет:
+`ClipboardSelectedFormat` уже несёт nullable `MaxBytes`, но архитектура пока не определяет, **какие байты измеряются этим лимитом**.
 
-1. **Fresh state:** получить текущий `main` после этого handoff docs commit, текущий tip `feat/capture-time-context`, open runs и сравнение branch ↔ main.
-2. Если handoff docs-only Build run ещё выполняется — соблюдать `AGENTS.md`: не polling; выполнять только независимую полезную работу либо остановиться и ждать команды.
-3. Перенести один commit `feat: preserve clipboard event time context` на свежий `main`, сохранив только три ожидаемых файла; не merge старую базу поверх docs checkpoint.
-4. Получить Build PASS на результате; при failure — exact first failed step/log и один минимальный fix.
-5. После time-context PASS перейти к следующему capture pipeline boundary. Предпочтительный следующий предмет исследования/implementation: **Source Application Resolution** вне WndProc и перед policy evaluation, без persistence/schema guessing.
-6. Затем реализовать format readers/normalization по уже утверждённым format principles и отдельно согласовать concrete defaults/limits, где они остаются open questions.
-7. До persistence согласовать минимальную history schema boundary; не изобретать full archive/catalog schema попутно.
-8. Позже отдельно закрыть installed-app native-load/launch evidence и distribution decision.
-9. Опциональная hygiene: удалить merged/redundant branches и `__noop_should_not_create__`, не переписывая Git history.
+Нужно отдельно решить семантику для каждого класса payload, например:
 
-## J. Exact resume point
+- raw clipboard representation bytes;
+- decoded text bytes;
+- UTF-8 bytes исходного text/HTML/RTF representation;
+- normalized PNG bytes для изображений;
+- сериализованная textual metadata для StorageItems;
+- exact stored bytes для explicitly enabled custom binary.
 
-**Следующий чат должен начать с fresh проверки `main`, `feat/capture-time-context` и GitHub Actions после handoff commit.**
+Пока это не определено:
 
-Далее:
+- не добавлять production read/enforcement stage, который молча игнорирует `MaxBytes`;
+- не считать лимит по произвольно выбранному representation;
+- не подключать automatic capture worker, который будет реально читать payload без корректного enforcement contract.
 
-- подтвердить, что Build #45 (`33938504886`) на `d76e7ec...` остаётся `SUCCESS`;
-- проверить новый docs-only handoff commit/run, если он появился;
-- fresh сравнить `feat/capture-time-context` с новым `main`;
-- перенести ровно feature commit `a93fe4d7ea93852d0064ee07075cc4c64a52338a` (`feat: preserve clipboard event time context`) поверх свежего `main` без изменения его логики;
-- затем получить managed Build evidence;
-- **не** возвращаться к Native SQLCipher/runtime staging без нового фактического failure: Native #10 уже PASS;
-- **не** проектировать history DB schema в этом же tranche.
+Отдельно: `docs/OPEN_QUESTIONS.md` уже оставляет конкретные default limits нерешёнными. Здесь дополнительно зафиксирован вопрос **семантики измерения**, а не только числовых default values.
 
-## K. First-turn bootstrap instructions
+## H. HTML / RTF search normalization
 
-1. Прочитать полностью `AGENTS.md`, этот handoff и `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`; для crypto/native вопросов также `docs/CRYPTOGRAPHY.md` и `docs/NATIVE_SQLCIPHER_BUILD.md`; для capture — `docs/ARCHITECTURE.md` и `docs/REQUIREMENTS.md`.
-2. Не доверять mutable SHA/CI status из handoff вместо GitHub — сначала fresh fetch.
-3. Проверить текущий `main`, `feat/capture-time-context`, open Actions runs, open PR/issues и branch compare.
-4. При расхождении source-of-truth имеет приоритет; исправить модель из handoff, а не подгонять repo под старый текст.
-5. Не повторять ARM64/x64 research, SQLCipher source-selection research и runtime-delivery work без нового failure evidence.
-6. Соблюдать запрет пустого ожидания GitHub Actions из `AGENTS.md`.
-7. Продолжить строго с раздела J.
+Архитектура требует:
+
+- original HTML/RTF representation для повторного использования;
+- normalized plain-text `SearchText` для поиска.
+
+Точный extractor/parser algorithm пока не выбран. Не вводить случайный HTML/RTF parser только ради продвижения pipeline. После фиксации контракта payload/limits можно добавить normalization boundary и затем конкретную реализацию.
+
+## I. Remaining major work
+
+- определить `MaxBytes` measurement semantics;
+- actual reader execution + enforcement;
+- HTML/RTF SearchText extraction/normalization;
+- policy persistence + persistent Application identity;
+- real lock-aware capture worker / consumer loop;
+- cancellation/teardown worker при lock;
+- minimal history persistence boundary, затем history schema;
+- FTS/search/query planning;
+- Current→Archive transfer/split/catalog rebuild;
+- password/MasterKey change;
+- crypto metadata recovery;
+- partial Current/Catalog recovery;
+- auto-lock end-to-end teardown;
+- installed-app native-load/launch evidence;
+- MSIX vs portable distribution decision;
+- byte-for-byte reproducibility/provenance hardening;
+- hot backup/snapshot;
+- branch hygiene.
+
+## J. Exact resume instructions
+
+На следующем `продолжай`:
+
+1. Fresh fetch `main` и последний Build run, потому что этот handoff публикуется отдельным docs commit.
+2. Если docs Build завершён — проверить x64 guard / Restore / Build / Test до объявления PASS.
+3. Не возвращаться к native SQLCipher/runtime staging без фактического failure.
+4. Не запускать actual payload execution до решения семантики `MaxBytes`.
+5. Безопасные независимые направления: формализовать `MaxBytes` contract в docs/architecture, policy persistence identity design, HTML/RTF normalization contract — но только после проверки, что решение не придумывает незафиксированные product defaults.
+6. Любой durable write в `main`: fresh TOCTOU → fast-forward only, `force:false`.
