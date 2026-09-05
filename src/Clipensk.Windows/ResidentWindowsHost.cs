@@ -104,6 +104,21 @@ public sealed class ResidentWindowsHost : IDisposable
             ContentReadExecutionStage);
     }
 
+    public ClipboardAcceptedCaptureDeliveryPipeline CreateAcceptedCaptureDeliveryPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IClipboardAcceptedCaptureSink sink)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(sink);
+
+        return new ClipboardAcceptedCaptureDeliveryPipeline(
+            CreateCaptureReadExecutionPipeline(policyProvider),
+            new ClipboardAcceptedCaptureSinkStage(
+                new ClipboardAcceptedCaptureStage(),
+                sink));
+    }
+
     public void StartClipboardMonitoring()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
