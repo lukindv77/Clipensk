@@ -133,36 +133,26 @@
 - plain-text paste;
 - обработку приложений с ограничениями foreground activation.
 
-## 11. Persistent application identity для policy/history
+## 11. Application identity alias/merge hardening
 
-Нужно определить стабильную идентичность приложения, пригодную как durable key для per-application capture policy и будущей history attribution.
+Durable application identity contract зафиксирован в `APPLICATION_IDENTITY.md`:
 
-Нельзя без отдельного решения считать durable identity:
+- единственный durable key policy/history — Clipensk-owned `ApplicationId` (непустой GUID);
+- AUMID и exact executable path используются как resolution aliases/evidence, а не как primary key;
+- packaged AUMID является сильным alias и имеет приоритет, когда доступен;
+- unpackaged Win32 без AUMID может автоматически разрешаться по уже известному exact executable path alias;
+- впервые увиденный unpackaged path может получить новый `ApplicationId`;
+- перемещение/переименование executable на ранее неизвестный path не считается автоматически тем же приложением;
+- PID, HWND, display name, publisher, version resource и file hash не могут молча объединять identities;
+- `SourceApplication` и `InvocationApplication` остаются отдельными runtime concepts.
 
-- PID или process lifetime;
-- HWND/foreground-window handle;
-- путь к executable сам по себе, поскольку он может измениться при перемещении/обновлении;
-- display name или другой пользовательский label.
+Следовательно, concrete policy/history schema больше не заблокирована отсутствием универсального Windows-native durable key: durable references должны использовать `ApplicationId`.
 
-Технически подтверждено по Windows application identity contracts:
+Остаётся определить/реализовать:
 
-- для packaged applications `ApplicationUserModelID` (AUMID) представляет application identity, строится из Package Family Name + Package Relative Application ID и документирован как persistable value, независимый от package version и architecture; это подходящий durable candidate для packaged branch;
-- Package Family Name сам по себе недостаточен как application key: один package может объявлять несколько applications;
-- unpackaged Win32 application не имеет package identity;
-- explicit AppUserModelID для classic Win32 опционален; если приложение его не задаёт, Windows может использовать internal heuristic AppUserModelID, который приложение не может получить как стабильное значение;
-- `GetCurrentProcessExplicitAppUserModelID` читает explicit process AppUserModelID только для текущего процесса, поэтому Clipensk не может считать этот API универсальным способом идентификации произвольного source process;
-- window-level `System.AppUserModel.ID` можно наблюдать для конкретного HWND, но он может идентифицировать отдельный user-visible mode/subexperience и переопределять process-level ID, поэтому сам по себе не является универсальным durable application key.
-
-Официальные ссылки:
-
-- https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/package-identity-overview
-- https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.core.applistentry.appusermodelid
-- https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/packaging/
-- https://learn.microsoft.com/en-us/windows/win32/shell/appids
-- https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-getcurrentprocessexplicitappusermodelid
-
-Следовательно, packaged branch можно строить вокруг AUMID, но общий fallback для unpackaged Win32 остаётся открытым. Нужно определить, какие наблюдаемые attributes допустимы для такого fallback, как обрабатываются обновление/перемещение executable и когда две process instances считаются одним приложением. До этого executable path/PID нельзя неявно повышать до durable identity.
-
-`SourceApplication` и `InvocationApplication` остаются разными runtime concepts и не должны неявно объединяться одним guessed key.
-
-До фиксации unpackaged fallback concrete per-application policy repository/storage schema и универсальный durable application key не вводятся.
+- persistent registry storage для `ApplicationId` и aliases;
+- uniqueness/conflict semantics, если observation одновременно указывает на aliases, уже связанные с разными `ApplicationId`;
+- explicit user merge/rebind workflow для moved/renamed unpackaged applications;
+- правила удаления/retention неиспользуемых aliases;
+- UI отображения и ручного управления discovered applications;
+- нужны ли в будущем дополнительные **только advisory** attributes для предложения merge пользователю, без silent equivalence.
