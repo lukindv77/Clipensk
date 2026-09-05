@@ -83,12 +83,18 @@ public sealed class ClipboardCapturedStorageItemsContent : ClipboardCapturedCont
 {
     public ClipboardCapturedStorageItemsContent(
         ClipboardContentReaderRoute route,
-        IEnumerable<ClipboardStorageItemMetadata> items)
-        : base(route, canonicalByteCount: null)
+        IEnumerable<ClipboardStorageItemMetadata> items,
+        ClipboardStorageItemsCanonicalRepresentation canonicalRepresentation)
+        : base(
+            route,
+            (canonicalRepresentation ?? throw new ArgumentNullException(nameof(canonicalRepresentation))).ByteCount)
     {
         ArgumentNullException.ThrowIfNull(items);
         Items = Array.AsReadOnly(items.ToArray());
+        CanonicalRepresentation = canonicalRepresentation.Text;
     }
 
     public IReadOnlyList<ClipboardStorageItemMetadata> Items { get; }
+
+    public string CanonicalRepresentation { get; }
 }
