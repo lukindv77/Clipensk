@@ -98,7 +98,6 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
             throw;
         }
 
-        token.ThrowIfCancellationRequested();
         return ValueTask.FromResult(applicationId);
     }
 
@@ -172,7 +171,6 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
             throw;
         }
 
-        token.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
     }
 
