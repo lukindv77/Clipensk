@@ -17,6 +17,9 @@ public sealed class ResidentWindowsHost : IDisposable
     {
         _messageWindow = new ResidentMessageWindow();
         CaptureQueue = new ClipboardCaptureQueue();
+        CaptureSourceStage = new ClipboardCaptureSourceStage(
+            CaptureQueue,
+            new WindowsClipboardSourceApplicationResolver());
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -24,6 +27,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public IGlobalHotKeyService HotKeyService => _hotKeyService;
 
     public ClipboardCaptureQueue CaptureQueue { get; }
+
+    public ClipboardCaptureSourceStage CaptureSourceStage { get; }
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
 
