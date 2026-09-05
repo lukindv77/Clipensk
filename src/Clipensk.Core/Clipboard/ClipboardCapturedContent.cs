@@ -22,13 +22,17 @@ public sealed class ClipboardCapturedTextContent : ClipboardCapturedContent
     public ClipboardCapturedTextContent(
         ClipboardContentReaderRoute route,
         string value,
-        long canonicalByteCount)
+        long canonicalByteCount,
+        string? searchText = null)
         : base(route, canonicalByteCount)
     {
         Value = value ?? throw new ArgumentNullException(nameof(value));
+        SearchText = searchText;
     }
 
     public string Value { get; }
+
+    public string? SearchText { get; }
 }
 
 public sealed class ClipboardCapturedLinkContent : ClipboardCapturedContent
