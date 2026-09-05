@@ -7,6 +7,7 @@ public sealed class ProtectedStorageSessionLease : IDisposable
 {
     private readonly object _gate = new();
     private readonly ProtectedDataAccessLease _accessLease;
+    private readonly CancellationToken _cancellationToken;
     private readonly CancellationTokenRegistration _accessRevokedRegistration;
     private MasterKeyLease? _masterKeyLease;
     private bool _disposed;
@@ -21,7 +22,8 @@ public sealed class ProtectedStorageSessionLease : IDisposable
         StorageId = storageId;
         _masterKeyLease = masterKeyLease;
         _accessLease = accessLease;
-        _accessRevokedRegistration = _accessLease.CancellationToken.Register(
+        _cancellationToken = _accessLease.CancellationToken;
+        _accessRevokedRegistration = _cancellationToken.Register(
             static state => ((ProtectedStorageSessionLease)state!).RevokeMasterKey(),
             this);
     }
@@ -41,7 +43,7 @@ public sealed class ProtectedStorageSessionLease : IDisposable
         }
     }
 
-    public CancellationToken CancellationToken => _accessLease.CancellationToken;
+    public CancellationToken CancellationToken => _cancellationToken;
 
     public static ProtectedStorageSessionLease Create(
         ProtectedApplicationLifecycle lifecycle,
