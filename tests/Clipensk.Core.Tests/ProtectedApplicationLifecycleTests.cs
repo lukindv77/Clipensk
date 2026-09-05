@@ -57,4 +57,24 @@ public sealed class ProtectedApplicationLifecycleTests
         Assert.Equal(ApplicationLockState.Locked, lifecycle.LockState);
         Assert.False(lifecycle.CanAccessProtectedData);
     }
+
+    [Fact]
+    public void ProtectedDataAccessChanged_FiresOnlyAtAccessBoundary()
+    {
+        var lifecycle = new ProtectedApplicationLifecycle(isDataRootConfigured: true);
+        var changes = new List<bool>();
+        lifecycle.ProtectedDataAccessChanged += changes.Add;
+
+        Assert.True(lifecycle.TryBeginUnlock());
+        Assert.Empty(changes);
+
+        lifecycle.CompleteUnlock();
+        Assert.Equal(new[] { true }, changes);
+
+        Assert.True(lifecycle.TryBeginLock());
+        Assert.Equal(new[] { true, false }, changes);
+
+        lifecycle.CompleteLock();
+        Assert.Equal(new[] { true, false }, changes);
+    }
 }

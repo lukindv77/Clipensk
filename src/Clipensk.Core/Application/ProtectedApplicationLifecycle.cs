@@ -12,6 +12,8 @@ public sealed class ProtectedApplicationLifecycle
         _lockStateMachine = lockStateMachine ?? new ApplicationLockStateMachine();
     }
 
+    public event Action<bool>? ProtectedDataAccessChanged;
+
     public bool IsDataRootConfigured { get; private set; }
 
     public ApplicationLockState LockState => _lockStateMachine.Current;
@@ -38,7 +40,9 @@ public sealed class ProtectedApplicationLifecycle
             throw new InvalidOperationException("Нельзя разблокировать Clipensk до выбора каталога данных.");
         }
 
+        bool hadProtectedAccess = CanAccessProtectedData;
         _lockStateMachine.CompleteUnlock();
+        NotifyProtectedDataAccessChanged(hadProtectedAccess);
     }
 
     public void CancelUnlock()
@@ -48,11 +52,25 @@ public sealed class ProtectedApplicationLifecycle
 
     public bool TryBeginLock()
     {
-        return _lockStateMachine.TryBeginLock();
+        bool hadProtectedAccess = CanAccessProtectedData;
+        bool started = _lockStateMachine.TryBeginLock();
+        NotifyProtectedDataAccessChanged(hadProtectedAccess);
+        return started;
     }
 
     public void CompleteLock()
     {
+        bool hadProtectedAccess = CanAccessProtectedData;
         _lockStateMachine.CompleteLock();
+        NotifyProtectedDataAccessChanged(hadProtectedAccess);
+    }
+
+    private void NotifyProtectedDataAccessChanged(bool previousValue)
+    {
+        bool currentValue = CanAccessProtectedData;
+        if (currentValue != previousValue)
+        {
+            ProtectedDataAccessChanged?.Invoke(currentValue);
+        }
     }
 }

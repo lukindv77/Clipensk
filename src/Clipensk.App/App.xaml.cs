@@ -55,6 +55,7 @@ public partial class App : Application
 
         _residentWindowsHost = new ResidentWindowsHost();
         _hotKeyService = _residentWindowsHost.HotKeyService;
+        _lifecycle.ProtectedDataAccessChanged += OnProtectedDataAccessChanged;
         _window = new JournalWindow(
             localization,
             settingsStore,
@@ -88,12 +89,43 @@ public partial class App : Application
         _window?.DispatcherQueue.TryEnqueue(() => _window.ShowJournal());
     }
 
+    private void OnProtectedDataAccessChanged(bool canAccessProtectedData)
+    {
+        ResidentWindowsHost? host = _residentWindowsHost;
+        if (host is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (canAccessProtectedData)
+            {
+                host.StartClipboardMonitoring();
+            }
+            else if (host.IsClipboardMonitoring)
+            {
+                host.StopClipboardMonitoring();
+            }
+        }
+        catch
+        {
+            // Ошибка Windows clipboard listener не должна повреждать состояние блокировки.
+            // При ошибке мониторинг остаётся выключенным до следующего перехода доступа.
+        }
+    }
+
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         if (_hotKeyService is not null)
         {
             _hotKeyService.Pressed -= OnJournalHotKeyPressed;
             _hotKeyService = null;
+        }
+
+        if (_lifecycle is not null)
+        {
+            _lifecycle.ProtectedDataAccessChanged -= OnProtectedDataAccessChanged;
         }
 
         _residentWindowsHost?.Dispose();
