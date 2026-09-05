@@ -125,3 +125,16 @@
 - focus restoration;
 - plain-text paste;
 - обработку приложений с ограничениями foreground activation.
+
+## 11. Стабильная Application identity для persistence
+
+Runtime source boundary сейчас может наблюдать PID процесса и executable path, но это ещё не определяет стабильный persistent key приложения.
+
+Нужно зафиксировать единые semantics для packaged и unpackaged Windows-приложений, включая поведение при обновлении/перемещении executable и случаи, когда один executable представляет несколько логических приложений или профилей.
+
+До принятия этого решения:
+
+- PID нельзя использовать как durable Application identity;
+- executable path нельзя считать durable primary key по умолчанию;
+- concrete per-application policy repository/schema не вводится;
+- persistent relation history → Application не должна строиться на временном runtime identifier.
