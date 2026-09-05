@@ -34,6 +34,7 @@ public sealed class ClipboardContentReaderRouter
         Match(ClipboardContentReaderKind.StorageItems, _storageItemsReader.SupportsFormat(selectedFormat.FormatName));
 
         if (readerKind is null &&
+            ClipboardCustomBinaryFormatGuard.IsAllowedCandidate(selectedFormat.FormatName) &&
             _customBinaryReader is not null &&
             _customBinaryReader.SupportsFormat(selectedFormat.FormatName))
         {
