@@ -48,6 +48,24 @@ public sealed class ClipboardCustomBinaryContentTests
         Assert.Null(route);
     }
 
+    [Theory]
+    [InlineData("RiffAudio")]
+    [InlineData("WaveAudio")]
+    [InlineData("FileContents")]
+    public void Router_RejectsProhibitedFormatBeforeStandardReaderMatching(string formatName)
+    {
+        var router = new ClipboardContentReaderRouter(
+            new StubTextReader(formatName),
+            new StubPngImageReader(),
+            new StubLinkReader(),
+            new StubStorageItemsReader());
+
+        ClipboardContentReaderRoute? route = router.TryRoute(
+            new ClipboardSelectedFormat(formatName, null));
+
+        Assert.Null(route);
+    }
+
     [Fact]
     public async Task ExecuteAsync_CapturesExactCustomBinaryBytesWithinLimit()
     {
