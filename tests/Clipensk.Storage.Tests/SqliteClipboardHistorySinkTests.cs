@@ -41,12 +41,12 @@ public sealed class SqliteClipboardHistorySinkTests
             storageRoute,
             [
                 new ClipboardStorageItemMetadata(
-                    0,
-                    @"C:\Temp\a.txt",
-                    "a.txt",
-                    ".txt",
+                    FullPath: @"C:\Temp\a.txt",
+                    Name: "a.txt",
+                    Extension: ".txt",
                     IsDirectory: false,
-                    ClipboardPreferredFileOperation.Copy),
+                    Order: 0,
+                    PreferredOperation: ClipboardPreferredFileOperation.Copy),
             ]);
 
         var capture = new ClipboardAcceptedCapture(
