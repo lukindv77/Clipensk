@@ -1,20 +1,23 @@
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Xunit;
+using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.Core.Tests;
 
 public sealed class RepositoryClipboardCapturePolicyProviderTests
 {
     [Fact]
-    public async Task GetPoliciesAsync_LoadsGlobalAndResolvedApplicationPolicy()
+    public async Task GetPoliciesAsync_LoadsGlobalAndResolvedApplicationPolicyByDurableId()
     {
         var global = new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow);
         var application = new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny);
         var repository = new StubPolicyRepository(global, application);
         var provider = new RepositoryClipboardCapturePolicyProvider(repository);
+        DurableApplicationId applicationId = DurableApplicationId.New();
         ClipboardCaptureContext captureContext = CreateCaptureContext(
-            new ClipboardSourceApplication(4242, @"C:\Apps\Source.exe"));
+            new ClipboardSourceApplication(4242, @"C:\Apps\Source.exe"),
+            applicationId);
         using var cancellationSource = new CancellationTokenSource();
 
         ClipboardCapturePolicySet result = await provider.GetPoliciesAsync(
@@ -25,9 +28,29 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
         Assert.Same(application, result.ApplicationPolicy);
         Assert.Equal(1, repository.GlobalCallCount);
         Assert.Equal(1, repository.ApplicationCallCount);
-        Assert.Equal(captureContext.SourceApplication, repository.LastSourceApplication);
+        Assert.Equal(applicationId, repository.LastApplicationId);
         Assert.Equal(cancellationSource.Token, repository.LastGlobalCancellationToken);
         Assert.Equal(cancellationSource.Token, repository.LastApplicationCancellationToken);
+    }
+
+    [Fact]
+    public async Task GetPoliciesAsync_KnownRuntimeSourceWithoutDurableIdLoadsOnlyGlobalPolicy()
+    {
+        var global = new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny);
+        var repository = new StubPolicyRepository(
+            global,
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        var provider = new RepositoryClipboardCapturePolicyProvider(repository);
+        ClipboardCaptureContext captureContext = CreateCaptureContext(
+            new ClipboardSourceApplication(4242, @"C:\Apps\Source.exe"),
+            applicationId: null);
+
+        ClipboardCapturePolicySet result = await provider.GetPoliciesAsync(captureContext);
+
+        Assert.Same(global, result.GlobalPolicy);
+        Assert.Null(result.ApplicationPolicy);
+        Assert.Equal(1, repository.GlobalCallCount);
+        Assert.Equal(0, repository.ApplicationCallCount);
     }
 
     [Fact]
@@ -38,7 +61,9 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
             global,
             new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
         var provider = new RepositoryClipboardCapturePolicyProvider(repository);
-        ClipboardCaptureContext captureContext = CreateCaptureContext(sourceApplication: null);
+        ClipboardCaptureContext captureContext = CreateCaptureContext(
+            sourceApplication: null,
+            applicationId: null);
 
         ClipboardCapturePolicySet result = await provider.GetPoliciesAsync(captureContext);
 
@@ -49,14 +74,15 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
     }
 
     private static ClipboardCaptureContext CreateCaptureContext(
-        ClipboardSourceApplication? sourceApplication)
+        ClipboardSourceApplication? sourceApplication,
+        DurableApplicationId? applicationId)
     {
         var request = new ClipboardCaptureRequest(
             new EventTimeContext(
                 new DateTimeOffset(2026, 9, 5, 10, 15, 30, TimeSpan.FromHours(3)),
                 "Test/Zone"));
 
-        return new ClipboardCaptureContext(request, sourceApplication);
+        return new ClipboardCaptureContext(request, sourceApplication, applicationId);
     }
 
     private sealed class StubPolicyRepository : IClipboardCapturePolicyRepository
@@ -76,7 +102,7 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
 
         public int ApplicationCallCount { get; private set; }
 
-        public ClipboardSourceApplication? LastSourceApplication { get; private set; }
+        public DurableApplicationId? LastApplicationId { get; private set; }
 
         public CancellationToken LastGlobalCancellationToken { get; private set; }
 
@@ -91,11 +117,11 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
         }
 
         public ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
-            ClipboardSourceApplication sourceApplication,
+            DurableApplicationId applicationId,
             CancellationToken cancellationToken = default)
         {
             ApplicationCallCount++;
-            LastSourceApplication = sourceApplication;
+            LastApplicationId = applicationId;
             LastApplicationCancellationToken = cancellationToken;
             return ValueTask.FromResult(_applicationPolicy);
         }
