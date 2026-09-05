@@ -13,13 +13,12 @@ public sealed class ClipboardCapturePipeline
         ClipboardCapturePolicyResolutionStage policyStage,
         ClipboardFormatDiscoveryStage formatDiscoveryStage,
         ClipboardFormatSelectionStage formatSelectionStage)
-        : this(
-            sourceStage,
-            applicationIdentityStage: null,
-            policyStage,
-            formatDiscoveryStage,
-            formatSelectionStage)
     {
+        _sourceStage = sourceStage ?? throw new ArgumentNullException(nameof(sourceStage));
+        _applicationIdentityStage = null;
+        _policyStage = policyStage ?? throw new ArgumentNullException(nameof(policyStage));
+        _formatDiscoveryStage = formatDiscoveryStage ?? throw new ArgumentNullException(nameof(formatDiscoveryStage));
+        _formatSelectionStage = formatSelectionStage ?? throw new ArgumentNullException(nameof(formatSelectionStage));
     }
 
     public ClipboardCapturePipeline(
@@ -28,24 +27,10 @@ public sealed class ClipboardCapturePipeline
         ClipboardCapturePolicyResolutionStage policyStage,
         ClipboardFormatDiscoveryStage formatDiscoveryStage,
         ClipboardFormatSelectionStage formatSelectionStage)
-        : this(
-            sourceStage,
-            applicationIdentityStage ?? throw new ArgumentNullException(nameof(applicationIdentityStage)),
-            policyStage,
-            formatDiscoveryStage,
-            formatSelectionStage)
-    {
-    }
-
-    private ClipboardCapturePipeline(
-        ClipboardCaptureSourceStage sourceStage,
-        ClipboardCaptureApplicationIdentityStage? applicationIdentityStage,
-        ClipboardCapturePolicyResolutionStage policyStage,
-        ClipboardFormatDiscoveryStage formatDiscoveryStage,
-        ClipboardFormatSelectionStage formatSelectionStage)
     {
         _sourceStage = sourceStage ?? throw new ArgumentNullException(nameof(sourceStage));
-        _applicationIdentityStage = applicationIdentityStage;
+        _applicationIdentityStage = applicationIdentityStage
+            ?? throw new ArgumentNullException(nameof(applicationIdentityStage));
         _policyStage = policyStage ?? throw new ArgumentNullException(nameof(policyStage));
         _formatDiscoveryStage = formatDiscoveryStage ?? throw new ArgumentNullException(nameof(formatDiscoveryStage));
         _formatSelectionStage = formatSelectionStage ?? throw new ArgumentNullException(nameof(formatSelectionStage));
