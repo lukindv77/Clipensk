@@ -25,6 +25,10 @@ public sealed class ClipboardContentReaderRouter
     public ClipboardContentReaderRoute? TryRoute(ClipboardSelectedFormat selectedFormat)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectedFormat.FormatName);
+        if (!ClipboardCaptureFormatGuard.IsCaptureAllowed(selectedFormat.FormatName))
+        {
+            return null;
+        }
 
         ClipboardContentReaderKind? readerKind = null;
 
@@ -34,7 +38,6 @@ public sealed class ClipboardContentReaderRouter
         Match(ClipboardContentReaderKind.StorageItems, _storageItemsReader.SupportsFormat(selectedFormat.FormatName));
 
         if (readerKind is null &&
-            ClipboardCustomBinaryFormatGuard.IsAllowedCandidate(selectedFormat.FormatName) &&
             _customBinaryReader is not null &&
             _customBinaryReader.SupportsFormat(selectedFormat.FormatName))
         {
