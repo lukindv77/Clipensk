@@ -1,6 +1,6 @@
 namespace Clipensk.Core.Clipboard;
 
-public sealed class ClipboardAcceptedCaptureDeliveryPipeline
+public sealed class ClipboardAcceptedCaptureDeliveryPipeline : IClipboardAcceptedCaptureDelivery
 {
     private readonly ClipboardCaptureReadExecutionPipeline _executionPipeline;
     private readonly ClipboardAcceptedCaptureSinkStage _sinkStage;
