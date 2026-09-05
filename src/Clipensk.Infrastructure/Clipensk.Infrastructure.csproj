@@ -5,6 +5,7 @@
     <AssemblyName>Clipensk.Infrastructure</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="HtmlAgilityPack" />
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
   </ItemGroup>
   <ItemGroup>
