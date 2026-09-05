@@ -6,17 +6,20 @@ public sealed class ClipboardContentReadExecutionStage
     private readonly IClipboardPngImageContentReader _pngImageReader;
     private readonly IClipboardLinkContentReader _linkReader;
     private readonly IClipboardStorageItemsContentReader _storageItemsReader;
+    private readonly IClipboardCustomBinaryContentReader? _customBinaryReader;
 
     public ClipboardContentReadExecutionStage(
         IClipboardTextContentReader textReader,
         IClipboardPngImageContentReader pngImageReader,
         IClipboardLinkContentReader linkReader,
-        IClipboardStorageItemsContentReader storageItemsReader)
+        IClipboardStorageItemsContentReader storageItemsReader,
+        IClipboardCustomBinaryContentReader? customBinaryReader = null)
     {
         _textReader = textReader ?? throw new ArgumentNullException(nameof(textReader));
         _pngImageReader = pngImageReader ?? throw new ArgumentNullException(nameof(pngImageReader));
         _linkReader = linkReader ?? throw new ArgumentNullException(nameof(linkReader));
         _storageItemsReader = storageItemsReader ?? throw new ArgumentNullException(nameof(storageItemsReader));
+        _customBinaryReader = customBinaryReader;
     }
 
     public async ValueTask<ClipboardContentReadExecution> ExecuteAsync(
@@ -119,6 +122,29 @@ public sealed class ClipboardContentReadExecutionStage
                         .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
                     capturedContent.Add(new ClipboardCapturedStorageItemsContent(route, items));
+                    break;
+                }
+
+                case ClipboardContentReaderKind.CustomBinary:
+                {
+                    IClipboardCustomBinaryContentReader customBinaryReader = _customBinaryReader
+                        ?? throw new InvalidOperationException(
+                            "Clipboard content read plan contains a custom binary route but no custom binary reader is configured.");
+                    EnsureSupported(customBinaryReader.SupportsFormat(formatName), route);
+                    byte[] bytes = await customBinaryReader
+                        .ReadAsync(contentSnapshot!, formatName, cancellationToken)
+                        .ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    long byteCount = ClipboardCanonicalPayloadSize.MeasureBinary(bytes);
+                    if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
+                    {
+                        capturedContent.Add(new ClipboardCapturedCustomBinaryContent(route, bytes));
+                    }
+                    else
+                    {
+                        sizeRejectedFormats.Add(selectedFormat);
+                    }
+
                     break;
                 }
 
