@@ -36,4 +36,31 @@ public sealed class ExternalPayloadAddressTests
 
         Assert.Equal(first.Sha256, second.Sha256);
     }
+
+    [Fact]
+    public void CustomBinary_NormalizesSingleExtension()
+    {
+        byte[] bytes = [1, 2, 3];
+
+        ExternalPayloadAddress address = ExternalPayloadAddressFactory.ForCustomBinary(
+            new DateOnly(2026, 9, 5),
+            bytes,
+            " DAT ");
+
+        Assert.EndsWith(".dat", address.RelativePath, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("../escape.bin")]
+    [InlineData(@".\..\escape.bin")]
+    public void CustomBinary_RejectsInvalidOrPathLikeExtension(string extension)
+    {
+        byte[] bytes = [1, 2, 3];
+
+        Assert.Throws<ArgumentException>(() => ExternalPayloadAddressFactory.ForCustomBinary(
+            new DateOnly(2026, 9, 5),
+            bytes,
+            extension));
+    }
 }

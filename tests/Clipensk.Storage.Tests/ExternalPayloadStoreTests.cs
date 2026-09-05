@@ -80,20 +80,22 @@ public sealed class ExternalPayloadStoreTests
     }
 
     [Fact]
-    public async Task StoreCustomBinaryAsync_RejectsAddressEscapingFilesRoot()
+    public async Task StoreCustomBinaryAsync_RejectsInvalidExtensionBeforeWriting()
     {
         string root = CreateTemporaryRoot();
         try
         {
             var store = new ExternalPayloadStore(root);
 
-            await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await Assert.ThrowsAsync<ArgumentException>(async () =>
             {
                 await store.StoreCustomBinaryAsync(
                     new DateOnly(2026, 9, 5),
                     new byte[] { 1, 2, 3 },
                     @".\..\..\..\escape.bin");
             });
+
+            Assert.False(Directory.Exists(root));
         }
         finally
         {

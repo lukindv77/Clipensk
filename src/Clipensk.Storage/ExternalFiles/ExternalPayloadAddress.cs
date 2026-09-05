@@ -23,10 +23,24 @@ public static class ExternalPayloadAddressFactory
         {
             extension = ".bin";
         }
+        else
+        {
+            extension = extension.Trim();
+        }
 
         if (!extension.StartsWith(".", StringComparison.Ordinal))
         {
             extension = "." + extension;
+        }
+
+        if (extension.Length == 1 ||
+            extension.Contains('/') ||
+            extension.Contains('\\') ||
+            extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException(
+                "Custom binary extension must be a single valid file extension.",
+                nameof(extension));
         }
 
         return Create(firstStoredDate, bytes, extension.ToLowerInvariant());
