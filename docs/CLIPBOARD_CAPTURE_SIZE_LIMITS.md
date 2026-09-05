@@ -58,6 +58,8 @@ Raw clipboard bitmap bytes до декодирования не являются
 
 Registered/private format не становится доступным автоматически. Он попадает в read plan только если exact format name присутствует в effective policy с `Capture=Allow`; standard readers имеют приоритет, а custom binary reader используется только как fallback для явно выбранного неизвестного формата.
 
+Безусловно запрещённые requirements форматы не могут быть переопределены custom policy: WinRT format IDs `RiffAudio` (CF_RIFF), `WaveAudio` (CF_WAVE) и shell virtual-file payload `FileContents` не маршрутизируются в custom binary reader даже при ошибочном `Capture=Allow`.
+
 Windows custom binary boundary использует `DataPackageView.GetDataAsync(formatName)`. Полученный object обязан быть `IRandomAccessStream`; никакая произвольная object serialization или reinterpretation не выполняется. Если custom format не предоставляет random-access binary stream, capture этого route завершается fail-closed.
 
 Canonical bytes — точные bytes stream, которые Clipensk собирается сохранить во внешний файл. Дополнительной нормализации нет:
