@@ -200,7 +200,7 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
             cancellationToken.ThrowIfCancellationRequested();
             EnableForeignKeys(connection);
             ValidateCurrentDatabase(connection);
-            ValidateSchemaObjects(connection);
+            ApplicationIdentitySqlSchema.ValidateTables(connection);
             cancellationToken.ThrowIfCancellationRequested();
             return connection;
         }
@@ -213,48 +213,39 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
 
     private void ValidateCurrentDatabase(SqliteConnection connection)
     {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT StorageId, DatabaseRole, SchemaVersion
-            FROM DatabaseIdentity
-            WHERE SingletonId = 1;
-            """;
-
-        using SqliteDataReader reader = command.ExecuteReader();
-        if (!reader.Read() ||
-            !Guid.TryParse(reader.GetString(0), out Guid storageId) ||
-            storageId != _session.StorageId ||
-            !string.Equals(reader.GetString(1), DatabaseRole.Current.ToString(), StringComparison.Ordinal) ||
-            reader.GetInt32(2) != ApplicationIdentitySqlSchema.RequiredCurrentSchemaVersion)
+        int schemaVersion;
+        using (SqliteCommand command = connection.CreateCommand())
         {
-            throw new InvalidDataException(
-                "Application identity repository requires the expected Current database identity and schema version.");
+            command.CommandText = """
+                SELECT StorageId, DatabaseRole, SchemaVersion
+                FROM DatabaseIdentity
+                WHERE SingletonId = 1;
+                """;
+
+            using SqliteDataReader reader = command.ExecuteReader();
+            if (!reader.Read())
+            {
+                throw new InvalidDataException(
+                    "Application identity repository requires the expected Current database identity.");
+            }
+
+            schemaVersion = reader.GetInt32(2);
+            if (!Guid.TryParse(reader.GetString(0), out Guid storageId) ||
+                storageId != _session.StorageId ||
+                !string.Equals(reader.GetString(1), DatabaseRole.Current.ToString(), StringComparison.Ordinal) ||
+                schemaVersion < ApplicationIdentitySqlSchema.MinimumCurrentSchemaVersion)
+            {
+                throw new InvalidDataException(
+                    "Application identity repository requires the expected Current database identity and schema version.");
+            }
         }
 
         using SqliteCommand userVersion = connection.CreateCommand();
         userVersion.CommandText = "PRAGMA user_version;";
-        if (Convert.ToInt32(userVersion.ExecuteScalar(), CultureInfo.InvariantCulture) !=
-            ApplicationIdentitySqlSchema.RequiredCurrentSchemaVersion)
+        if (Convert.ToInt32(userVersion.ExecuteScalar(), CultureInfo.InvariantCulture) != schemaVersion)
         {
             throw new InvalidDataException(
                 "Current database user_version does not match the application identity schema contract.");
-        }
-    }
-
-    private static void ValidateSchemaObjects(SqliteConnection connection)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM sqlite_master
-            WHERE type = 'table'
-              AND name IN ('ApplicationIdentity', 'ApplicationIdentityAlias');
-            """;
-
-        if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 2)
-        {
-            throw new InvalidDataException(
-                "Current database does not contain the required application identity schema.");
         }
     }
 
