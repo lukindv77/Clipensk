@@ -74,19 +74,24 @@
 
 ## 7. Persistence implication
 
-Concrete policy/history schema может ссылаться на `ApplicationId` и больше не должна ждать универсального Windows-native durable key.
+`ApplicationId` уже является concrete durable FK boundary для защищённых данных Current.
 
-Отдельно остаются задачи реализации registry storage, alias uniqueness/conflict handling, explicit merge/rebind workflow, optional future alias canonicalization и UI для управления найденными приложениями. Эти задачи не разрешают менять durable key на path/AUMID.
+- Current v2+ хранит `ApplicationIdentity` и exact aliases.
+- Current v3+ хранит индивидуальные capture policy overrides через FK на `ApplicationId`.
+- `storage-catalog.db` не является source of truth для identity или policy.
+- runtime `ClipboardSourceApplication` не передаётся в policy repository как ключ: capture pipeline сначала разрешает durable `SourceApplicationId`, и только после этого выполняется per-application policy lookup.
+
+Отдельно остаются explicit merge/rebind workflow, optional future alias canonicalization и UI для управления найденными приложениями. Эти задачи не разрешают менять durable key на path/AUMID.
 
 ## 8. Repository atomicity
 
-`IApplicationIdentityRepository` является persistence boundary, но не задаёт конкретную SQLite schema.
+`IApplicationIdentityRepository` является persistence boundary для identity registry.
 
-Его write operations должны обеспечивать alias uniqueness атомарно:
+Его write operations обеспечивают alias uniqueness атомарно:
 
 - `CreateAndBindAsync` создаёт `ApplicationId` и все разрешённые aliases observation как одну логическую операцию;
 - `BindExecutablePathAliasAsync` не может молча перепривязать path, уже принадлежащий другому `ApplicationId`;
 - concurrent resolve/create для одного alias не должен создавать две durable identities;
-- race/conflict должен завершаться `ApplicationIdentityConflictException` (либо эквивалентным repository conflict, преобразованным в него), а не last-write-wins.
+- race/conflict завершается `ApplicationIdentityConflictException`, а не last-write-wins.
 
-Конкретные SQL transactions, unique indexes и merge/rebind migrations реализуются в Storage tranche после этого contract boundary.
+Concrete SQLite repository хранит эту информацию в `current.db`, использует unique keys/transactions и работает только внутри активного `ProtectedStorageSessionLease`.
