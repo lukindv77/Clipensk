@@ -56,6 +56,7 @@ public sealed class ProtectedDataAccessLease : IDisposable
     {
         _lifecycle.ProtectedDataAccessChanged -= OnProtectedDataAccessChanged;
 
+        CancellationTokenSource? cancellation;
         lock (_gate)
         {
             if (_disposed)
@@ -64,8 +65,20 @@ public sealed class ProtectedDataAccessLease : IDisposable
             }
 
             _disposed = true;
-            _cancellation?.Dispose();
+            cancellation = _cancellation;
             _cancellation = null;
+        }
+
+        if (cancellation is not null)
+        {
+            try
+            {
+                cancellation.Cancel();
+            }
+            finally
+            {
+                cancellation.Dispose();
+            }
         }
     }
 

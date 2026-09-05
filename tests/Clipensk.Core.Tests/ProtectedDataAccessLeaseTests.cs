@@ -35,6 +35,19 @@ public sealed class ProtectedDataAccessLeaseTests
     }
 
     [Fact]
+    public void Dispose_CancelsPreviouslyIssuedToken()
+    {
+        var lifecycle = CreateUnlockedLifecycle();
+        Assert.True(ProtectedDataAccessLease.TryAcquire(lifecycle, out ProtectedDataAccessLease? lease));
+        ProtectedDataAccessLease acquiredLease = Assert.IsType<ProtectedDataAccessLease>(lease);
+        CancellationToken token = acquiredLease.CancellationToken;
+
+        acquiredLease.Dispose();
+
+        Assert.True(token.IsCancellationRequested);
+    }
+
+    [Fact]
     public void NewUnlockEpoch_RequiresAndProvidesFreshLease()
     {
         var lifecycle = CreateUnlockedLifecycle();
