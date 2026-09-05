@@ -49,6 +49,7 @@ public sealed class ClipboardContentReadExecutionStage
                 {
                     EnsureSupported(_textReader.SupportsFormat(formatName), route);
                     string value = await _textReader.ReadAsync(contentSnapshot!, formatName);
+                    cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureUtf8Text(value);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
                     {
@@ -66,6 +67,7 @@ public sealed class ClipboardContentReadExecutionStage
                 {
                     EnsureSupported(_pngImageReader.SupportsFormat(formatName), route);
                     byte[] pngBytes = await _pngImageReader.ReadNormalizedPngAsync(contentSnapshot!, formatName);
+                    cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureBinary(pngBytes);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
                     {
@@ -83,6 +85,7 @@ public sealed class ClipboardContentReadExecutionStage
                 {
                     EnsureSupported(_linkReader.SupportsFormat(formatName), route);
                     Uri value = await _linkReader.ReadAsync(contentSnapshot!, formatName);
+                    cancellationToken.ThrowIfCancellationRequested();
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureLink(value);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
                     {
@@ -107,6 +110,7 @@ public sealed class ClipboardContentReadExecutionStage
                     EnsureSupported(_storageItemsReader.SupportsFormat(formatName), route);
                     IReadOnlyList<ClipboardStorageItemMetadata> items =
                         await _storageItemsReader.ReadAsync(contentSnapshot!, formatName);
+                    cancellationToken.ThrowIfCancellationRequested();
                     capturedContent.Add(new ClipboardCapturedStorageItemsContent(route, items));
                     break;
                 }
