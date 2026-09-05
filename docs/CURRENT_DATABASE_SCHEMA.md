@@ -4,12 +4,12 @@
 
 Schema versions принадлежат конкретной роли БД, а не всему storage pair как одному числу.
 
-Текущее состояние:
+Текущее состояние после этого migration tranche:
 
-- `current.db`: schema version **3**;
+- `current.db`: schema version **4**;
 - `storage-catalog.db`: schema version **1**.
 
-`storage-catalog.db` остаётся rebuildable accelerator и не является source of truth для application identity или индивидуальных capture policies.
+`storage-catalog.db` остаётся rebuildable accelerator и не является source of truth для application identity, индивидуальных capture policies или clipboard history.
 
 ## Current v2 — durable application identity
 
@@ -31,7 +31,7 @@ SQLite default `BINARY` comparison соответствует текущему f
 
 ## Current v3 — per-application capture policies
 
-Current schema v3 добавляет только индивидуальные policy overrides, привязанные к durable `ApplicationId`:
+Current schema v3 добавила индивидуальные policy overrides, привязанные к durable `ApplicationId`:
 
 - `ApplicationCapturePolicy`
   - `ApplicationId` — primary key и FK на `ApplicationIdentity(ApplicationId)`;
@@ -49,11 +49,23 @@ Global capture policy **не** seed-ится схемой и не получае
 
 `ApplicationId`, а не PID, HWND, executable path или AUMID, является durable FK для policy data.
 
+## Current v4 — clipboard history storage contract
+
+Current schema v4 добавляет durable event/payload representation, определённую в `CLIPBOARD_HISTORY_SCHEMA.md`:
+
+- `ClipboardHistoryEvent` — event-time envelope, nullable durable source `ApplicationId` и runtime source snapshot metadata;
+- `ClipboardHistoryPayload` — ordered payload rows с canonical byte count, inline canonical representation либо external content address;
+- FK Event → Payload использует `ON DELETE CASCADE`;
+- FK ApplicationIdentity → Event использует `ON DELETE SET NULL`, чтобы удаление identity не удаляло историю;
+- индексы по calendar date/time, source application/time и format name.
+
+Schema v4 **не** запускает capture worker и сама не определяет external payload `firstStoredDate`/dedup lifecycle. Это остаётся responsibility будущего persistence sink/index contract.
+
 ## New storage initialization
 
 Новый storage создаётся staging-парой:
 
-1. `current.db` создаётся сразу как v3 вместе с identity и application-policy tables;
+1. `current.db` создаётся сразу как v4 вместе с identity, application-policy и clipboard-history tables;
 2. `storage-catalog.db` создаётся как v1;
 3. обе БД полностью валидируются;
 4. только после этого staging `Current` перемещается на финальный путь.
@@ -81,9 +93,19 @@ Migration разбита на отдельные транзакционные ш
 4. выставить `PRAGMA user_version = 3`;
 5. commit.
 
-Если второй шаг migration не commit-ится, Current остаётся полноценным v2. Следующая разблокировка может безопасно продолжить v2 → v3; уже сохранённые application identities и aliases не пересоздаются и не теряются.
+Если шаг migration не commit-ится, Current остаётся полноценным v2.
 
-Для legacy пары v1/v1 последовательность выполняется как два отдельных durable шага `v1 → v2 → v3`, а не как одна неразличимая mutation.
+### Current v3 → v4
+
+1. строго валидировать identity schema и application-policy schema v3;
+2. создать `ClipboardHistoryEvent` и `ClipboardHistoryPayload` вместе с требуемыми FK/index constraints;
+3. обновить `DatabaseIdentity.SchemaVersion` с 3 до 4;
+4. выставить `PRAGMA user_version = 4`;
+5. commit.
+
+Если этот шаг не commit-ится, Current остаётся полноценным v3. Policy и identity rows не пересоздаются и не теряются.
+
+Для legacy пары v1/v1 последовательность выполняется как отдельные durable шаги `v1 → v2 → v3 → v4`, а не как одна неразличимая mutation.
 
 ## Fail-closed validation
 
@@ -91,9 +113,10 @@ Migration разбита на отдельные транзакционные ш
 
 - Current v2+ обязан иметь точную identity table/PK/FK/index shape.
 - Current v3+ дополнительно обязан иметь точную application-policy table/PK/FK shape.
+- Current v4+ дополнительно обязан иметь clipboard-history table/PK/FK/index shape.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
-- malformed v3 не принимается только потому, что таблицы имеют правильные имена.
+- malformed schema не принимается только потому, что таблицы имеют правильные имена.
 
 Repositories не создают schema лениво. Schema creation/migration принадлежит `ProtectedStorageDatabaseService` до установления рабочего protected storage lifecycle.
 
-`SqliteApplicationIdentityRepository` работает с Current v2 и более поздними версиями при сохранении identity schema contract. `SqliteClipboardCapturePolicyRepository` требует Current v3 или более позднюю совместимую схему.
+`SqliteApplicationIdentityRepository` работает с Current v2 и более поздними версиями при сохранении identity schema contract. `SqliteClipboardCapturePolicyRepository` требует Current v3 или более позднюю совместимую схему. Будущий history repository/sink должен требовать Current v4 или более позднюю совместимую схему.
