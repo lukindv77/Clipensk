@@ -6,6 +6,6 @@ public interface IClipboardCapturePolicyRepository
         CancellationToken cancellationToken = default);
 
     ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
-        ClipboardSourceApplication sourceApplication,
+        Clipensk.Core.Applications.ApplicationId applicationId,
         CancellationToken cancellationToken = default);
 }
