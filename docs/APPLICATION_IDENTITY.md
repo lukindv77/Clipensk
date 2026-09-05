@@ -27,13 +27,15 @@
 
 ## 4. Unpackaged Win32 applications
 
-Для процесса без AUMID exact normalized executable path допускается как resolution alias, но не как durable key.
+Для процесса без AUMID exact executable path, полученный runtime resolver-ом, допускается как resolution alias, но не как durable key.
 
-При первом наблюдении незнакомого path registry может создать новый `ApplicationId` и связать с ним этот exact path alias. Повторное наблюдение того же alias возвращает тот же `ApplicationId`.
+На текущем contract boundary path alias сравнивается как точное наблюдаемое строковое значение. Registry не должен молча вводить case-folding, path rewriting, symlink/final-path equivalence или install-location heuristics как доказательство тождества приложений. Более широкая canonicalization может быть добавлена только отдельным решением с conflict semantics.
 
-Перемещение или переименование executable на ранее неизвестный path **не** должно автоматически считаться тем же приложением. Новый path является новым identity candidate до явного merge/rebind либо до будущего отдельно утверждённого equivalence mechanism.
+При первом наблюдении незнакомого path registry может создать новый `ApplicationId` и связать с ним этот exact path alias. Повторное наблюдение того же exact alias возвращает тот же `ApplicationId`.
 
-Это намеренно fail-closed относительно ошибочного объединения разных Win32 applications.
+Перемещение, переименование или иное изменение наблюдаемого executable path **не** должно автоматически считаться тем же приложением. Новый path является новым identity candidate до явного merge/rebind либо до будущего отдельно утверждённого equivalence mechanism.
+
+Это намеренно fail-closed относительно ошибочного объединения разных Win32 applications. Цена такого решения — возможные duplicate candidates после move/update; они исправляются merge/rebind, а не silent heuristic merge.
 
 ## 5. Запрещённые автоматические эвристики
 
@@ -47,6 +49,7 @@
 - install directory prefix;
 - PID/process lifetime;
 - HWND;
+- изменению регистра/формы path, если это не покрыто отдельным alias-canonicalization contract;
 - внутреннему Windows heuristic AppUserModelID, который Clipensk не может надёжно наблюдать как стабильный contract.
 
 Эти признаки в будущем могут использоваться как UI hints для ручного merge/rebind, но не как silent durable equivalence.
@@ -65,4 +68,4 @@
 
 Concrete policy/history schema может ссылаться на `ApplicationId` и больше не должна ждать универсального Windows-native durable key.
 
-Отдельно остаются задачи реализации registry storage, alias uniqueness/conflict handling, explicit merge/rebind workflow и UI для управления найденными приложениями. Эти задачи не разрешают менять durable key на path/AUMID.
+Отдельно остаются задачи реализации registry storage, alias uniqueness/conflict handling, explicit merge/rebind workflow, optional future alias canonicalization и UI для управления найденными приложениями. Эти задачи не разрешают менять durable key на path/AUMID.
