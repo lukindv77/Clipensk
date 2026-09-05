@@ -1,211 +1,194 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Дата checkpoint: 2026-09-05.
+Checkpoint: 2026-09-05.
 
-Этот файл — durable operational checkpoint. Изменяемое состояние GitHub и GitHub Actions всегда является source of truth; перед любой durable записью в `main` нужна fresh TOCTOU-проверка.
+Этот файл — durable operational checkpoint для продолжения разработки в новом чате. Mutable state всегда перепроверяется по GitHub/GitHub Actions; перед любой durable записью в `main` обязательна fresh TOCTOU-проверка.
 
-## A. Project identity
+## A. Project identity / invariants
 
 - Проект: **Clipensk** — Open Source Windows clipboard-history manager.
 - Репозиторий: `lukindv77/Clipensk`.
-- Product architecture: **только Windows x64 (AMD64)**. ARM64 полностью вне scope.
+- Product scope: **только Windows x64 (AMD64)**. ARM64 полностью вне scope и не должен возвращаться в code/CI/RuntimeIdentifiers/Platforms/native artifacts/docs, кроме явной формулировки unsupported/out-of-scope.
 - Runtime contract: `Platforms=x64`, `RuntimeIdentifiers=win-x64`.
 - Текущий development host: unpackaged (`WindowsPackageType=None`).
-- Финальная схема распространения MSIX / portable / оба — не выбрана.
+- Финальная distribution-модель MSIX / portable / обе — не выбрана.
+- `WM_CLIPBOARDUPDATE` WndProc остаётся signal/enqueue only: никаких clipboard reads, source resolution, DB/persistence или тяжёлой работы.
+- Clipboard monitoring работает только при protected data access = `UNLOCKED`.
+- Один Windows `DataPackageView` удерживается от discovery до payload reader calls; повторный `Clipboard.GetContent()` на reader stage запрещён.
+- Event boundary сохраняет `EventTimeContext`: UTC timestamp + local offset + Windows time-zone ID + calendar date.
+- `SourceApplication` и `InvocationApplication` — разные понятия/runtime boundaries.
+- Не придумывать full history/catalog/archive schema внутри capture tranches.
+- Не вводить неизвестные product defaults для clipboard formats или numerical size limits.
 
-Authoritative документы:
+Authoritative docs:
 
-- `AGENTS.md`;
-- `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`;
-- `docs/REQUIREMENTS.md`;
-- `docs/ARCHITECTURE.md`;
-- `docs/CRYPTOGRAPHY.md`;
-- `docs/NATIVE_SQLCIPHER_BUILD.md`;
-- `docs/OPEN_QUESTIONS.md`;
-- этот `docs/HANDOFF_CURRENT.md`.
+- `AGENTS.md`
+- `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`
+- `docs/REQUIREMENTS.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CRYPTOGRAPHY.md`
+- `docs/NATIVE_SQLCIPHER_BUILD.md`
+- `docs/CLIPBOARD_CAPTURE_SIZE_LIMITS.md`
+- `docs/OPEN_QUESTIONS.md`
+- `docs/HANDOFF_CURRENT.md`
 
-## B. Mandatory workflow rules
+## B. Mandatory workflow
 
-- GitHub repository и GitHub Actions — source of truth для mutable state.
-- Перед durable write в `main` — fresh TOCTOU.
+- GitHub repository + GitHub Actions = source of truth для mutable state.
+- Перед каждым durable write в `main`: fresh fetch `main` → убедиться в ожидаемом parent/compare → fast-forward only, `force:false`.
 - `main` никогда не force-update.
-- Работа failure-driven; не делать speculative fixes.
-- Не объявлять PASS/build/release/encryption gate без точного evidence.
-- `WM_CLIPBOARDUPDATE` WndProc остаётся signal/enqueue only: никаких clipboard reads, process resolution, DB/persistence или другой тяжёлой работы.
-- Clipboard monitoring разрешён только при protected data access = `UNLOCKED`.
-- SourceApplication и InvocationApplication — разные понятия и разные runtime boundaries.
-- Event time сохраняется как `EventTimeContext`: UTC timestamp + local offset + Windows time-zone ID + calendar date.
-- Не вводить конкретные clipboard format defaults/size limits без отдельного решения.
-- Полную history/catalog/archive schema не придумывать внутри capture tranches.
-- Если GitHub Actions выполняется, сначала делать независимую полезную работу. Если её нет — можно ожидать завершения run не более 2 минут. Если run не завершился за это окно — остановиться, дать сводку, точный run ID/SHA/gate и resume point.
+- Работа failure-driven; без speculative fixes.
+- PASS/build/release/encryption gate объявлять только по точному CI evidence.
+- Пока run выполняется, делать только независимую полезную работу. Если такой работы нет — остановиться с exact run/SHA/gate; не делать бессмысленный polling loop.
+- Native SQLCipher/runtime staging не трогать без фактического failure.
 
 ## C. Current authoritative source state
 
-Текущий функциональный `main` на момент этого docs checkpoint:
+На момент checkpoint fresh GitHub state:
 
-- `b25b4dac9a79f0530a299ba37e06554478f608e2`
-- `feat: resolve journal invocation application`
+- `main = 16533885886a4a014d38fb3627ba327672646e7a`
+- commit: `feat: add accepted clipboard capture sink boundary`
+- parent: `40ba05509af8f6d20bc7be606f985b4070977f30`
 
 Последний подтверждённый managed CI:
 
-- **Build #65**
-- run `33943886744`
-- SHA `b25b4dac9a79f0530a299ba37e06554478f608e2`
-- conclusion: `SUCCESS`
-- обязательные шаги `Verify x64-only implementation scope`, `Restore`, `Build`, `Test` — `SUCCESS`.
+- **Build #75**
+- run `33949609784`
+- SHA `16533885886a4a014d38fb3627ba327672646e7a`
+- conclusion `SUCCESS`
+- mandatory steps `Verify x64-only implementation scope`, `Restore`, `Build`, `Test` — все `SUCCESS`.
 
-При публикации этого handoff docs-only commit `main` изменится; следующий чат должен fresh проверить фактический SHA и соответствующий Build run.
+Этот handoff специально подготовлен в отдельной docs-ветке, а не продвинут в `main`, чтобы сохранить следующий feature commit как чистый fast-forward.
 
-## D. Protected storage / SQLCipher status
+## D. Protected storage / SQLCipher foundation
 
-DONE / VERIFIED:
+DONE / VERIFIED и без фактического failure не переделывать:
 
-- first-run DataRoot;
-- `storage-crypto.json`;
-- Argon2id v1.3 production profile: 64 MiB / 3 iterations / 4 lanes / 16-byte salt / 32-byte MasterKey;
-- MasterKey verifier;
-- LOCKED / UNLOCKING / UNLOCKED;
-- password не persistится;
+- first-run DataRoot + `storage-crypto.json`;
+- Argon2id v1.3: 64 MiB / 3 iterations / 4 lanes / 16-byte salt / 32-byte MasterKey;
+- password не persistится; LOCKED / UNLOCKING / UNLOCKED;
 - protected `Current/current.db` и `Current/storage-catalog.db`;
-- atomic initial Current/Catalog pair;
-- `DatabaseIdentity` validation;
-- partial Current/Catalog fail-closed;
-- archive-presence recovery gate;
-- production SQLCipher boundary: `Microsoft.Data.Sqlite.Core` + `SQLitePCLRaw.provider.sqlcipher` + self-built `sqlcipher.dll`;
+- atomic initial pair + `DatabaseIdentity` validation;
+- partial Current/Catalog fail-closed + archive-presence recovery gate;
+- `Microsoft.Data.Sqlite.Core` + `SQLitePCLRaw.provider.sqlcipher` + self-built `sqlcipher.dll`;
 - raw 32-byte key через `sqlite3_key`;
 - `cipher_compatibility=4`, `cipher_memory_security=ON`;
-- gates `cipher_version >= 4.12.0`, `cipher_status=1`, `sqlite_master`, `quick_check`, `DatabaseIdentity`;
 - SQLCipher Community 4.17.0 commit `810db22f575ee7cf94ea96a3e91622b5fcece3dc`;
-- OpenSSL 3.5.8 SHA-256 `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`.
+- OpenSSL 3.5.8 SHA-256 `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`;
+- Native SQLCipher #10 run `33935810021` — SUCCESS;
+- verified unpackaged x64 staging with exact `sqlcipher.dll`, no `e_sqlcipher.dll`.
 
-Native evidence:
+Это не финальное installer/installed-launch evidence.
 
-- Native SQLCipher #9 run `33906431371` — SUCCESS.
-- Native SQLCipher #10 run `33935810021` — SUCCESS.
-- artifact `clipensk-sqlcipher-win-x64` id `9960499242`.
-- artifact `clipensk-app-win-x64-unpackaged` id `9960500027`.
-- unpackaged runtime staging verified x64, exact `sqlcipher.dll`, no `e_sqlcipher.dll`, manifests/hashes/licenses present.
+## E. Clipboard capture pipeline — current completed state
 
-Не считать это финальным installer/installed-launch evidence.
+Старые verified tranches через Build #65 остаются действительными: listener/protected-access binding, event-time capture, SourceApplication resolution, policy evaluator/provider/repository boundary, retained snapshot, format discovery/selection, routing/read planning, standard readers Text/HTML/RTF, Bitmap→PNG, WebLink/ApplicationLink, StorageItems metadata, InvocationApplication resolution.
 
-## E. Clipboard capture pipeline — completed tranches
+Recent chain after Build #65:
 
-### Listener + protected access
+- `bd9c56761ec638b24742d7214712ae17e1d1ecd5` — docs handoff refresh.
+- `98306b41f2c4f9fae311c13ceaf83dad3a250208` — record unresolved clipboard size-limit semantics question.
+- `1a59b22c758558ffeac0c73c0f6883580a49040f` — define canonical clipboard size-limit semantics + Core measurement utility. Build #68 exposed only xUnit theory-data binding failure.
+- `eec705056a68e5756249c8cbb0b86ff446767ec2` — minimal test-only fix; Build #69 run `33948950769` — PASS.
+- `0e3f149b2cf903afbd2f88e5e9a8ea5f76ed22b9` — execute clipboard content reads with canonical size-limit enforcement; Build #70 run `33949077346` — PASS.
+- `6cd0a6a2841bd3fb94d8d6be2dff7b12581858de` — compose `ClipboardContentReadExecutionStage` in Windows host; Build #71 run `33949171614` — PASS.
+- `6bca08f3e9721fa5cf6d35c56645d0a0b0f528b8` — single-shot `capture → read-plan → execute`; Build #72 run `33949273923` — PASS.
+- `02d9a63cf58311a20a93ef47db182f6729fbd726` — cancellation check after each async read so cancelled capture cannot publish an execution result; Build #73 run `33949362477` — PASS.
+- `40ba05509af8f6d20bc7be606f985b4070977f30` — `ClipboardAcceptedCapture` projection: only actually captured payloads become persistence candidates; rejected/deferred/unsupported state remains transient; Build #74 run `33949518140` — PASS.
+- `16533885886a4a014d38fb3627ba327672646e7a` — `IClipboardAcceptedCaptureSink` + accepted-only sink stage; sink is not invoked when there is no accepted payload; no concrete DB schema/storage implementation; Build #75 run `33949609784` — PASS.
 
-- `631e2dc56f0f1bdc03bfe1be56883b1dad9cd9ce` — resident message window, WM_HOTKEY, WM_CLIPBOARDUPDATE, bounded capture queue capacity 1 / DropOldest / single reader, Add/RemoveClipboardFormatListener.
-- Build #44 run `33937739276` — SUCCESS.
-- `d76e7ec699980cea006ebeb33d197ba877c6ab4b` — monitoring starts only UNLOCKED and stops on protected-access exit.
-- Build #45 run `33938504886` — SUCCESS.
+Still **no automatic background capture worker** and **no concrete history persistence implementation**.
 
-### Event/source/policy/discovery
+## F. `MaxBytes` semantics — now fixed technically
 
-- `bc02cb58a5a9c7357358c549841cb772746128ec` — preserve `EventTimeContext`; Build #47 run `33939070986` — SUCCESS.
-- `d60d461c35b6b4af329b800e6d55d837a42c57c7` — resolve clipboard SourceApplication; Build #48 run `33939545079` — SUCCESS.
-- `1d4f9d07af177a2bdacab16c1c7c8dd99dcd707e` — capture policy boundary; Build #49 run `33939777749` — SUCCESS.
-- `9c246d46d26ac2554777505a8b10a97ddf577488` — clipboard format discovery; Build #50 — SUCCESS.
-- `6e85835460536440cbb1597d818d6a93b8697aef` — retain one clipboard content snapshot / one `DataPackageView`; Build #51 — SUCCESS.
-- `ab04088d...` — format selection: only explicitly allowed available formats proceed; Build #52 — SUCCESS.
-- `7817134c...` — policy-provider boundary; Build #53 — SUCCESS.
-- `6fee56bb...` — single-shot capture pipeline; Build #54 — SUCCESS.
+`docs/CLIPBOARD_CAPTURE_SIZE_LIMITS.md` is the technical contract. Numerical defaults remain unresolved product choices.
 
-### Reader capabilities
+`MaxBytes` measures canonical capture bytes for the specific selected format, not DB/FTS/index overhead:
 
-- `106b8fa3...` — standard Text / HTML / RTF reader capability, using retained snapshot; Build #55 — SUCCESS.
-- `134c209c...` — host composition with explicit policy provider; Build #56 — SUCCESS.
-- `4096d387...` — policy repository boundary without hardcoded persistent application key/schema; Build #57 — SUCCESS.
-- `3048e094...` — Bitmap → normalized PNG capability; Build #58 — SUCCESS.
-- `f80fceb8471948a5d82147e1080b6e6d02e99325` — WebLink/ApplicationLink reader; Build #59 run `33941383433` — SUCCESS.
-- `138d7a45a2f9777bb4440cb16b751bcb6d15c8c7` — StorageItems/CF_HDROP metadata reader; Build #60 run `33941909260` — SUCCESS.
+- Text / HTML / RTF → UTF-8 bytes of the original text representation returned by the reader.
+- WebLink / ApplicationLink → UTF-8 bytes of the canonical URI representation used by capture.
+- Bitmap → bytes of the normalized PNG result.
+- SearchText, DB row metadata, indexes and FTS overhead do not count toward the limit.
+- StorageItems / CF_HDROP canonical metadata byte representation is **not yet defined**. Therefore `StorageItems` with configured `MaxBytes` is deferred without reading payload; with `MaxBytes = null` metadata can be read.
+- Custom registered/private binary remains unsupported unless explicitly implemented later.
 
-### Planning, routing and invocation context
+Do not reinterpret this contract silently.
 
-- `4d481223b8ed93acbeb7eb55e9c2cfc5f243024f` — route selected formats to reader capabilities; Build #61 run `33942004626` — SUCCESS.
-- `362ff6ef3993f9392d437ce8339ce4effda91cfb` — create read plan without payload access; Build #62 run `33942111178` — SUCCESS.
-- `beb089bcbd24fc04a2f6f4fe79d1de1b034e1fe7` — compose read planning in Windows host; Build #63 run `33942221332` — SUCCESS.
-- `e20fc6006fa5e29deb5f4b1bc5c5a29e75f255cf` — single-shot capture → read-plan pipeline, still no payload execution; Build #64 run `33943770538` — SUCCESS.
-- `b25b4dac9a79f0530a299ba37e06554478f608e2` — resolve InvocationApplication from foreground window on global-hotkey boundary; Build #65 run `33943886744` — SUCCESS.
+## G. Current execution / persistence boundary
 
-InvocationApplication implementation details:
+Current `main` has an explicit single-shot chain capable of:
 
-- отдельный `InvocationApplication`, не `ClipboardSourceApplication`;
-- foreground HWND определяется через `GetForegroundWindow` при WM_HOTKEY handling, до активации журнала;
-- PID определяется через `GetWindowThreadProcessId`;
-- executable path — через `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `QueryFullProcessImageName`;
-- если path недоступен, PID сохраняется с `ExecutablePath = null`;
-- hotkey event теперь несёт `JournalHotKeyPressedEventArgs` с InvocationApplication;
-- App удерживает текущий journal invocation context.
+`queue → source resolution → policy → retained snapshot/discovery → effective format selection → routing/read plan → payload read → canonical size enforcement → execution result → accepted-capture projection → accepted-only sink boundary`.
 
-## F. Current architecture facts
+Important behavior:
 
-- Capture queue хранит signal requests, а не историю.
-- `ClipboardCapturePipeline` выполняет queue → source resolution → policy resolution → format discovery → format selection.
-- `ClipboardCaptureReadPlanningPipeline` добавляет routing/read-plan, но **не читает payload**.
-- Один `DataPackageView` удерживается от format discovery до будущих reader calls; повторный `Clipboard.GetContent()` для payload не нужен.
-- Format selection допускает только effective per-format `Allow`.
-- Unknown/unroutable selected format явно остаётся unsupported в read-plan.
-- Text/HTML/RTF, Bitmap→PNG, WebLink/ApplicationLink и StorageItems имеют capability readers.
-- Reader routing fail-closed при неоднозначной поддержке одного format несколькими reader'ами.
-- Actual background capture worker ещё не запущен автоматически.
-- Policy persistence implementation ещё не выбрана: repository/provider contracts есть, persistent Application identity/schema ещё нет.
+- Text/HTML/RTF, links and normalized PNG are actually readable and size-enforced.
+- StorageItems with no configured size limit returns metadata only; file contents are never copied/read.
+- StorageItems with configured `MaxBytes` is deferred without a payload read.
+- Unsupported selected formats remain explicit unsupported state and never reach the accepted sink.
+- Oversize payloads remain size-rejected and never reach the accepted sink.
+- Post-read cancellation prevents publishing a cancelled result.
+- Sink contract carries `CancellationToken`; transactional cancellation semantics belong to the future concrete storage implementation.
+- No auto-run/background consumer yet.
 
-## G. Current blocker before actual payload execution
+## H. Prepared next feature — NOT on main
 
-`ClipboardSelectedFormat` уже несёт nullable `MaxBytes`, но архитектура пока не определяет, **какие байты измеряются этим лимитом**.
+Branch:
 
-Нужно отдельно решить семантику для каждого класса payload, например:
+- `feat/clipboard-reader-cancellation`
 
-- raw clipboard representation bytes;
-- decoded text bytes;
-- UTF-8 bytes исходного text/HTML/RTF representation;
-- normalized PNG bytes для изображений;
-- сериализованная textual metadata для StorageItems;
-- exact stored bytes для explicitly enabled custom binary.
+Prepared commit:
 
-Пока это не определено:
+- `b18e7f32eaa5085a06d1a0dce8789c55feda9cdf`
+- message: `feat: propagate cancellation into clipboard readers`
+- parent: current `main` `16533885886a4a014d38fb3627ba327672646e7a`
+- fresh compare at checkpoint: **ahead 1 / behind 0**.
 
-- не добавлять production read/enforcement stage, который молча игнорирует `MaxBytes`;
-- не считать лимит по произвольно выбранному representation;
-- не подключать automatic capture worker, который будет реально читать payload без корректного enforcement contract.
+What it changes:
 
-Отдельно: `docs/OPEN_QUESTIONS.md` уже оставляет конкретные default limits нерешёнными. Здесь дополнительно зафиксирован вопрос **семантики измерения**, а не только числовых default values.
+- passes `CancellationToken` through all four Core reader interfaces;
+- `ClipboardContentReadExecutionStage` passes the same token into readers;
+- Windows Text/HTML/RTF, link and StorageItems WinRT operations use cancelable `AsTask(token)`;
+- PNG path propagates cancellation through `GetBitmapAsync`, stream open, decoder, software bitmap, encoder flush and data read/normalization chain;
+- existing post-await cancellation checks remain;
+- Core tests/stubs verify that execution passes the exact token to readers.
 
-## H. HTML / RTF search normalization
+This commit is **UNVERIFIED on `main`**. Do not call it PASS until its own main Build succeeds.
 
-Архитектура требует:
+## I. Exact resume instructions for next chat
 
-- original HTML/RTF representation для повторного использования;
-- normalized plain-text `SearchText` для поиска.
+When user says `продолжай` / `продолжай разработку`:
 
-Точный extractor/parser algorithm пока не выбран. Не вводить случайный HTML/RTF parser только ради продвижения pipeline. После фиксации контракта payload/limits можно добавить normalization boundary и затем конкретную реализацию.
+1. FIRST fresh-fetch `main` and current Actions state.
+2. Expected starting `main`: `16533885886a4a014d38fb3627ba327672646e7a`; do not assume if GitHub differs.
+3. Confirm Build #75 run `33949609784` remains SUCCESS if needed; mandatory steps were x64 guard / Restore / Build / Test.
+4. Fresh compare `feat/clipboard-reader-cancellation` vs actual `main`.
+5. If still ahead 1 / behind 0 with parent `16533885…`, perform another **fresh TOCTOU immediately before durable write**.
+6. Fast-forward `main` to `b18e7f32eaa5085a06d1a0dce8789c55feda9cdf`, `force:false`.
+7. Fetch the exact newly-created Build run; never assume its run number.
+8. Require `Verify x64-only implementation scope`, `Restore`, `Build`, `Test` = SUCCESS before declaring reader-level cancellation PASS.
+9. If it fails, inspect first failed step/log and apply the smallest failure-driven fix.
+10. After that gate, safe next design/code areas are an explicit single-shot accepted-capture delivery wrapper/composition and then concrete persistence prerequisites. Do **not** start a background worker until protected-access cancellation + real sink/policy source lifecycle are ready.
 
-## I. Remaining major work
+## J. Current blockers / remaining major work
 
-- определить `MaxBytes` measurement semantics;
-- actual reader execution + enforcement;
-- HTML/RTF SearchText extraction/normalization;
-- policy persistence + persistent Application identity;
-- real lock-aware capture worker / consumer loop;
-- cancellation/teardown worker при lock;
-- minimal history persistence boundary, затем history schema;
-- FTS/search/query planning;
-- Current→Archive transfer/split/catalog rebuild;
-- password/MasterKey change;
-- crypto metadata recovery;
-- partial Current/Catalog recovery;
-- auto-lock end-to-end teardown;
-- installed-app native-load/launch evidence;
-- MSIX vs portable distribution decision;
-- byte-for-byte reproducibility/provenance hardening;
-- hot backup/snapshot;
-- branch hygiene.
+- stable persistent Application identity/key semantics are unresolved; do not use PID or executable path as a durable key by assumption;
+- concrete policy repository/storage schema blocked on that identity decision;
+- concrete accepted-capture persistence/history schema still absent;
+- exact StorageItems canonical byte representation for `MaxBytes` still unresolved;
+- HTML/RTF `SearchText` extraction/normalization algorithm unresolved;
+- custom/private binary reader absent;
+- deduplication + external payload placement/persistence absent;
+- real lock-aware background capture worker / cancellation/teardown absent;
+- stale capture handling across lock/unlock absent;
+- minimal history schema, FTS/search, Current→Archive transfer/split/catalog rebuild absent;
+- password/MasterKey change, crypto metadata recovery, partial Current/Catalog recovery remain;
+- installed-app native-load/launch evidence, MSIX vs portable choice, byte-for-byte reproducibility remain.
 
-## J. Exact resume instructions
+## K. This handoff branch
 
-На следующем `продолжай`:
+This refreshed handoff is intentionally stored on branch:
 
-1. Fresh fetch `main` и последний Build run, потому что этот handoff публикуется отдельным docs commit.
-2. Если docs Build завершён — проверить x64 guard / Restore / Build / Test до объявления PASS.
-3. Не возвращаться к native SQLCipher/runtime staging без фактического failure.
-4. Не запускать actual payload execution до решения семантики `MaxBytes`.
-5. Безопасные независимые направления: формализовать `MaxBytes` contract в docs/architecture, policy persistence identity design, HTML/RTF normalization contract — но только после проверки, что решение не придумывает незафиксированные product defaults.
-6. Любой durable write в `main`: fresh TOCTOU → fast-forward only, `force:false`.
+- `docs/new-chat-handoff-20260905-1420`
+
+It must not be merged into `main` before the prepared reader-cancellation fast-forward unless the next chat deliberately chooses to rebuild/rebase that feature commit, because moving `main` with a docs-only commit would make `b18e7f32…` no longer a direct fast-forward child.
