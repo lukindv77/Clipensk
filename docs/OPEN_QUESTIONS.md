@@ -135,7 +135,7 @@
 
 ## 11. Application identity alias/merge hardening
 
-Durable application identity contract зафиксирован в `APPLICATION_IDENTITY.md`:
+Durable application identity contract зафиксирован в `APPLICATION_IDENTITY.md` и уже имеет persistent implementation:
 
 - единственный durable key policy/history — Clipensk-owned `ApplicationId` (непустой GUID);
 - AUMID и exact executable path используются как resolution aliases/evidence, а не как primary key;
@@ -144,14 +144,15 @@ Durable application identity contract зафиксирован в `APPLICATION_I
 - впервые увиденный unpackaged path может получить новый `ApplicationId`;
 - перемещение/переименование executable на ранее неизвестный path не считается автоматически тем же приложением;
 - PID, HWND, display name, publisher, version resource и file hash не могут молча объединять identities;
-- `SourceApplication` и `InvocationApplication` остаются отдельными runtime concepts.
+- `SourceApplication` и `InvocationApplication` остаются отдельными runtime concepts;
+- `ApplicationId` и aliases сохраняются в защищённом Current с atomic uniqueness/conflict semantics;
+- conflicting AUMID/path bindings завершаются fail-closed, без last-write-wins;
+- per-application capture policy repository индексируется только по durable `ApplicationId`, а не по runtime process metadata.
 
-Следовательно, concrete policy/history schema больше не заблокирована отсутствием универсального Windows-native durable key: durable references должны использовать `ApplicationId`.
+Следовательно, concrete policy/history schema больше не заблокирована отсутствием универсального Windows-native durable key.
 
 Остаётся определить/реализовать:
 
-- persistent registry storage для `ApplicationId` и aliases;
-- uniqueness/conflict semantics, если observation одновременно указывает на aliases, уже связанные с разными `ApplicationId`;
 - explicit user merge/rebind workflow для moved/renamed unpackaged applications;
 - правила удаления/retention неиспользуемых aliases;
 - UI отображения и ручного управления discovered applications;
