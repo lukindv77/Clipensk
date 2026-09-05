@@ -1,4 +1,5 @@
 using Clipensk.Core.Applications;
+using ClipenskApplicationId = Clipensk.Core.Applications.ApplicationId;
 using Xunit;
 
 namespace Clipensk.Core.Tests;
@@ -8,14 +9,14 @@ public sealed class ApplicationIdentityContractTests
     [Fact]
     public void ApplicationId_RejectsEmptyGuid()
     {
-        Assert.Throws<ArgumentException>(() => new ApplicationId(Guid.Empty));
+        Assert.Throws<ArgumentException>(() => new ClipenskApplicationId(Guid.Empty));
     }
 
     [Fact]
     public void ApplicationId_NewCreatesNonEmptyDurableKey()
     {
-        ApplicationId first = ApplicationId.New();
-        ApplicationId second = ApplicationId.New();
+        ClipenskApplicationId first = ClipenskApplicationId.New();
+        ClipenskApplicationId second = ClipenskApplicationId.New();
 
         Assert.NotEqual(Guid.Empty, first.Value);
         Assert.NotEqual(Guid.Empty, second.Value);
@@ -45,7 +46,7 @@ public sealed class ApplicationIdentityContractTests
     [Fact]
     public void Resolution_KeepsDurableKeySeparateFromResolutionEvidence()
     {
-        ApplicationId id = ApplicationId.New();
+        ClipenskApplicationId id = ClipenskApplicationId.New();
         var packaged = new ApplicationIdentityResolution(
             id,
             ApplicationIdentityResolutionBasis.PackagedApplicationUserModelId,
@@ -78,7 +79,7 @@ public sealed class ApplicationIdentityContractTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new ApplicationIdentityResolution(
-                ApplicationId.New(),
+                ClipenskApplicationId.New(),
                 (ApplicationIdentityResolutionBasis)999,
                 wasCreated: false));
     }
