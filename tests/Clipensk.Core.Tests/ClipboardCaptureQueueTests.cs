@@ -42,6 +42,64 @@ public sealed class ClipboardCaptureQueueTests
     }
 
     [Fact]
+    public async Task InvalidatedEpochRequest_DoesNotReachNextCaptureEpoch()
+    {
+        var queue = new ClipboardCaptureQueue();
+        long oldEpoch = queue.BeginCaptureEpoch();
+        var stale = new ClipboardCaptureRequest(
+            new EventTimeContext(
+                new DateTimeOffset(2026, 9, 5, 10, 15, 30, TimeSpan.FromHours(3)),
+                "Test/Zone"));
+        var fresh = new ClipboardCaptureRequest(
+            new EventTimeContext(
+                new DateTimeOffset(2026, 9, 5, 10, 16, 0, TimeSpan.FromHours(3)),
+                "Test/Zone"));
+        Assert.True(queue.TryEnqueue(stale, oldEpoch));
+
+        queue.InvalidateCaptureEpoch(oldEpoch);
+        long freshEpoch = queue.BeginCaptureEpoch();
+        ValueTask<ClipboardCaptureRequest> dequeue = queue.DequeueAsync();
+        Assert.False(dequeue.IsCompleted);
+
+        Assert.True(queue.TryEnqueue(fresh, freshEpoch));
+
+        ClipboardCaptureRequest actual = await dequeue;
+        Assert.Equal(fresh, actual);
+    }
+
+    [Fact]
+    public void InvalidatedEpochWriter_CannotPublishIntoFreshEpoch()
+    {
+        var queue = new ClipboardCaptureQueue();
+        long oldEpoch = queue.BeginCaptureEpoch();
+        queue.InvalidateCaptureEpoch(oldEpoch);
+        long freshEpoch = queue.BeginCaptureEpoch();
+        var request = new ClipboardCaptureRequest(
+            new EventTimeContext(
+                new DateTimeOffset(2026, 9, 5, 10, 16, 0, TimeSpan.FromHours(3)),
+                "Test/Zone"));
+
+        Assert.False(queue.TryEnqueue(request, oldEpoch));
+        Assert.True(queue.TryEnqueue(request, freshEpoch));
+    }
+
+    [Fact]
+    public void InvalidatingOlderEpoch_DoesNotInvalidateCurrentEpoch()
+    {
+        var queue = new ClipboardCaptureQueue();
+        long oldEpoch = queue.BeginCaptureEpoch();
+        long currentEpoch = queue.BeginCaptureEpoch();
+        var request = new ClipboardCaptureRequest(
+            new EventTimeContext(
+                new DateTimeOffset(2026, 9, 5, 10, 16, 0, TimeSpan.FromHours(3)),
+                "Test/Zone"));
+
+        queue.InvalidateCaptureEpoch(oldEpoch);
+
+        Assert.True(queue.TryEnqueue(request, currentEpoch));
+    }
+
+    [Fact]
     public void CaptureRequest_PreservesEventTimeContext()
     {
         var eventTime = new EventTimeContext(
