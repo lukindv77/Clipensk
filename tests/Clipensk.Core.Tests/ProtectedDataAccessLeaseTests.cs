@@ -35,6 +35,34 @@ public sealed class ProtectedDataAccessLeaseTests
     }
 
     [Fact]
+    public void CancellationCallbackFailure_DoesNotInterruptProtectedAccessRevocation()
+    {
+        var lifecycle = CreateUnlockedLifecycle();
+        Assert.True(ProtectedDataAccessLease.TryAcquire(lifecycle, out ProtectedDataAccessLease? lease));
+        ProtectedDataAccessLease acquiredLease = Assert.IsType<ProtectedDataAccessLease>(lease);
+        using (acquiredLease)
+        {
+            bool laterSubscriberObservedRevocation = false;
+            lifecycle.ProtectedDataAccessChanged += canAccessProtectedData =>
+            {
+                if (!canAccessProtectedData)
+                {
+                    laterSubscriberObservedRevocation = true;
+                }
+            };
+            using CancellationTokenRegistration registration = acquiredLease.CancellationToken.Register(
+                static () => throw new InvalidOperationException("callback failure"));
+
+            bool started = lifecycle.TryBeginLock();
+
+            Assert.True(started);
+            Assert.Equal(ApplicationLockState.Locking, lifecycle.LockState);
+            Assert.True(acquiredLease.CancellationToken.IsCancellationRequested);
+            Assert.True(laterSubscriberObservedRevocation);
+        }
+    }
+
+    [Fact]
     public void Dispose_CancelsPreviouslyIssuedToken()
     {
         var lifecycle = CreateUnlockedLifecycle();
