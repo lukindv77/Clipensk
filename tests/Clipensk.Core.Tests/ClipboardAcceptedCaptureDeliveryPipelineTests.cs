@@ -25,7 +25,7 @@ public sealed class ClipboardAcceptedCaptureDeliveryPipelineTests
         ClipboardAcceptedCapture stored = Assert.Single(sink.Stored);
         ClipboardCapturedTextContent content = Assert.IsType<ClipboardCapturedTextContent>(
             Assert.Single(stored.Content));
-        Assert.Equal("accepted", content.Text);
+        Assert.Equal("accepted", content.Value);
     }
 
     [Fact]
