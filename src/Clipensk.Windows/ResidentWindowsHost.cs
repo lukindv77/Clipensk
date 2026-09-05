@@ -42,6 +42,20 @@ public sealed class ResidentWindowsHost : IDisposable
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
 
+    public ClipboardCapturePipeline CreateCapturePipeline(IClipboardCapturePolicyProvider policyProvider)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+
+        return new ClipboardCapturePipeline(
+            CaptureSourceStage,
+            new ClipboardCapturePolicyResolutionStage(
+                policyProvider,
+                new ClipboardCapturePolicyEvaluator()),
+            FormatDiscoveryStage,
+            FormatSelectionStage);
+    }
+
     public void StartClipboardMonitoring()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
