@@ -48,7 +48,7 @@ public sealed class ProtectedStorageSessionLeaseTests
     }
 
     [Fact]
-    public void Dispose_ZeroesOwnedMasterKeyAndCancelsSession()
+    public void Dispose_ZeroesOwnedMasterKeyAndKeepsCancelledSessionTokenObservable()
     {
         var lifecycle = CreateUnlockedLifecycle();
         byte[] key = [1, 2, 3, 4];
@@ -63,6 +63,7 @@ public sealed class ProtectedStorageSessionLeaseTests
 
         Assert.False(session.IsActive);
         Assert.True(token.IsCancellationRequested);
+        Assert.True(session.CancellationToken.IsCancellationRequested);
         Assert.All(key, value => Assert.Equal((byte)0, value));
         Assert.Throws<ObjectDisposedException>(() => session.DangerousGetMasterKeyMemory());
     }
@@ -83,6 +84,7 @@ public sealed class ProtectedStorageSessionLeaseTests
         Assert.Throws<AggregateException>(() => session.Dispose());
 
         Assert.False(session.IsActive);
+        Assert.True(session.CancellationToken.IsCancellationRequested);
         Assert.All(key, value => Assert.Equal((byte)0, value));
     }
 
