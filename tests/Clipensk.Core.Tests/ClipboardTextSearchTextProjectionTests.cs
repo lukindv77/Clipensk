@@ -29,6 +29,25 @@ public sealed class ClipboardTextSearchTextProjectionTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RetainsRawTextWhenSearchProjectionIsUnavailable()
+    {
+        const string RawValue = "malformed-cf-html";
+        var extractor = new StubSearchTextExtractor("HTML Format", searchText: null);
+        var stage = CreateStage(
+            new StubTextReader("HTML Format", RawValue),
+            extractor);
+        ClipboardContentReadPlan plan = CreateTextPlan("HTML Format", maxBytes: null);
+
+        ClipboardContentReadExecution result = await stage.ExecuteAsync(plan);
+
+        ClipboardCapturedTextContent captured = Assert.IsType<ClipboardCapturedTextContent>(
+            Assert.Single(result.CapturedContent));
+        Assert.Equal(RawValue, captured.Value);
+        Assert.Null(captured.SearchText);
+        Assert.Equal(1, extractor.ExtractCount);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DoesNotProjectSearchTextForOversizedRawRepresentation()
     {
         const string RawValue = "ЖЖ";
