@@ -8,6 +8,7 @@ on:
       - 'eng/build-sqlcipher-windows-x64.ps1'
       - 'eng/add-native-provenance.ps1'
       - 'eng/publish-windows-x64.ps1'
+      - 'eng/verify-published-windows-x64.ps1'
       - 'tools/Clipensk.SqlCipher.Smoke/**'
       - 'src/Clipensk.App/Clipensk.App.csproj'
       - 'src/Clipensk.Storage/**'
@@ -70,6 +71,10 @@ jobs:
       - name: Publish unpackaged Clipensk x64 runtime
         shell: pwsh
         run: ./eng/publish-windows-x64.ps1
+
+      - name: Verify published Clipensk x64 runtime SQLCipher loading
+        shell: pwsh
+        run: ./eng/verify-published-windows-x64.ps1
 
       - name: Upload native SQLCipher x64 evidence
         if: always()
