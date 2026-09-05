@@ -1,5 +1,6 @@
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Input;
+using Clipensk.Core.Storage;
 using Clipensk.Windows.Clipboard;
 using Clipensk.Windows.Input;
 using Clipensk.Windows.Interop;
@@ -117,6 +118,21 @@ public sealed class ResidentWindowsHost : IDisposable
             new ClipboardAcceptedCaptureSinkStage(
                 new ClipboardAcceptedCaptureStage(),
                 sink));
+    }
+
+    public IClipboardAcceptedCaptureDelivery CreateProtectedAcceptedCaptureDelivery(
+        IClipboardCapturePolicyProvider policyProvider,
+        IClipboardAcceptedCaptureSink sink,
+        ProtectedStorageSessionLease session)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(session);
+
+        return new ProtectedClipboardAcceptedCaptureDelivery(
+            CreateAcceptedCaptureDeliveryPipeline(policyProvider, sink),
+            session);
     }
 
     public void StartClipboardMonitoring()
