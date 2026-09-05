@@ -1,6 +1,6 @@
 # Native SQLCipher build — Windows
 
-Статус: **x64 pipeline implemented; green native evidence is required before x64 is called PASS.**
+Статус: **x64 source build + unpackaged runtime delivery pipeline implemented; green native evidence is required before x64 runtime is called PASS.**
 
 Дата фиксации pipeline: 4 сентября 2026 года.
 
@@ -106,7 +106,16 @@ Smoke обязан:
 
 ## 7. CI workflow
 
-Workflow `.github/workflows/sqlcipher-native.yml` на x64 собирает pinned OpenSSL + SQLCipher, публикует smoke host, запускает native smoke и сохраняет native build artifact/evidence на ограниченный срок.
+Workflow `.github/workflows/sqlcipher-native.yml` на x64:
+
+1. собирает pinned OpenSSL + SQLCipher;
+2. записывает provenance manifest;
+3. публикует smoke host и выполняет native smoke рядом с исходным verified artifact;
+4. публикует текущий unpackaged `Clipensk.App` x64 runtime через `eng/publish-windows-x64.ps1`;
+5. выполняет `eng/verify-published-windows-x64.ps1`, который проверяет runtime/native manifests, hashes и provenance, а затем повторно запускает production storage smoke из отдельной директории без собственной `sqlcipher.dll`, с итоговым publish-каталогом первым в `PATH`;
+6. сохраняет native evidence и unpackaged runtime artifact на ограниченный срок.
+
+Таким образом, второй smoke подтверждает не только пригодность собранной DLL, но и загрузку exact staged `sqlcipher.dll` из текущего publish layout.
 
 Обычный `.github/workflows/build.yml` продолжает проверять managed Restore/Build/Test. Его PASS не заменяет native SQLCipher evidence.
 
@@ -116,4 +125,6 @@ Clipensk поддерживает только Windows x64 (AMD64). ARM64 source
 
 ## 9. Packaging boundary
 
-Даже green native build/smoke не означает, что production installer уже доставляет DLL. Отдельно остаётся включить verified x64 `sqlcipher.dll` в выбранную схему распространения Clipensk и проверить runtime loading из установленного приложения.
+Для текущего unpackaged `WindowsPackageType=None` host runtime delivery verified x64 `sqlcipher.dll` реализован и должен подтверждаться fresh green Native SQLCipher CI run. Publish output содержит runtime-delivery manifest, exact native build manifest, verified DLL и требуемые native license files; deprecated `e_sqlcipher.dll` запрещён.
+
+Это не фиксирует финальную схему распространения продукта. После выбора MSIX и/или portable delivery отдельно потребуется доказать, что installer/package сохраняет тот же verified x64 native artifact и что установленное приложение загружает именно его. Финальный installer/runtime loading остаётся открытым packaging requirement.
