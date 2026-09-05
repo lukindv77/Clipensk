@@ -39,9 +39,13 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
         cancellation.Cancel();
 
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-            await repository.GetGlobalPolicyAsync(cancellation.Token));
+        {
+            await repository.GetGlobalPolicyAsync(cancellation.Token);
+        });
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-            await repository.GetApplicationPolicyAsync(sourceApplication, cancellation.Token));
+        {
+            await repository.GetApplicationPolicyAsync(sourceApplication, cancellation.Token);
+        });
     }
 
     [Fact]
