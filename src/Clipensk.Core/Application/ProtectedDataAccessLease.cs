@@ -99,12 +99,21 @@ public sealed class ProtectedDataAccessLease : IDisposable
             return;
         }
 
-        lock (_gate)
+        try
         {
-            if (!_disposed)
+            lock (_gate)
             {
-                RevokeProtectedAccessUnderLock();
+                if (!_disposed)
+                {
+                    RevokeProtectedAccessUnderLock();
+                }
             }
+        }
+        catch (AggregateException)
+        {
+            // Cancellation callbacks are consumers of the protected-access signal.
+            // Their failures must not interrupt the lifecycle event or prevent later
+            // subscribers from observing that protected access has been revoked.
         }
     }
 
