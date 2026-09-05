@@ -125,3 +125,20 @@
 - focus restoration;
 - plain-text paste;
 - обработку приложений с ограничениями foreground activation.
+
+## 11. Persistent application identity для policy/history
+
+Нужно определить стабильную идентичность приложения, пригодную как durable key для per-application capture policy и будущей history attribution.
+
+Нельзя без отдельного решения считать durable identity:
+
+- PID или process lifetime;
+- HWND/foreground-window handle;
+- путь к executable сам по себе, поскольку он может измениться при перемещении/обновлении;
+- display name или другой пользовательский label.
+
+Нужно определить единый контракт для packaged и unpackaged Win32 applications: какие Windows identity attributes используются, какой fallback допустим при их отсутствии, как обрабатываются обновление/перемещение executable и когда две наблюдаемые process instances считаются одним приложением.
+
+`SourceApplication` и `InvocationApplication` остаются разными runtime concepts и не должны неявно объединяться одним guessed key.
+
+До фиксации этого решения concrete per-application policy repository/storage schema и durable application key не вводятся.
