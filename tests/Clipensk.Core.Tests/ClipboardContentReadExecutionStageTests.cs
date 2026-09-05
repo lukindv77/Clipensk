@@ -85,25 +85,36 @@ public sealed class ClipboardContentReadExecutionStageTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_DefersStorageItemsWithConfiguredLimitWithoutReadingPayload()
+    public async Task ExecuteAsync_AppliesStorageItemsLimitToCanonicalMetadataAfterReading()
     {
-        var storageReader = new StubStorageItemsReader("StorageItems", []);
+        ClipboardStorageItemMetadata[] items =
+        [
+            new ClipboardStorageItemMetadata(
+                "C:\\Temp\\Ж.txt",
+                "Ж.txt",
+                ".txt",
+                IsDirectory: false,
+                Order: 0,
+                ClipboardPreferredFileOperation.Copy),
+        ];
+        ClipboardStorageItemsCanonicalRepresentation canonical =
+            ClipboardStorageItemsCanonicalizer.Create(items);
+        var storageReader = new StubStorageItemsReader("StorageItems", items);
         var stage = new ClipboardContentReadExecutionStage(
             new StubTextReader(),
             new StubPngImageReader(),
             new StubLinkReader(),
             storageReader);
-        ClipboardSelectedFormat selected = new("StorageItems", 1024);
+        ClipboardSelectedFormat selected = new("StorageItems", canonical.ByteCount - 1);
         ClipboardContentReadPlan plan = CreatePlan(
             [new ClipboardContentReaderRoute(selected, ClipboardContentReaderKind.StorageItems)]);
 
         ClipboardContentReadExecution result = await stage.ExecuteAsync(plan);
 
         Assert.Empty(result.CapturedContent);
-        Assert.Empty(result.SizeRejectedFormats);
-        Assert.Single(result.DeferredFormats);
-        Assert.Equal(selected, result.DeferredFormats[0]);
-        Assert.Equal(0, storageReader.ReadCount);
+        Assert.Equal(selected, Assert.Single(result.SizeRejectedFormats));
+        Assert.Empty(result.DeferredFormats);
+        Assert.Equal(1, storageReader.ReadCount);
     }
 
     [Fact]
