@@ -131,10 +131,20 @@ public sealed class ClipboardContentReadExecutionStage
                         ?? throw new InvalidOperationException(
                             "Clipboard content read plan contains a custom binary route but no custom binary reader is configured.");
                     EnsureSupported(customBinaryReader.SupportsFormat(formatName), route);
-                    byte[] bytes = await customBinaryReader
-                        .ReadAsync(contentSnapshot!, formatName, cancellationToken)
+                    byte[]? bytes = await customBinaryReader
+                        .ReadWithinLimitAsync(
+                            contentSnapshot!,
+                            formatName,
+                            selectedFormat.MaxBytes,
+                            cancellationToken)
                         .ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (bytes is null)
+                    {
+                        sizeRejectedFormats.Add(selectedFormat);
+                        break;
+                    }
+
                     long byteCount = ClipboardCanonicalPayloadSize.MeasureBinary(bytes);
                     if (ClipboardCanonicalPayloadSize.IsWithinLimit(byteCount, selectedFormat.MaxBytes))
                     {
