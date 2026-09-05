@@ -36,6 +36,8 @@
 
 Для MSIX уже зафиксировано, что при первом запуске пользователь выбирает каталог хранения данных. Текущий development-host собирается unpackaged и не фиксирует конечную схему распространения.
 
+Для текущего unpackaged x64 development/runtime path доставка verified `sqlcipher.dll` уже реализована: native pipeline публикует приложение вместе с exact verified DLL, runtime/native manifests и license files, а отдельный post-publish smoke запускает production storage boundary так, чтобы SQLCipher загружался именно из итогового publish layout. Это не выбирает и не доказывает будущий MSIX installer path.
+
 ## 4. Оставшаяся криптографическая/native конфигурация
 
 Уже зафиксировано в `CRYPTOGRAPHY.md` и `NATIVE_SQLCIPHER_BUILD.md`:
@@ -50,11 +52,12 @@
 - Current/Catalog `DatabaseIdentity` является обязательным gate перед `UNLOCKED`;
 - production native SQLCipher строится из source, deprecated bundled `e_sqlcipher` binaries не используются;
 - для Windows x64 реализован pinned source-build/smoke pipeline на SQLCipher 4.17.0 + OpenSSL 3.5.8; его фактический PASS должен подтверждаться отдельным CI run;
+- текущий unpackaged x64 publish path проверяет hash/provenance staged `sqlcipher.dll` и выполняет post-publish production storage smoke непосредственно через final runtime layout;
 - ARM64 не поддерживается и не является будущим native target.
 
 Остаётся определить/реализовать:
 
-- packaging и runtime delivery verified `sqlcipher.dll` для выбранной схемы распространения;
+- packaging и runtime-delivery verification для будущей выбранной **финальной** схемы распространения, если она отличается от текущего unpackaged x64 path (в частности MSIX);
 - byte-for-byte reproducibility/provenance hardening;
 - процедуру смены пароля и/или MasterKey;
 - recovery procedure при потере/повреждении crypto metadata;
@@ -80,12 +83,15 @@
 
 Семантика измерения `MaxBytes` для уже канонизированных payload зафиксирована в `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`: текстовые representations и ссылки измеряются в UTF-8, изображения — по нормализованным PNG bytes, custom binary — по точным сохраняемым bytes. Для `CF_HDROP` canonical persisted metadata representation всё ещё нужно определить вместе с его лимитами; произвольная сериализация запрещена.
 
-Уже зафиксировано:
+Уже зафиксировано/реализовано:
 
 - HTML и RTF хранятся только в БД;
+- для HTML `SearchText` строится отдельной managed projection после MaxBytes gate; raw `CF_HTML` остаётся неизменным canonical payload;
 - изображения нормализуются в PNG и хранятся как external files;
-- unknown registered/private binary payload выключен по умолчанию;
-- CF_WAVE, CF_RIFF и virtual file contents не сохраняются.
+- explicitly allowed registered/private binary payload читается только как `IRandomAccessStream`, измеряется по exact bytes и остаётся выключенным по умолчанию;
+- CF_WAVE, CF_RIFF и virtual file contents не сохраняются и блокируются до reader routing.
+
+Открытым остаётся безопасный `RTF -> SearchText` boundary. Raw RTF control syntax не может использоваться как поисковый текст. Нельзя вводить скрытый `RichEditBox`/UI-thread dependency либо самописный неполный RTF parser без отдельного lifecycle/threading/parser contract.
 
 ## 7. Период журнала по умолчанию
 
