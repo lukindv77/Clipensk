@@ -6,7 +6,7 @@ public enum ApplicationIdentityResolutionBasis
     ExecutablePathAlias = 2,
 }
 
-public readonly record struct ApplicationIdentityResolution(
+public sealed record ApplicationIdentityResolution(
     ApplicationId ApplicationId,
     ApplicationIdentityResolutionBasis Basis,
     bool WasCreated);
