@@ -2,7 +2,7 @@ namespace Clipensk.Core.Input;
 
 public interface IGlobalHotKeyService : IDisposable
 {
-    event EventHandler? Pressed;
+    event EventHandler<JournalHotKeyPressedEventArgs>? Pressed;
 
     bool IsRegistered { get; }
 

@@ -12,16 +12,18 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
     private const uint ModNoRepeat = 0x4000;
 
     private readonly ResidentMessageWindow _messageWindow;
+    private readonly WindowsInvocationApplicationResolver _invocationApplicationResolver;
     private int? _activeHotKeyId;
     private bool _disposed;
 
     internal GlobalHotKeyService(ResidentMessageWindow messageWindow)
     {
         _messageWindow = messageWindow ?? throw new ArgumentNullException(nameof(messageWindow));
+        _invocationApplicationResolver = new WindowsInvocationApplicationResolver();
         _messageWindow.HotKeyReceived += OnHotKeyReceived;
     }
 
-    public event EventHandler? Pressed;
+    public event EventHandler<JournalHotKeyPressedEventArgs>? Pressed;
 
     public bool IsRegistered => _activeHotKeyId.HasValue;
 
@@ -79,10 +81,13 @@ public sealed class GlobalHotKeyService : IGlobalHotKeyService
 
     private void OnHotKeyReceived(int hotKeyId)
     {
-        if (_activeHotKeyId == hotKeyId)
+        if (_activeHotKeyId != hotKeyId)
         {
-            Pressed?.Invoke(this, EventArgs.Empty);
+            return;
         }
+
+        InvocationApplication? invocationApplication = _invocationApplicationResolver.TryResolveCurrent();
+        Pressed?.Invoke(this, new JournalHotKeyPressedEventArgs(invocationApplication));
     }
 
     private void UnregisterInternal()

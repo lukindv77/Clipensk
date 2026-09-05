@@ -21,6 +21,7 @@ public partial class App : Application
     private ProtectedApplicationLifecycle? _lifecycle;
     private IProtectedStorageCredentialService? _credentialService;
     private IProtectedStorageDatabaseService? _databaseService;
+    private InvocationApplication? _journalInvocationApplication;
 
     public App()
     {
@@ -84,8 +85,9 @@ public partial class App : Application
         _window.Activate();
     }
 
-    private void OnJournalHotKeyPressed(object? sender, EventArgs e)
+    private void OnJournalHotKeyPressed(object? sender, JournalHotKeyPressedEventArgs e)
     {
+        _journalInvocationApplication = e.InvocationApplication;
         _window?.DispatcherQueue.TryEnqueue(() => _window.ShowJournal());
     }
 
@@ -133,5 +135,6 @@ public partial class App : Application
         _databaseService = null;
         _credentialService = null;
         _lifecycle = null;
+        _journalInvocationApplication = null;
     }
 }
