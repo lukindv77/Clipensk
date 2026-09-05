@@ -6,17 +6,20 @@ public sealed class ClipboardContentReaderRouter
     private readonly IClipboardPngImageContentReader _pngImageReader;
     private readonly IClipboardLinkContentReader _linkReader;
     private readonly IClipboardStorageItemsContentReader _storageItemsReader;
+    private readonly IClipboardCustomBinaryContentReader? _customBinaryReader;
 
     public ClipboardContentReaderRouter(
         IClipboardTextContentReader textReader,
         IClipboardPngImageContentReader pngImageReader,
         IClipboardLinkContentReader linkReader,
-        IClipboardStorageItemsContentReader storageItemsReader)
+        IClipboardStorageItemsContentReader storageItemsReader,
+        IClipboardCustomBinaryContentReader? customBinaryReader = null)
     {
         _textReader = textReader ?? throw new ArgumentNullException(nameof(textReader));
         _pngImageReader = pngImageReader ?? throw new ArgumentNullException(nameof(pngImageReader));
         _linkReader = linkReader ?? throw new ArgumentNullException(nameof(linkReader));
         _storageItemsReader = storageItemsReader ?? throw new ArgumentNullException(nameof(storageItemsReader));
+        _customBinaryReader = customBinaryReader;
     }
 
     public ClipboardContentReaderRoute? TryRoute(ClipboardSelectedFormat selectedFormat)
@@ -29,6 +32,13 @@ public sealed class ClipboardContentReaderRouter
         Match(ClipboardContentReaderKind.PngImage, _pngImageReader.SupportsFormat(selectedFormat.FormatName));
         Match(ClipboardContentReaderKind.Link, _linkReader.SupportsFormat(selectedFormat.FormatName));
         Match(ClipboardContentReaderKind.StorageItems, _storageItemsReader.SupportsFormat(selectedFormat.FormatName));
+
+        if (readerKind is null &&
+            _customBinaryReader is not null &&
+            _customBinaryReader.SupportsFormat(selectedFormat.FormatName))
+        {
+            readerKind = ClipboardContentReaderKind.CustomBinary;
+        }
 
         return readerKind is null
             ? null
