@@ -37,8 +37,34 @@ public sealed class ClipboardStorageItemsCanonicalizerTests
             "]}";
 
         Assert.Equal(Expected, result.Text);
-        Assert.Equal(Encoding.UTF8.GetByteCount(Expected), result.ByteCount);
+        Assert.Equal((long)Encoding.UTF8.GetByteCount(Expected), result.ByteCount);
         Assert.True(result.ByteCount > result.Text.Length);
+    }
+
+    [Fact]
+    public void CapturedContent_TwoArgumentConstructorBuildsCanonicalRepresentation()
+    {
+        ClipboardStorageItemMetadata[] items =
+        [
+            new ClipboardStorageItemMetadata(
+                "C:\\Temp\\a.txt",
+                "a.txt",
+                ".txt",
+                IsDirectory: false,
+                Order: 0,
+                ClipboardPreferredFileOperation.Link),
+        ];
+        ClipboardStorageItemsCanonicalRepresentation expected =
+            ClipboardStorageItemsCanonicalizer.Create(items);
+        var route = new ClipboardContentReaderRoute(
+            new ClipboardSelectedFormat("StorageItems", null),
+            ClipboardContentReaderKind.StorageItems);
+
+        var captured = new ClipboardCapturedStorageItemsContent(route, items);
+
+        Assert.Equal(expected.Text, captured.CanonicalRepresentation);
+        Assert.Equal(expected.ByteCount, captured.CanonicalByteCount);
+        Assert.Equal(items, captured.Items);
     }
 
     [Theory]
