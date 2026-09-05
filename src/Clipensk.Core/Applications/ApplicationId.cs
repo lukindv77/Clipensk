@@ -1,6 +1,6 @@
 namespace Clipensk.Core.Applications;
 
-public readonly record struct ApplicationId
+public sealed record ApplicationId
 {
     public ApplicationId(Guid value)
     {
