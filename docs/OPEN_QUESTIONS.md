@@ -137,8 +137,25 @@
 - путь к executable сам по себе, поскольку он может измениться при перемещении/обновлении;
 - display name или другой пользовательский label.
 
-Нужно определить единый контракт для packaged и unpackaged Win32 applications: какие Windows identity attributes используются, какой fallback допустим при их отсутствии, как обрабатываются обновление/перемещение executable и когда две наблюдаемые process instances считаются одним приложением.
+Технически подтверждено по Windows application identity contracts:
+
+- для packaged applications `ApplicationUserModelID` (AUMID) представляет application identity, строится из Package Family Name + Package Relative Application ID и документирован как persistable value, независимый от package version и architecture; это подходящий durable candidate для packaged branch;
+- Package Family Name сам по себе недостаточен как application key: один package может объявлять несколько applications;
+- unpackaged Win32 application не имеет package identity;
+- explicit AppUserModelID для classic Win32 опционален; если приложение его не задаёт, Windows может использовать internal heuristic AppUserModelID, который приложение не может получить как стабильное значение;
+- `GetCurrentProcessExplicitAppUserModelID` читает explicit process AppUserModelID только для текущего процесса, поэтому Clipensk не может считать этот API универсальным способом идентификации произвольного source process;
+- window-level `System.AppUserModel.ID` можно наблюдать для конкретного HWND, но он может идентифицировать отдельный user-visible mode/subexperience и переопределять process-level ID, поэтому сам по себе не является универсальным durable application key.
+
+Официальные ссылки:
+
+- https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/package-identity-overview
+- https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.core.applistentry.appusermodelid
+- https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/packaging/
+- https://learn.microsoft.com/en-us/windows/win32/shell/appids
+- https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-getcurrentprocessexplicitappusermodelid
+
+Следовательно, packaged branch можно строить вокруг AUMID, но общий fallback для unpackaged Win32 остаётся открытым. Нужно определить, какие наблюдаемые attributes допустимы для такого fallback, как обрабатываются обновление/перемещение executable и когда две process instances считаются одним приложением. До этого executable path/PID нельзя неявно повышать до durable identity.
 
 `SourceApplication` и `InvocationApplication` остаются разными runtime concepts и не должны неявно объединяться одним guessed key.
 
-До фиксации этого решения concrete per-application policy repository/storage schema и durable application key не вводятся.
+До фиксации unpackaged fallback concrete per-application policy repository/storage schema и универсальный durable application key не вводятся.
