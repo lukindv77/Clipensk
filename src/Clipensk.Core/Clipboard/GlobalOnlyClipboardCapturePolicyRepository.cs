@@ -17,15 +17,14 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepository : IClipboardCaptu
     }
 
     public ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
-        ClipboardSourceApplication sourceApplication,
+        Clipensk.Core.Applications.ApplicationId applicationId,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(sourceApplication);
+        ArgumentNullException.ThrowIfNull(applicationId);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Runtime source metadata (PID/path) is intentionally not treated as a durable
-        // application identity. Per-application policy remains unavailable until the
-        // persistent application identity contract is defined.
+        // This repository intentionally exposes no per-application overrides even when
+        // the caller has already resolved a durable Clipensk ApplicationId.
         return ValueTask.FromResult<ClipboardCapturePolicy?>(null);
     }
 }
