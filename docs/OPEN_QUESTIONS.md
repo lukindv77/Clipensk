@@ -78,6 +78,8 @@
 - лимиты explicitly enabled custom binary formats;
 - ограничения `CF_HDROP` по количеству элементов/размеру текстовой записи.
 
+Отдельно нужно определить **семантику измерения `MaxBytes`**, а не только числовые значения лимитов. Для каждого класса payload должно быть явно зафиксировано, к какому representation применяется лимит: raw clipboard bytes, decoded representation, нормализованные/stored bytes или другая однозначно определённая форма. До этого production read/enforcement stage не должен молча выбирать собственную трактовку.
+
 Уже зафиксировано:
 
 - HTML и RTF хранятся только в БД;
@@ -96,7 +98,7 @@
 - maximum record count;
 - maximum physical database size;
 - maximum calendar span;
-- ANY/ALL логика включённых условий.
+- ANY/ALL логику включённых условий.
 
 ## 9. Формат файлов локализации
 
