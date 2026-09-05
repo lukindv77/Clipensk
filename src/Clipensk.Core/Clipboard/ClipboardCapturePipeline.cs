@@ -3,6 +3,7 @@ namespace Clipensk.Core.Clipboard;
 public sealed class ClipboardCapturePipeline
 {
     private readonly ClipboardCaptureSourceStage _sourceStage;
+    private readonly ClipboardCaptureApplicationIdentityStage? _applicationIdentityStage;
     private readonly ClipboardCapturePolicyResolutionStage _policyStage;
     private readonly ClipboardFormatDiscoveryStage _formatDiscoveryStage;
     private readonly ClipboardFormatSelectionStage _formatSelectionStage;
@@ -12,8 +13,39 @@ public sealed class ClipboardCapturePipeline
         ClipboardCapturePolicyResolutionStage policyStage,
         ClipboardFormatDiscoveryStage formatDiscoveryStage,
         ClipboardFormatSelectionStage formatSelectionStage)
+        : this(
+            sourceStage,
+            applicationIdentityStage: null,
+            policyStage,
+            formatDiscoveryStage,
+            formatSelectionStage)
+    {
+    }
+
+    public ClipboardCapturePipeline(
+        ClipboardCaptureSourceStage sourceStage,
+        ClipboardCaptureApplicationIdentityStage applicationIdentityStage,
+        ClipboardCapturePolicyResolutionStage policyStage,
+        ClipboardFormatDiscoveryStage formatDiscoveryStage,
+        ClipboardFormatSelectionStage formatSelectionStage)
+        : this(
+            sourceStage,
+            applicationIdentityStage ?? throw new ArgumentNullException(nameof(applicationIdentityStage)),
+            policyStage,
+            formatDiscoveryStage,
+            formatSelectionStage)
+    {
+    }
+
+    private ClipboardCapturePipeline(
+        ClipboardCaptureSourceStage sourceStage,
+        ClipboardCaptureApplicationIdentityStage? applicationIdentityStage,
+        ClipboardCapturePolicyResolutionStage policyStage,
+        ClipboardFormatDiscoveryStage formatDiscoveryStage,
+        ClipboardFormatSelectionStage formatSelectionStage)
     {
         _sourceStage = sourceStage ?? throw new ArgumentNullException(nameof(sourceStage));
+        _applicationIdentityStage = applicationIdentityStage;
         _policyStage = policyStage ?? throw new ArgumentNullException(nameof(policyStage));
         _formatDiscoveryStage = formatDiscoveryStage ?? throw new ArgumentNullException(nameof(formatDiscoveryStage));
         _formatSelectionStage = formatSelectionStage ?? throw new ArgumentNullException(nameof(formatSelectionStage));
@@ -25,6 +57,14 @@ public sealed class ClipboardCapturePipeline
         ClipboardCaptureContext captureContext = await _sourceStage
             .ResolveNextAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        if (_applicationIdentityStage is not null)
+        {
+            captureContext = await _applicationIdentityStage
+                .ResolveAsync(captureContext, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         ClipboardCapturePolicyContext policyContext = await _policyStage
             .ResolveAsync(captureContext, cancellationToken)
             .ConfigureAwait(false);
