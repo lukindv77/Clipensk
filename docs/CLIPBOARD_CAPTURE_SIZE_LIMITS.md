@@ -27,7 +27,15 @@
 CanonicalByteCount = UTF8.GetByteCount(originalRepresentation)
 ```
 
-Для HTML/RTF извлекаемый позднее `SearchText` является производным индексируемым representation и не участвует в `MaxBytes`.
+`SearchText` является отдельным производным индексируемым representation и не участвует в `MaxBytes`. Его вычисление начинается только после того, как исходное representation прошло canonical size gate.
+
+Для plain text `SearchText` совпадает с исходным текстом.
+
+Для HTML сохраняется исходная строка `CF_HTML`, а `SearchText` строится managed parser-ом из fragment region. Fragment сначала определяется по `<!--StartFragment-->` / `<!--EndFragment-->`; если marker pair отсутствует, используются `StartFragment` / `EndFragment` как UTF-8 byte offsets согласно CF_HTML specification. HTML DOM parsing не выполняет scripts и network access; `script`, `style`, `noscript` и `template` не попадают в поисковый текст. Границы структурных элементов сохраняются как whitespace, HTML entities декодируются, последовательности whitespace нормализуются до одного пробела.
+
+`Windows.Data.Html.HtmlUtilities` намеренно не используется: для WinUI 3 packaged applications Windows App SDK документирует этот legacy Trident-based API как неподдерживаемый. Managed HTML parser сохраняет одинаковую capture semantics для unpackaged и возможного packaged delivery.
+
+Для RTF исходное representation уже может проходить capture/MaxBytes, но безопасный non-UI `RTF -> SearchText` boundary пока не реализован; до этого `SearchText` для RTF остаётся `null`. Raw RTF control syntax нельзя индексировать как подмену пользовательского текста.
 
 ## 3. WebLink / ApplicationLink
 
