@@ -39,8 +39,8 @@ public sealed class ClipboardCanonicalPayloadSizeTests
     [InlineData(10, 11, true)]
     [InlineData(10, 9, false)]
     public void IsWithinLimit_IsInclusive(
-        long canonicalByteCount,
-        long? maxBytes,
+        int canonicalByteCount,
+        int? maxBytes,
         bool expected)
     {
         Assert.Equal(
@@ -58,7 +58,7 @@ public sealed class ClipboardCanonicalPayloadSizeTests
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
-    public void IsWithinLimit_RejectsNonPositiveConfiguredLimit(long maxBytes)
+    public void IsWithinLimit_RejectsNonPositiveConfiguredLimit(int maxBytes)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             ClipboardCanonicalPayloadSize.IsWithinLimit(0, maxBytes));
