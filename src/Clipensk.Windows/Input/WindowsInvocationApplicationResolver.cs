@@ -8,6 +8,8 @@ namespace Clipensk.Windows.Input;
 internal sealed class WindowsInvocationApplicationResolver
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const int ErrorSuccess = 0;
+    private const int ErrorInsufficientBuffer = 122;
     private const int ImagePathCapacity = 32768;
 
     public InvocationApplication? TryResolveCurrent()
@@ -24,20 +26,23 @@ internal sealed class WindowsInvocationApplicationResolver
             return null;
         }
 
-        return new InvocationApplication(processId, TryGetExecutablePath(processId));
-    }
-
-    private static string? TryGetExecutablePath(uint processId)
-    {
         using SafeProcessHandle processHandle = OpenProcess(
             ProcessQueryLimitedInformation,
             inheritHandle: false,
             processId);
         if (processHandle.IsInvalid)
         {
-            return null;
+            return new InvocationApplication(processId, ExecutablePath: null);
         }
 
+        return new InvocationApplication(
+            processId,
+            TryGetExecutablePath(processHandle),
+            TryGetApplicationUserModelId(processHandle));
+    }
+
+    private static string? TryGetExecutablePath(SafeProcessHandle processHandle)
+    {
         var buffer = new StringBuilder(ImagePathCapacity);
         uint size = (uint)buffer.Capacity;
         if (!QueryFullProcessImageName(processHandle, 0, buffer, ref size) || size == 0)
@@ -46,6 +51,28 @@ internal sealed class WindowsInvocationApplicationResolver
         }
 
         return buffer.ToString(0, checked((int)size));
+    }
+
+    private static string? TryGetApplicationUserModelId(SafeProcessHandle processHandle)
+    {
+        uint length = 0;
+        int result = GetApplicationUserModelId(
+            processHandle,
+            ref length,
+            applicationUserModelId: null);
+        if (result != ErrorInsufficientBuffer || length <= 1)
+        {
+            return null;
+        }
+
+        var buffer = new StringBuilder(checked((int)length));
+        result = GetApplicationUserModelId(processHandle, ref length, buffer);
+        if (result != ErrorSuccess || length <= 1)
+        {
+            return null;
+        }
+
+        return buffer.ToString();
     }
 
     [DllImport("user32.dll")]
@@ -67,4 +94,10 @@ internal sealed class WindowsInvocationApplicationResolver
         uint flags,
         StringBuilder executableName,
         ref uint size);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetApplicationUserModelId(
+        SafeProcessHandle processHandle,
+        ref uint applicationUserModelIdLength,
+        StringBuilder? applicationUserModelId);
 }
