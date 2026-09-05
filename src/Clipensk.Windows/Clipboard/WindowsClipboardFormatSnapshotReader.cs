@@ -6,9 +6,9 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardFormatSnapshotReader : IClipboardFormatSnapshotReader
 {
-    public IReadOnlyList<string> ReadAvailableFormats()
+    public IClipboardContentSnapshot ReadSnapshot()
     {
         DataPackageView content = WindowsClipboard.GetContent();
-        return content.AvailableFormats.ToArray();
+        return new WindowsClipboardContentSnapshot(content);
     }
 }

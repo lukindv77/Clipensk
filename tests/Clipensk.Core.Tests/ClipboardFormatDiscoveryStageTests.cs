@@ -7,15 +7,17 @@ namespace Clipensk.Core.Tests;
 public sealed class ClipboardFormatDiscoveryStageTests
 {
     [Fact]
-    public void Discover_AllowedCaptureReadsAvailableFormats()
+    public void Discover_AllowedCaptureRetainsContentSnapshot()
     {
-        var reader = new StubFormatSnapshotReader(new[] { "Text", "HTML Format" });
+        var contentSnapshot = new StubContentSnapshot(new[] { "Text", "HTML Format" });
+        var reader = new StubFormatSnapshotReader(contentSnapshot);
         var stage = new ClipboardFormatDiscoveryStage(reader);
         ClipboardCapturePolicyContext policyContext = CreatePolicyContext(ClipboardCapturePolicyRule.Allow);
 
         ClipboardFormatSnapshot snapshot = stage.Discover(policyContext);
 
         Assert.Equal(policyContext, snapshot.PolicyContext);
+        Assert.Same(contentSnapshot, snapshot.ContentSnapshot);
         Assert.Equal(2, snapshot.AvailableFormats.Count);
         Assert.Equal("Text", snapshot.AvailableFormats[0]);
         Assert.Equal("HTML Format", snapshot.AvailableFormats[1]);
@@ -27,27 +29,16 @@ public sealed class ClipboardFormatDiscoveryStageTests
     [InlineData(ClipboardCapturePolicyRule.Inherit)]
     public void Discover_NonAllowedCaptureDoesNotTouchClipboard(ClipboardCapturePolicyRule rule)
     {
-        var reader = new StubFormatSnapshotReader(new[] { "Text" });
+        var contentSnapshot = new StubContentSnapshot(new[] { "Text" });
+        var reader = new StubFormatSnapshotReader(contentSnapshot);
         var stage = new ClipboardFormatDiscoveryStage(reader);
         ClipboardCapturePolicyContext policyContext = CreatePolicyContext(rule);
 
         ClipboardFormatSnapshot snapshot = stage.Discover(policyContext);
 
+        Assert.Null(snapshot.ContentSnapshot);
         Assert.Empty(snapshot.AvailableFormats);
         Assert.Equal(0, reader.CallCount);
-    }
-
-    [Fact]
-    public void Snapshot_CopiesAvailableFormatList()
-    {
-        var formats = new List<string> { "Text" };
-        ClipboardCapturePolicyContext policyContext = CreatePolicyContext(ClipboardCapturePolicyRule.Allow);
-        var snapshot = new ClipboardFormatSnapshot(policyContext, formats);
-
-        formats.Add("HTML Format");
-
-        Assert.Single(snapshot.AvailableFormats);
-        Assert.Equal("Text", snapshot.AvailableFormats[0]);
     }
 
     private static ClipboardCapturePolicyContext CreatePolicyContext(ClipboardCapturePolicyRule rule)
@@ -65,21 +56,31 @@ public sealed class ClipboardFormatDiscoveryStageTests
             new ClipboardCapturePolicy(rule));
     }
 
+    private sealed class StubContentSnapshot : IClipboardContentSnapshot
+    {
+        public StubContentSnapshot(IReadOnlyList<string> availableFormats)
+        {
+            AvailableFormats = availableFormats;
+        }
+
+        public IReadOnlyList<string> AvailableFormats { get; }
+    }
+
     private sealed class StubFormatSnapshotReader : IClipboardFormatSnapshotReader
     {
-        private readonly IReadOnlyList<string> _formats;
+        private readonly IClipboardContentSnapshot _snapshot;
 
-        public StubFormatSnapshotReader(IReadOnlyList<string> formats)
+        public StubFormatSnapshotReader(IClipboardContentSnapshot snapshot)
         {
-            _formats = formats;
+            _snapshot = snapshot;
         }
 
         public int CallCount { get; private set; }
 
-        public IReadOnlyList<string> ReadAvailableFormats()
+        public IClipboardContentSnapshot ReadSnapshot()
         {
             CallCount++;
-            return _formats;
+            return _snapshot;
         }
     }
 }

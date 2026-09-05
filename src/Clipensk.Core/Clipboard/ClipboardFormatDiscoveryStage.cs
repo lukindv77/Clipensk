@@ -13,10 +13,10 @@ public sealed class ClipboardFormatDiscoveryStage
     {
         if (policyContext.Policy.Capture != ClipboardCapturePolicyRule.Allow)
         {
-            return new ClipboardFormatSnapshot(policyContext, Array.Empty<string>());
+            return new ClipboardFormatSnapshot(policyContext, contentSnapshot: null);
         }
 
-        IReadOnlyList<string> availableFormats = _reader.ReadAvailableFormats();
-        return new ClipboardFormatSnapshot(policyContext, availableFormats);
+        IClipboardContentSnapshot contentSnapshot = _reader.ReadSnapshot();
+        return new ClipboardFormatSnapshot(policyContext, contentSnapshot);
     }
 }
