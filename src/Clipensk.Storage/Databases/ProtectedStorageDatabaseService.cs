@@ -1,6 +1,7 @@
 using System.Globalization;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
+using Clipensk.Storage.Clipboard;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
 
@@ -9,8 +10,9 @@ namespace Clipensk.Storage.Databases;
 public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseService
 {
     private const int LegacyCurrentSchemaVersion = 1;
+    private const int ApplicationIdentityCurrentSchemaVersion = 2;
 
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     public const int CatalogSchemaVersion = 1;
     public const int CurrentEncryptionVersion = 1;
 
@@ -89,6 +91,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     masterKey,
                     cancellationToken,
                     LegacyCurrentSchemaVersion,
+                    ApplicationIdentityCurrentSchemaVersion,
                     CurrentSchemaVersion);
 
                 // Critical rule: validate the whole protected pair before mutating Current.
@@ -103,6 +106,16 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 if (currentSchemaVersion == LegacyCurrentSchemaVersion)
                 {
                     MigrateCurrentFromV1ToV2(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = ApplicationIdentityCurrentSchemaVersion;
+                }
+
+                if (currentSchemaVersion == ApplicationIdentityCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV2ToV3(
                         currentDatabasePath,
                         storageId,
                         masterKey,
@@ -311,6 +324,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         if (role == DatabaseRole.Current)
         {
             ApplicationIdentitySqlSchema.CreateTables(connection, transaction);
+            ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
         }
 
         using (SqliteCommand userVersion = connection.CreateCommand())
@@ -341,37 +355,85 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         using SqliteTransaction transaction = connection.BeginTransaction();
         ApplicationIdentitySqlSchema.CreateTables(connection, transaction);
 
-        using (SqliteCommand updateIdentity = connection.CreateCommand())
-        {
-            updateIdentity.Transaction = transaction;
-            updateIdentity.CommandText = """
-                UPDATE DatabaseIdentity
-                SET SchemaVersion = $newSchemaVersion
-                WHERE SingletonId = 1
-                  AND StorageId = $storageId
-                  AND DatabaseRole = $role
-                  AND SchemaVersion = $oldSchemaVersion;
-                """;
-            updateIdentity.Parameters.AddWithValue("$newSchemaVersion", CurrentSchemaVersion);
-            updateIdentity.Parameters.AddWithValue("$storageId", expectedStorageId.ToString("D"));
-            updateIdentity.Parameters.AddWithValue("$role", DatabaseRole.Current.ToString());
-            updateIdentity.Parameters.AddWithValue("$oldSchemaVersion", LegacyCurrentSchemaVersion);
-            if (updateIdentity.ExecuteNonQuery() != 1)
-            {
-                throw new InvalidDataException(
-                    "Current v1 identity changed before schema migration could be committed.");
-            }
-        }
-
-        using (SqliteCommand userVersion = connection.CreateCommand())
-        {
-            userVersion.Transaction = transaction;
-            userVersion.CommandText = $"PRAGMA user_version = {CurrentSchemaVersion};";
-            userVersion.ExecuteNonQuery();
-        }
+        UpdateCurrentSchemaVersion(
+            connection,
+            transaction,
+            expectedStorageId,
+            LegacyCurrentSchemaVersion,
+            ApplicationIdentityCurrentSchemaVersion);
+        SetUserVersion(connection, transaction, ApplicationIdentityCurrentSchemaVersion);
 
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
+    }
+
+    private void MigrateCurrentFromV2ToV3(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath,
+            masterKey,
+            SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ApplicationIdentitySqlSchema.ValidateTables(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
+
+        UpdateCurrentSchemaVersion(
+            connection,
+            transaction,
+            expectedStorageId,
+            ApplicationIdentityCurrentSchemaVersion,
+            CurrentSchemaVersion);
+        SetUserVersion(connection, transaction, CurrentSchemaVersion);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private static void UpdateCurrentSchemaVersion(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid expectedStorageId,
+        int oldSchemaVersion,
+        int newSchemaVersion)
+    {
+        using SqliteCommand updateIdentity = connection.CreateCommand();
+        updateIdentity.Transaction = transaction;
+        updateIdentity.CommandText = """
+            UPDATE DatabaseIdentity
+            SET SchemaVersion = $newSchemaVersion
+            WHERE SingletonId = 1
+              AND StorageId = $storageId
+              AND DatabaseRole = $role
+              AND SchemaVersion = $oldSchemaVersion;
+            """;
+        updateIdentity.Parameters.AddWithValue("$newSchemaVersion", newSchemaVersion);
+        updateIdentity.Parameters.AddWithValue("$storageId", expectedStorageId.ToString("D"));
+        updateIdentity.Parameters.AddWithValue("$role", DatabaseRole.Current.ToString());
+        updateIdentity.Parameters.AddWithValue("$oldSchemaVersion", oldSchemaVersion);
+        if (updateIdentity.ExecuteNonQuery() != 1)
+        {
+            throw new InvalidDataException(
+                $"Current v{oldSchemaVersion} identity changed before schema migration could be committed.");
+        }
+    }
+
+    private static void SetUserVersion(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        int schemaVersion)
+    {
+        using SqliteCommand userVersion = connection.CreateCommand();
+        userVersion.Transaction = transaction;
+        userVersion.CommandText = $"PRAGMA user_version = {schemaVersion};";
+        userVersion.ExecuteNonQuery();
     }
 
     private int ValidateDatabase(
@@ -475,9 +537,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             }
         }
 
-        if (expectedRole == DatabaseRole.Current && schemaVersion == CurrentSchemaVersion)
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= ApplicationIdentityCurrentSchemaVersion)
         {
             ApplicationIdentitySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        {
+            ApplicationCapturePolicySqlSchema.ValidateTables(connection);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
