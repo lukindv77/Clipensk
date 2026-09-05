@@ -56,7 +56,19 @@ Raw clipboard bitmap bytes до декодирования не являются
 
 ## 5. Explicitly enabled custom binary
 
-Когда появится reader разрешённых registered/private binary formats, canonical bytes — точные байты, которые Clipensk собирается сохранить во внешний файл. Если обязательной нормализации для формата нет, лимит применяется к исходным сохраняемым байтам.
+Registered/private format не становится доступным автоматически. Он попадает в read plan только если exact format name присутствует в effective policy с `Capture=Allow`; standard readers имеют приоритет, а custom binary reader используется только как fallback для явно выбранного неизвестного формата.
+
+Windows custom binary boundary использует `DataPackageView.GetDataAsync(formatName)`. Полученный object обязан быть `IRandomAccessStream`; никакая произвольная object serialization или reinterpretation не выполняется. Если custom format не предоставляет random-access binary stream, capture этого route завершается fail-closed.
+
+Canonical bytes — точные bytes stream, которые Clipensk собирается сохранить во внешний файл. Дополнительной нормализации нет:
+
+```text
+CanonicalByteCount = exact preserved binary byte count
+```
+
+`MaxBytes` применяется к этим exact bytes до persistence. Captured payload владеет собственной копией byte snapshot, чтобы последующее изменение исходного buffer не меняло принятое clipboard event representation.
+
+Unknown registered/private binary formats остаются выключенными по умолчанию; этот reader не вводит default allow-list и не задаёт default size limits.
 
 ## 6. CF_HDROP / StorageItems
 
