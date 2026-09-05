@@ -2,6 +2,7 @@ using System.Globalization;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Clipboard;
+using Clipensk.Storage.History;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
 
@@ -11,8 +12,9 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
 {
     private const int LegacyCurrentSchemaVersion = 1;
     private const int ApplicationIdentityCurrentSchemaVersion = 2;
+    private const int ApplicationPolicyCurrentSchemaVersion = 3;
 
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
     public const int CatalogSchemaVersion = 1;
     public const int CurrentEncryptionVersion = 1;
 
@@ -92,6 +94,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     cancellationToken,
                     LegacyCurrentSchemaVersion,
                     ApplicationIdentityCurrentSchemaVersion,
+                    ApplicationPolicyCurrentSchemaVersion,
                     CurrentSchemaVersion);
 
                 // Critical rule: validate the whole protected pair before mutating Current.
@@ -116,6 +119,16 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 if (currentSchemaVersion == ApplicationIdentityCurrentSchemaVersion)
                 {
                     MigrateCurrentFromV2ToV3(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = ApplicationPolicyCurrentSchemaVersion;
+                }
+
+                if (currentSchemaVersion == ApplicationPolicyCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV3ToV4(
                         currentDatabasePath,
                         storageId,
                         masterKey,
@@ -325,6 +338,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         {
             ApplicationIdentitySqlSchema.CreateTables(connection, transaction);
             ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
+            ClipboardHistorySqlSchema.CreateTables(connection, transaction);
         }
 
         using (SqliteCommand userVersion = connection.CreateCommand())
@@ -390,6 +404,37 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             transaction,
             expectedStorageId,
             ApplicationIdentityCurrentSchemaVersion,
+            ApplicationPolicyCurrentSchemaVersion);
+        SetUserVersion(connection, transaction, ApplicationPolicyCurrentSchemaVersion);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private void MigrateCurrentFromV3ToV4(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath,
+            masterKey,
+            SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ApplicationIdentitySqlSchema.ValidateTables(connection);
+        ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ClipboardHistorySqlSchema.CreateTables(connection, transaction);
+
+        UpdateCurrentSchemaVersion(
+            connection,
+            transaction,
+            expectedStorageId,
+            ApplicationPolicyCurrentSchemaVersion,
             CurrentSchemaVersion);
         SetUserVersion(connection, transaction, CurrentSchemaVersion);
 
@@ -543,9 +588,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ApplicationIdentitySqlSchema.ValidateTables(connection);
         }
 
-        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= ApplicationPolicyCurrentSchemaVersion)
         {
             ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        {
+            ClipboardHistorySqlSchema.ValidateTables(connection);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
