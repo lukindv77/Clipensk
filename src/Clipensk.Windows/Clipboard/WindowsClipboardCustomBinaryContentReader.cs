@@ -10,13 +10,18 @@ internal sealed class WindowsClipboardCustomBinaryContentReader : IClipboardCust
         return !string.IsNullOrWhiteSpace(formatName);
     }
 
-    public async ValueTask<byte[]> ReadAsync(
+    public async ValueTask<byte[]?> ReadWithinLimitAsync(
         IClipboardContentSnapshot contentSnapshot,
         string formatName,
+        long? maxBytes,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
+        if (maxBytes is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxBytes));
+        }
         cancellationToken.ThrowIfCancellationRequested();
 
         if (contentSnapshot is not WindowsClipboardContentSnapshot windowsSnapshot)
@@ -46,6 +51,11 @@ internal sealed class WindowsClipboardCustomBinaryContentReader : IClipboardCust
 
         using (stream)
         {
+            if (maxBytes.HasValue && stream.Size > (ulong)maxBytes.Value)
+            {
+                return null;
+            }
+
             if (stream.Size > int.MaxValue)
             {
                 throw new InvalidOperationException(
