@@ -23,6 +23,7 @@ public sealed class ResidentWindowsHost : IDisposable
         FormatDiscoveryStage = new ClipboardFormatDiscoveryStage(
             new WindowsClipboardFormatSnapshotReader());
         FormatSelectionStage = new ClipboardFormatSelectionStage();
+        TextContentReader = new WindowsClipboardTextContentReader();
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
     }
@@ -36,6 +37,8 @@ public sealed class ResidentWindowsHost : IDisposable
     public ClipboardFormatDiscoveryStage FormatDiscoveryStage { get; }
 
     public ClipboardFormatSelectionStage FormatSelectionStage { get; }
+
+    public IClipboardTextContentReader TextContentReader { get; }
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
 
