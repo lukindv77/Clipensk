@@ -84,9 +84,42 @@ Unknown registered/private binary formats остаются выключенны�
 
 ## 6. CF_HDROP / StorageItems
 
-Для `CF_HDROP` сейчас зафиксированы сами metadata-поля, но ещё не зафиксировано их canonical persisted text representation. Поэтому размерный лимит `CF_HDROP` нельзя вычислять произвольной сериализацией.
+Для `CF_HDROP` canonical capture representation v1 — компактный UTF-8 JSON без BOM и без форматирующих пробелов. Representation является частью принятого payload и сохраняется вместе с структурированными metadata, чтобы persistence не пересериализовывал одно и то же clipboard event по другим правилам.
 
-До утверждения canonical metadata representation production execution обязан действовать fail-closed для `StorageItems` route с ненулевым `MaxBytes`: такой лимит нельзя молча игнорировать или измерять по случайному runtime object size. Route без `MaxBytes` может быть прочитан последующим stage, но persistence semantics остаётся отдельным tranche.
+Top-level property order фиксирован:
+
+```json
+{"version":1,"items":[...]}
+```
+
+Каждый item записывается в исходном clipboard-порядке и содержит свойства строго в таком порядке:
+
+```text
+order
+fullPath
+name
+extension
+isDirectory
+preferredOperation
+```
+
+`order` обязан быть zero-based и contiguous (`0..N-1`) в том же порядке, в котором items вернул clipboard reader. `preferredOperation` имеет стабильные lowercase значения `unknown`, `copy`, `move`, `link`. Строковые значения сохраняются без нормализации регистра/пути; JSON escaping выполняется стандартным UTF-8 writer, а Unicode не заменяется произвольной ASCII-транслитерацией.
+
+Пример:
+
+```json
+{"version":1,"items":[{"order":0,"fullPath":"C:\\Temp\\a.txt","name":"a.txt","extension":".txt","isDirectory":false,"preferredOperation":"copy"}]}
+```
+
+`CanonicalByteCount` равен точному количеству UTF-8 bytes этой canonical JSON строки:
+
+```text
+CanonicalByteCount = UTF8.GetByteCount(canonicalStorageItemsJson)
+```
+
+Проверка `MaxBytes` выполняется после `GetStorageItemsAsync` и формирования metadata, но **не читает содержимое выбранных файлов или каталогов**. Если canonical metadata превышает лимит, StorageItems route отклоняется и запись об этом отклонении не создаётся. Старый fail-closed defer для ненулевого `MaxBytes` больше не нужен.
+
+Эта representation фиксирует payload/size semantics, но сама по себе не задаёт будущую физическую SQLite table layout: structured columns/relations могут храниться дополнительно, при этом canonical JSON остаётся точной принятой текстовой representation события.
 
 ## 7. Enforcement boundary
 
