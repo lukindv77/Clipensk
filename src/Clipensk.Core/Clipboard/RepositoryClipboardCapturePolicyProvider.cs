@@ -18,10 +18,10 @@ public sealed class RepositoryClipboardCapturePolicyProvider : IClipboardCapture
             .ConfigureAwait(false);
 
         ClipboardCapturePolicy? applicationPolicy = null;
-        if (captureContext.SourceApplication is { } sourceApplication)
+        if (captureContext.SourceApplicationId is { } sourceApplicationId)
         {
             applicationPolicy = await _repository
-                .GetApplicationPolicyAsync(sourceApplication, cancellationToken)
+                .GetApplicationPolicyAsync(sourceApplicationId, cancellationToken)
                 .ConfigureAwait(false);
         }
 
