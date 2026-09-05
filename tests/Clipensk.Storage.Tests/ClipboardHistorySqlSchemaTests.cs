@@ -42,6 +42,7 @@ public sealed class ClipboardHistorySqlSchemaTests
             command.Transaction = transaction;
             command.CommandText = """
                 ALTER TABLE ClipboardHistoryPayload RENAME TO ClipboardHistoryPayload_Old;
+                DROP INDEX IX_ClipboardHistoryPayload_FormatName;
 
                 CREATE TABLE ClipboardHistoryPayload (
                     EventId TEXT NOT NULL,
