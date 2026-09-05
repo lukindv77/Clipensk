@@ -68,6 +68,25 @@ public sealed class ProtectedStorageSessionLeaseTests
     }
 
     [Fact]
+    public void Dispose_ZeroesOwnedMasterKeyEvenWhenCancellationCallbackThrows()
+    {
+        var lifecycle = CreateUnlockedLifecycle();
+        byte[] key = [1, 2, 3, 4];
+        var session = ProtectedStorageSessionLease.Create(
+            lifecycle,
+            @"C:\ClipenskData",
+            Guid.NewGuid(),
+            new MasterKeyLease(key));
+        using CancellationTokenRegistration registration = session.CancellationToken.Register(
+            static () => throw new InvalidOperationException("callback failure"));
+
+        Assert.Throws<AggregateException>(() => session.Dispose());
+
+        Assert.False(session.IsActive);
+        Assert.All(key, value => Assert.Equal((byte)0, value));
+    }
+
+    [Fact]
     public void Create_WhileLockedFailsClosedAndZeroesCandidateMasterKey()
     {
         var lifecycle = new ProtectedApplicationLifecycle(isDataRootConfigured: true);

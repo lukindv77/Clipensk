@@ -116,10 +116,16 @@ public sealed class ProtectedStorageSessionLease : IDisposable
             _masterKeyLease = null;
         }
 
-        _accessRevokedRegistration.Dispose();
-        _accessLease.Dispose();
-        masterKeyLease?.Dispose();
-        GC.SuppressFinalize(this);
+        try
+        {
+            _accessRevokedRegistration.Dispose();
+            _accessLease.Dispose();
+        }
+        finally
+        {
+            masterKeyLease?.Dispose();
+            GC.SuppressFinalize(this);
+        }
     }
 
     private bool HasMasterKey()
