@@ -25,7 +25,7 @@ public sealed class ExternalPayloadStore
             firstStoredDate,
             pngBytes.Span);
 
-        await EnsureStoredAsync(address, pngBytes, cancellationToken).ConfigureAwait(false);
+        await EnsureStoredAtAddressAsync(address, pngBytes, cancellationToken).ConfigureAwait(false);
         return address;
     }
 
@@ -41,11 +41,35 @@ public sealed class ExternalPayloadStore
             bytes.Span,
             extension);
 
-        await EnsureStoredAsync(address, bytes, cancellationToken).ConfigureAwait(false);
+        await EnsureStoredAtAddressAsync(address, bytes, cancellationToken).ConfigureAwait(false);
         return address;
     }
 
-    private async ValueTask EnsureStoredAsync(
+    public async ValueTask EnsureStoredAtAddressAsync(
+        ExternalPayloadAddress address,
+        ReadOnlyMemory<byte> bytes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (address.SizeBytes != bytes.Length)
+        {
+            throw new InvalidDataException(
+                "External payload address size does not match the supplied payload bytes.");
+        }
+
+        string expectedSha256 = Convert.ToHexString(SHA256.HashData(bytes.Span)).ToLowerInvariant();
+        if (!string.Equals(address.Sha256, expectedSha256, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "External payload address SHA-256 does not match the supplied payload bytes.");
+        }
+
+        await EnsureStoredCoreAsync(address, bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask EnsureStoredCoreAsync(
         ExternalPayloadAddress address,
         ReadOnlyMemory<byte> bytes,
         CancellationToken cancellationToken)
