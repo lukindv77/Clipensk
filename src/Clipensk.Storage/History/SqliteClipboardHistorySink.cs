@@ -98,7 +98,7 @@ public sealed class SqliteClipboardHistorySink : IClipboardAcceptedCaptureSink
                     formatName,
                     "Text",
                     canonicalByteCount,
-                    text.Value,
+                    ValidateInlineCanonicalText("Text", text.Value, canonicalByteCount),
                     text.SearchText,
                     null),
 
@@ -106,7 +106,10 @@ public sealed class SqliteClipboardHistorySink : IClipboardAcceptedCaptureSink
                     formatName,
                     "Link",
                     canonicalByteCount,
-                    link.Value.OriginalString,
+                    ValidateInlineCanonicalText(
+                        "Link",
+                        link.Value.OriginalString,
+                        canonicalByteCount),
                     null,
                     null),
 
@@ -114,7 +117,10 @@ public sealed class SqliteClipboardHistorySink : IClipboardAcceptedCaptureSink
                     formatName,
                     "StorageItems",
                     canonicalByteCount,
-                    storageItems.CanonicalRepresentation,
+                    ValidateInlineCanonicalText(
+                        "StorageItems",
+                        storageItems.CanonicalRepresentation,
+                        canonicalByteCount),
                     null,
                     null),
 
@@ -153,6 +159,21 @@ public sealed class SqliteClipboardHistorySink : IClipboardAcceptedCaptureSink
         }
 
         return result;
+    }
+
+    private static string ValidateInlineCanonicalText(
+        string payloadKind,
+        string value,
+        long canonicalByteCount)
+    {
+        long measuredByteCount = ClipboardCanonicalPayloadSize.MeasureUtf8Text(value);
+        if (measuredByteCount != canonicalByteCount)
+        {
+            throw new InvalidDataException(
+                $"{payloadKind} canonical byte count does not match the persisted inline representation.");
+        }
+
+        return value;
     }
 
     private ExternalPayloadAddress ValidateExternalAddress(
