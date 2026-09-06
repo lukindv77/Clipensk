@@ -2,7 +2,7 @@
 
 Дата checkpoint: 2026-09-06 (UTC).
 
-Последнее продолжение — раздел N: global policy contract/storage v5.
+Последнее продолжение — раздел O: UI первичной настройки глобальной policy.
 Его решения заменяют прежние упоминания неизвестного источника policy и Current v4 как latest.
 
 ## A. Проект и источники
@@ -380,3 +380,32 @@ Exact SHA и CI этого этапа нужно получить свежим �
 run; при failure читать первый failed step/log и делать только failure-driven fix.
 После PASS продолжать UI первичной настройки/загрузку policy, не повторять этот storage этап.
 Рекомендация: exact CI — GPT-5.6 Sol, Низкая; policy/app composition — GPT-6 Astra, Высокая.
+
+
+## O. Последующее продолжение: UI первичной настройки global policy
+
+Baseline: 8906e4b154e3b231eca138e578bf799686da98db.
+Подтверждены exact runs для этого SHA:
+- Build #134, run 34035711758: x64 guard, Restore, Build, Test — SUCCESS;
+- Native SQLCipher #36, run 34035711732: SUCCESS, включая encrypted storage и runtime loading.
+
+По команде продолжения реализованы:
+- первичная настройка в разделе «Приложения и правила сбора» и переход из журнала;
+- загрузка persisted policy после active session creation, nullable/error/configured states;
+- семь standard formats по Windows StandardDataFormats, без предвыбранных rules или sizes;
+- Core GlobalClipboardCapturePolicySetup с тестами explicit choices и exact Int64 size parsing;
+- initialize-only сохранение и read-only сводка, без update/cleanup bypass;
+- Task.Run для SQLite, session cancellation, generation/ref guards против stale UI results;
+- очистка полей и сводки при lock/close, локализация и сообщения о фактической готовности.
+
+Ветка: feat/global-capture-policy-setup-ui. SHA и exact CI этого этапа получать свежим запросом.
+Локально проверены XAML/handlers/localization и код; .NET SDK и WinUI runtime недоступны.
+Ручной Windows UI smoke не выполнен и не заменяется успешным CI.
+
+Resume: fresh main → exact Build/head_sha и relevant Native run. При failed step — его log и
+минимальный failure-driven fix. После PASS: app-level delivery/worker composition, readiness
+custom binary extension provider, затем отдельный cleanup для изменения policy. Worker ещё
+не запущен; стандартные form choices не являются автоматическими defaults.
+Не повторять storage v5 или первичную настройку после их подтверждения.
+Рекомендация: exact CI — GPT-5.6 Sol, Низкая; app composition — GPT-6 Astra, Высокая;
+для полной конкурентной проработки worker lifecycle — GPT-6 Astra, Очень высокая.

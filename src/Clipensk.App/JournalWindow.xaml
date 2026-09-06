@@ -63,7 +63,31 @@
             <StackPanel x:Name="PlaceholderPanel" Spacing="12" Visibility="Collapsed">
                 <TextBlock x:Name="PageTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="PageBody" TextWrapping="Wrap" />
+                <TextBlock x:Name="JournalPolicyStatus" TextWrapping="Wrap" />
+                <Button x:Name="OpenGlobalPolicyButton" HorizontalAlignment="Left" Click="OnOpenGlobalPolicyClicked" />
             </StackPanel>
+
+            <ScrollViewer x:Name="GlobalPolicyPanel" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Stretch">
+                    <TextBlock x:Name="GlobalPolicyTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
+                    <TextBlock x:Name="GlobalPolicyBody" TextWrapping="Wrap" />
+                    <InfoBar x:Name="GlobalPolicyInfo" IsOpen="True" IsClosable="False" />
+                    <ProgressRing x:Name="GlobalPolicyProgress" IsActive="False" Visibility="Collapsed"
+                                  Width="28" Height="28" HorizontalAlignment="Left" />
+                    <StackPanel x:Name="GlobalPolicyEditor" Spacing="16" Visibility="Collapsed">
+                        <ComboBox x:Name="GlobalPolicyRule" HorizontalAlignment="Stretch" />
+                        <TextBlock x:Name="GlobalPolicyFormatsTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <StackPanel x:Name="GlobalPolicyFormatRows" Spacing="16" />
+                        <TextBlock x:Name="GlobalPolicyLimitsHelp" TextWrapping="Wrap" />
+                        <TextBlock x:Name="GlobalPolicyExternalHelp" TextWrapping="Wrap" />
+                        <TextBlock x:Name="GlobalPolicySetupHelp" TextWrapping="Wrap" />
+                        <Button x:Name="SaveGlobalPolicyButton" HorizontalAlignment="Left" Click="OnSaveGlobalPolicyClicked" />
+                    </StackPanel>
+                    <TextBlock x:Name="GlobalPolicySummary" TextWrapping="Wrap" Visibility="Collapsed" />
+                    <Button x:Name="ReloadGlobalPolicyButton" HorizontalAlignment="Left" Click="OnReloadGlobalPolicyClicked" />
+                </StackPanel>
+            </ScrollViewer>
 
             <StackPanel x:Name="SettingsPanel" Spacing="16" Visibility="Collapsed">
                 <TextBlock x:Name="SettingsTitle" Style="{StaticResource TitleTextBlockStyle}" />

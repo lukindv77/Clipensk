@@ -50,6 +50,8 @@ public sealed partial class JournalWindow : Window
 
         InitializeLocalizedText();
         InitializeHotKeyEditor();
+        InitializeGlobalPolicyUi();
+        _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
         RefreshLifecycleUi();
     }
 
@@ -317,6 +319,7 @@ public sealed partial class JournalWindow : Window
             }
 
             RefreshLifecycleUi();
+            _ = LoadGlobalCapturePolicyAsync();
         }
         catch (Exception)
         {
@@ -424,6 +427,13 @@ public sealed partial class JournalWindow : Window
     {
         HideContentPanels();
 
+        if (string.Equals(tag, "applications", StringComparison.Ordinal))
+        {
+            GlobalPolicyPanel.Visibility = Visibility.Visible;
+            _ = LoadGlobalCapturePolicyAsync();
+            return;
+        }
+
         bool isSettings = string.Equals(tag, "settings", StringComparison.Ordinal);
         if (isSettings)
         {
@@ -433,6 +443,9 @@ public sealed partial class JournalWindow : Window
         }
 
         PlaceholderPanel.Visibility = Visibility.Visible;
+        bool isJournal = string.Equals(tag, "journal", StringComparison.Ordinal);
+        OpenGlobalPolicyButton.Visibility = isJournal ? Visibility.Visible : Visibility.Collapsed;
+        JournalPolicyStatus.Visibility = isJournal ? Visibility.Visible : Visibility.Collapsed;
 
         (string titleKey, string bodyKey) = tag switch
         {
@@ -552,6 +565,7 @@ public sealed partial class JournalWindow : Window
         LockPanel.Visibility = Visibility.Collapsed;
         PlaceholderPanel.Visibility = Visibility.Collapsed;
         SettingsPanel.Visibility = Visibility.Collapsed;
+        GlobalPolicyPanel.Visibility = Visibility.Collapsed;
     }
 
     private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -567,6 +581,10 @@ public sealed partial class JournalWindow : Window
 
     private void OnJournalWindowClosed(object sender, WindowEventArgs args)
     {
+        _policyWindowClosed = true;
+        _lifecycle.ProtectedDataAccessChanged -= OnGlobalPolicyProtectedAccessChanged;
+        Interlocked.Increment(ref _policyUiGeneration);
+        ClearGlobalPolicyUi();
         _protectedStorageSession?.Dispose();
         _protectedStorageSession = null;
     }

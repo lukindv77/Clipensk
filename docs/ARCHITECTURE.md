@@ -469,6 +469,11 @@ Unknown registered/private binary format:
 инициализацию без перезаписи. Отсутствие policy — NOT READY для capture delivery, не implicit
 Allow/Deny. UI первичной настройки и app composition должны передать загруженный explicit
 snapshot в существующие capture services. Подробный контракт: `GLOBAL_CAPTURE_POLICY.md`.
+JournalWindow предоставляет первичную настройку стандартных форматов и read-only просмотр
+сохранённой policy. Все решения и лимиты задаются пользователем. SQL выполняется вне UI
+thread; результаты привязаны к active session и generation, поля очищаются при lock/close.
+Этот UI не запускает capture worker и не заменяет policy-cleanup lifecycle.
+
 
 ## 21. Очистка после изменения политики
 

@@ -86,8 +86,48 @@ Migration tests покрывают новую пару, сохранность v
 некорректную вторую БД, malformed v4/v5 schema, SQL failure и отмену внутри migration.
 Существующие v1/v2/v3 migration tests проверяют продвижение до latest Current.
 
-Это storage boundary. UI первичной настройки, загрузка persisted policy в app composition,
-custom-binary extension configuration, worker lifecycle и policy cleanup ещё не реализованы
-этим этапом. `ProtectedClipboardCaptureServices` продолжает принимать явный policy snapshot;
-последующий host должен загрузить его из этого repository и обработать `null` как NOT READY.
-Конкретные format/size defaults по-прежнему не утверждены.
+## Первичная настройка в JournalWindow
+
+Раздел «Приложения и правила сбора» теперь содержит первичную настройку и read-only
+сводку сохранённых правил. Из журнала доступна кнопка перехода. После создания active
+protected session выполняется чтение policy, которое различает отсутствие настройки,
+сохранённые правила и ошибку чтения. Отсутствие настройки не блокирует переход к журналу.
+
+UI предлагает только поддерживаемые стандартные formats через exact Windows
+`StandardDataFormats`: Text, Html, Rtf, Bitmap, WebLink, ApplicationLink, StorageItems.
+Набор элементов редактора не является defaults: общий и все format selectors первоначально
+не выбраны. Каждый формат требует явного Allow/Deny, в том числе при global Deny.
+Для разрешённого формата обязательно выбрать положительный целочисленный лимит в байтах
+либо явно «Без лимита». Для запрещённого формата size controls отключены и MaxBytes не задаётся.
+Неуказанные custom formats не добавляются; их настройка требует отдельного extension contract.
+
+Core `GlobalClipboardCapturePolicySetup` валидирует явные решения до записи:
+неизвестные/Inherit/missing rules, duplicate exact names, отсутствие выбора размера,
+ноль/отрицательные/дробные/переполненные размеры отклоняются. Используются Int64 bytes,
+без double, округления, clamping или выбранного системой лимита. Ordinal names сохраняются.
+UI использует локализованные подписи и объясняет незашифрованное хранение изображений,
+отсутствие копирования файлов и недоступность последующего редактирования в этом этапе.
+
+SQLite read/write выполняются через Task.Run с session cancellation, вне UI thread.
+На время операции редактор и повторное сохранение отключены. Перед отображением результата
+проверяются generation, reference equality active session, её IsActive, lifecycle и состояние
+закрытия окна. Lock инвалидирует generation, очищает редактор и сводку на DispatcherQueue;
+закрытие окна отписывает lifecycle handler, очищает UI и освобождает session.
+Результат старой сессии не принимается после повторного unlock или закрытия.
+Навигация сама по себе не продлевает storage session.
+
+Ошибка чтения не показывает пустую форму как будто policy отсутствует. При ошибке сохранения
+предлагается перечитать состояние: если другой writer уже сохранил policy, отображается
+его read-only snapshot. Повторное чтение требует отказа от текущих несохранённых полей;
+worker не запускается ни при загрузке, ни при сохранении. UI прямо показывает, что сбор
+истории пока недоступен, и не заявляет его готовность после успешной настройки.
+
+Core tests проверяют missing/invalid decisions, explicit unlimited, exact names/duplicates,
+Int64 boundaries и отрицательные/дробные/переполненные значения. XAML/handler/localization
+связи проверяются статически; ручное интерактивное испытание WinUI в Linux scratch недоступно.
+Компиляция приложения и C# tests должны подтверждаться exact GitHub Build нового SHA.
+
+Осталось: accepted capture delivery/worker composition, custom-binary extension configuration
+и policy cleanup для последующего изменения. `ProtectedClipboardCaptureServices` продолжает
+принимать явный policy snapshot; соединение этих сервисов с настроенной policy будет отдельным
+этапом. Конкретные format/size defaults по-прежнему не назначены.
