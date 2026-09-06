@@ -2,6 +2,7 @@ using System.Globalization;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Clipboard;
+using Clipensk.Storage.ExternalFiles;
 using Clipensk.Storage.History;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -13,9 +14,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     private const int LegacyCurrentSchemaVersion = 1;
     private const int ApplicationIdentityCurrentSchemaVersion = 2;
     private const int ApplicationPolicyCurrentSchemaVersion = 3;
+    private const int LegacyCatalogSchemaVersion = 1;
 
     public const int CurrentSchemaVersion = 4;
-    public const int CatalogSchemaVersion = 1;
+    public const int CatalogSchemaVersion = 2;
     public const int CurrentEncryptionVersion = 1;
 
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
@@ -97,13 +99,14 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     ApplicationPolicyCurrentSchemaVersion,
                     CurrentSchemaVersion);
 
-                // Critical rule: validate the whole protected pair before mutating Current.
-                ValidateDatabase(
+                // Critical rule: validate the whole protected pair before mutating either database.
+                int catalogSchemaVersion = ValidateDatabase(
                     catalogDatabasePath,
                     storageId,
                     DatabaseRole.StorageCatalog,
                     masterKey,
                     cancellationToken,
+                    LegacyCatalogSchemaVersion,
                     CatalogSchemaVersion);
 
                 if (currentSchemaVersion == LegacyCurrentSchemaVersion)
@@ -135,6 +138,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                         cancellationToken);
                 }
 
+                if (catalogSchemaVersion == LegacyCatalogSchemaVersion)
+                {
+                    MigrateCatalogFromV1ToV2(
+                        catalogDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                }
+
                 ValidateDatabase(
                     currentDatabasePath,
                     storageId,
@@ -142,6 +154,13 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     masterKey,
                     cancellationToken,
                     CurrentSchemaVersion);
+                ValidateDatabase(
+                    catalogDatabasePath,
+                    storageId,
+                    DatabaseRole.StorageCatalog,
+                    masterKey,
+                    cancellationToken,
+                    CatalogSchemaVersion);
 
                 EnsureAncillaryDirectories(dataRootPath);
                 return new ProtectedStorageDatabaseResult(
@@ -340,6 +359,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
             ClipboardHistorySqlSchema.CreateTables(connection, transaction);
         }
+        else if (role == DatabaseRole.StorageCatalog)
+        {
+            ExternalPayloadCatalogSqlSchema.CreateTables(connection, transaction);
+        }
 
         using (SqliteCommand userVersion = connection.CreateCommand())
         {
@@ -442,6 +465,35 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         transaction.Commit();
     }
 
+    private void MigrateCatalogFromV1ToV2(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath,
+            masterKey,
+            SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ExternalPayloadCatalogSqlSchema.CreateTables(connection, transaction);
+
+        UpdateCatalogSchemaVersion(
+            connection,
+            transaction,
+            expectedStorageId,
+            LegacyCatalogSchemaVersion,
+            CatalogSchemaVersion);
+        SetUserVersion(connection, transaction, CatalogSchemaVersion);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
     private static void UpdateCurrentSchemaVersion(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -467,6 +519,34 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         {
             throw new InvalidDataException(
                 $"Current v{oldSchemaVersion} identity changed before schema migration could be committed.");
+        }
+    }
+
+    private static void UpdateCatalogSchemaVersion(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid expectedStorageId,
+        int oldSchemaVersion,
+        int newSchemaVersion)
+    {
+        using SqliteCommand updateIdentity = connection.CreateCommand();
+        updateIdentity.Transaction = transaction;
+        updateIdentity.CommandText = """
+            UPDATE DatabaseIdentity
+            SET SchemaVersion = $newSchemaVersion
+            WHERE SingletonId = 1
+              AND StorageId = $storageId
+              AND DatabaseRole = $role
+              AND SchemaVersion = $oldSchemaVersion;
+            """;
+        updateIdentity.Parameters.AddWithValue("$newSchemaVersion", newSchemaVersion);
+        updateIdentity.Parameters.AddWithValue("$storageId", expectedStorageId.ToString("D"));
+        updateIdentity.Parameters.AddWithValue("$role", DatabaseRole.StorageCatalog.ToString());
+        updateIdentity.Parameters.AddWithValue("$oldSchemaVersion", oldSchemaVersion);
+        if (updateIdentity.ExecuteNonQuery() != 1)
+        {
+            throw new InvalidDataException(
+                $"Catalog v{oldSchemaVersion} identity changed before schema migration could be committed.");
         }
     }
 
@@ -597,6 +677,12 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
         {
             ClipboardHistorySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.StorageCatalog &&
+            schemaVersion >= CatalogSchemaVersion)
+        {
+            ExternalPayloadCatalogSqlSchema.ValidateTables(connection);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
