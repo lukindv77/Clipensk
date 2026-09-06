@@ -1,0 +1,46 @@
+# Storage catalog schema evolution
+
+`storage-catalog.db` является rebuildable accelerator и картой физического хранилища. Критическая информация не должна существовать только в каталоге.
+
+## Version ownership
+
+- `storage-catalog.db` v1: только `DatabaseIdentity`;
+- `storage-catalog.db` v2: добавляет rebuildable индекс адресов внешних clipboard payload.
+
+Версия catalog независима от `current.db` schema version.
+
+## Catalog v2 — external payload address index
+
+`ExternalPayloadAddressIndex` хранит ускоряющее отображение:
+
+```text
+SHA-256(exact stored bytes) -> RelativePath + SizeBytes
+```
+
+Поля:
+
+- `Sha256` — lowercase 64-character SHA-256, primary key;
+- `RelativePath` — единственный persisted путь внутри `Files`, unique;
+- `SizeBytes` — размер exact stored bytes, неотрицательный.
+
+Отдельное поле `FirstStoredDate` не требуется: дата первого физического размещения уже является частью canonical relative path `YYYY-MM-DD/<sha>.<extension>`.
+
+Глобальный ключ — именно SHA-256 exact stored bytes. Он не зависит от source application, clipboard format name, capture date или текущей БД истории.
+
+## Source of truth и rebuild
+
+Catalog row не является единственным источником адреса. Исторические payload rows в `current.db` и `archive_*.db` сохраняют `ExternalSha256`, `ExternalRelativePath` и `ExternalSizeBytes`.
+
+Следовательно, при потере каталога индекс должен быть восстановим сканированием Current + всех Archive. Rebuild обязан fail-closed при конфликте, когда один SHA встречается с разными relative paths или sizes.
+
+## First-stored semantics
+
+Для нового SHA capture calendar date может использоваться как дата первого размещения.
+
+Для уже известного SHA resolver обязан вернуть ранее сохранённый `RelativePath`; новая capture date не должна перемещать payload и не должна создавать второй физический файл.
+
+## Custom binary extension
+
+Catalog schema не определяет правило выбора расширения для нового custom binary payload. Оно хранит уже выбранный physical relative path и поэтому не требует знания extension при повторном dedup lookup.
+
+Правило выбора extension для впервые сохраняемого custom binary остаётся отдельным representation contract и не должно угадываться catalog schema.
