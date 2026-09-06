@@ -464,6 +464,12 @@ Unknown registered/private binary format:
 - пользователь может включить его позднее;
 - старые отвергнутые payload восстановить нельзя.
 
+Глобальная policy хранится в защищённом Current v5 и относится к конкретному storage.
+`IGlobalClipboardCapturePolicyRepository` предоставляет nullable read и атомарную первичную
+инициализацию без перезаписи. Отсутствие policy — NOT READY для capture delivery, не implicit
+Allow/Deny. UI первичной настройки и app composition должны передать загруженный explicit
+snapshot в существующие capture services. Подробный контракт: `GLOBAL_CAPTURE_POLICY.md`.
+
 ## 21. Очистка после изменения политики
 
 Для текстовых DB payload:

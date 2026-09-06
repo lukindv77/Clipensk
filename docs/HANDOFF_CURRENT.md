@@ -2,6 +2,9 @@
 
 Дата checkpoint: 2026-09-06 (UTC).
 
+Последнее продолжение — раздел N: global policy contract/storage v5.
+Его решения заменяют прежние упоминания неизвестного источника policy и Current v4 как latest.
+
 ## A. Проект и источники
 
 Clipensk — Open Source резидентный Windows clipboard-history manager с WinUI 3.
@@ -345,3 +348,35 @@ Global ClipboardCapturePolicy остаётся NOT READY: источник/defau
 Worker/UI не запущены. Archive lifecycle/rebuild и новые schema остаются без придуманного контракта.
 Дальнейшие направления — согласование policy/composition либо отдельный явно выбранный query/UI этап.
 Рекомендация для exact CI check: GPT-5.6 Sol, Низкая; для policy/composition: GPT-6 Astra, Высокая.
+
+
+## N. Последующее продолжение: global policy source and Current v5
+
+Baseline этого этапа: 19fcc793cbc6c22ba641dbc447e7fcad07ae3f08.
+Exact Build #133, run 34034457639: SUCCESS x64 guard, Restore, Build, Test.
+Он подтвердил исправление pagination test fixture и не подтверждает новый этап.
+
+Пользователь дал команду продолжить после предложения: хранить global policy в зашифрованном
+Current, привязать её к storage, не выбирать defaults и выполнять явную первичную настройку.
+Контракт принят; REQUIREMENTS §18.1, ARCHITECTURE §20 и GLOBAL_CAPTURE_POLICY.md обновлены.
+
+Реализовано в этом этапе:
+- Current v5 / Catalog v2; отдельная v4→v5 transaction, пустые policy tables без seed;
+- IGlobalClipboardCapturePolicyRepository и SqliteGlobalClipboardCapturePolicyRepository;
+- nullable ReadAsync и initialize-only InitializeAsync; повторное сохранение запрещено;
+- exact explicit Allow/Deny rules, ordinal names и positive-or-null MaxBytes;
+- protected cancellation, rollback до COMMIT и отсутствие late cancellation после COMMIT;
+- migration/repository tests, обновлены latest-version expectations ранних migration tests.
+
+Источник policy больше не продуктовый blocker. Следующие задачи: UI первичной настройки,
+загрузка persisted policy после unlock, app composition и готовность custom binary extension
+provider. Отсутствующая policy означает NOT READY для delivery. Worker ещё не запущен.
+Последующее редактирование policy требует cleanup по REQUIREMENTS §18; простого update API нет.
+Конкретные format/size defaults по-прежнему не назначены. Archive/Catalog lifecycle не изменён.
+
+Ветка: feat/persist-global-capture-policy.
+Exact SHA и CI этого этапа нужно получить свежим запросом GitHub. Локального .NET SDK нет;
+проверка SQL не заменяет Windows Build/Test. Resume: fresh main → exact Build + relevant Native
+run; при failure читать первый failed step/log и делать только failure-driven fix.
+После PASS продолжать UI первичной настройки/загрузку policy, не повторять этот storage этап.
+Рекомендация: exact CI — GPT-5.6 Sol, Низкая; policy/app composition — GPT-6 Astra, Высокая.

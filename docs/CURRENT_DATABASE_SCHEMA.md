@@ -6,8 +6,8 @@ Schema versions принадлежат конкретной роли БД, а н
 
 Текущее состояние после этого migration tranche:
 
-- `current.db`: schema version **4**;
-- `storage-catalog.db`: schema version **1**.
+- `current.db`: schema version **5**;
+- `storage-catalog.db`: schema version **2**.
 
 `storage-catalog.db` остаётся rebuildable accelerator и не является source of truth для application identity, индивидуальных capture policies или clipboard history.
 
@@ -61,18 +61,25 @@ Current schema v4 добавляет durable event/payload representation, оп�
 
 Schema v4 **не** запускает capture worker и сама не определяет external payload `firstStoredDate`/dedup lifecycle. Это остаётся responsibility будущего persistence sink/index contract.
 
+## Current v5 — storage-scoped global capture policy
+
+Добавляет `GlobalCapturePolicy` и `GlobalFormatCapturePolicy`, описанные в
+`GLOBAL_CAPTURE_POLICY.md`. Таблицы создаются пустыми: отсутствие настройки отдельно от
+явного Deny. Repository выполняет nullable read и атомарную первичную инициализацию;
+перезапись/удаление policy требуют отдельного cleanup lifecycle.
+
 ## New storage initialization
 
 Новый storage создаётся staging-парой:
 
-1. `current.db` создаётся сразу как v4 вместе с identity, application-policy и clipboard-history tables;
-2. `storage-catalog.db` создаётся как v1;
+1. `current.db` создаётся сразу как v5 вместе с identity, application-policy, clipboard-history и global-policy tables;
+2. `storage-catalog.db` создаётся как v2 с ExternalPayloadAddressIndex;
 3. обе БД полностью валидируются;
 4. только после этого staging `Current` перемещается на финальный путь.
 
 ## Resumable legacy migration
 
-Проверка всей пары выполняется до mutation Current: Catalog v1 должен быть успешно открыт и подтверждён до начала schema changes.
+Проверка всей пары выполняется до mutation Current: Catalog v1/v2 должен быть успешно открыт и подтверждён до начала schema changes.
 
 Migration разбита на отдельные транзакционные шаги.
 
@@ -105,7 +112,17 @@ Migration разбита на отдельные транзакционные ш
 
 Если этот шаг не commit-ится, Current остаётся полноценным v3. Policy и identity rows не пересоздаются и не теряются.
 
-Для legacy пары v1/v1 последовательность выполняется как отдельные durable шаги `v1 → v2 → v3 → v4`, а не как одна неразличимая mutation.
+### Current v4 → v5
+
+1. валидировать существующие identity, application-policy и history tables;
+2. создать пустые global-policy tables;
+3. обновить `DatabaseIdentity.SchemaVersion` с 4 до 5 и `PRAGMA user_version = 5`;
+4. проверить отмену и commit.
+
+Ошибка или отмена до COMMIT сохраняет Current v4. Существующие данные не переписываются.
+Catalog v1→v2 выполняется отдельным шагом согласно `STORAGE_CATALOG_SCHEMA.md`.
+
+Для legacy пары v1/v1 последовательность выполняется как отдельные durable шаги `v1 → v2 → v3 → v4 → v5`, а не как одна неразличимая mutation.
 
 ## Fail-closed validation
 
@@ -114,9 +131,10 @@ Migration разбита на отдельные транзакционные ш
 - Current v2+ обязан иметь точную identity table/PK/FK/index shape.
 - Current v3+ дополнительно обязан иметь точную application-policy table/PK/FK shape.
 - Current v4+ дополнительно обязан иметь clipboard-history table/PK/FK/index shape.
+- Current v5+ дополнительно обязан иметь global-policy table/PK/FK shape.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
 - malformed schema не принимается только потому, что таблицы имеют правильные имена.
 
 Repositories не создают schema лениво. Schema creation/migration принадлежит `ProtectedStorageDatabaseService` до установления рабочего protected storage lifecycle.
 
-`SqliteApplicationIdentityRepository` работает с Current v2 и более поздними версиями при сохранении identity schema contract. `SqliteClipboardCapturePolicyRepository` требует Current v3 или более позднюю совместимую схему. Будущий history repository/sink должен требовать Current v4 или более позднюю совместимую схему.
+`SqliteApplicationIdentityRepository` работает с Current v2 и более поздними версиями при сохранении identity schema contract. `SqliteClipboardCapturePolicyRepository` требует Current v3 или более позднюю совместимую схему. History repository/sink требует Current v4 или более позднюю совместимую схему. Global-policy repository в этом этапе принимает Current v5.

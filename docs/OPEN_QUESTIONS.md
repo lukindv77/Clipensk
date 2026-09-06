@@ -71,6 +71,11 @@
 
 ## 6. Набор форматов и лимиты по умолчанию
 
+Источник global policy и отсутствие автоматического default уже зафиксированы в
+`GLOBAL_CAPTURE_POLICY.md`: защищённый Current, storage scope, явная первичная настройка.
+Repository и Current v5 migration реализованы. UI настройки, app-level загрузка policy,
+worker composition и cleanup для последующего изменения ещё не реализованы.
+
 Нужно утвердить конкретные defaults:
 
 - какие текстовые форматы включены при новой установке;

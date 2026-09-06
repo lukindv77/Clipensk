@@ -14,9 +14,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     private const int LegacyCurrentSchemaVersion = 1;
     private const int ApplicationIdentityCurrentSchemaVersion = 2;
     private const int ApplicationPolicyCurrentSchemaVersion = 3;
+    private const int HistoryCurrentSchemaVersion = 4;
     private const int LegacyCatalogSchemaVersion = 1;
 
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
     public const int CatalogSchemaVersion = 2;
     public const int CurrentEncryptionVersion = 1;
 
@@ -97,6 +98,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     LegacyCurrentSchemaVersion,
                     ApplicationIdentityCurrentSchemaVersion,
                     ApplicationPolicyCurrentSchemaVersion,
+                    HistoryCurrentSchemaVersion,
                     CurrentSchemaVersion);
 
                 // Critical rule: validate the whole protected pair before mutating either database.
@@ -132,6 +134,16 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 if (currentSchemaVersion == ApplicationPolicyCurrentSchemaVersion)
                 {
                     MigrateCurrentFromV3ToV4(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = HistoryCurrentSchemaVersion;
+                }
+
+                if (currentSchemaVersion == HistoryCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV4ToV5(
                         currentDatabasePath,
                         storageId,
                         masterKey,
@@ -358,6 +370,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ApplicationIdentitySqlSchema.CreateTables(connection, transaction);
             ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
             ClipboardHistorySqlSchema.CreateTables(connection, transaction);
+            GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
         }
         else if (role == DatabaseRole.StorageCatalog)
         {
@@ -458,9 +471,33 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             transaction,
             expectedStorageId,
             ApplicationPolicyCurrentSchemaVersion,
-            CurrentSchemaVersion);
-        SetUserVersion(connection, transaction, CurrentSchemaVersion);
+            HistoryCurrentSchemaVersion);
+        SetUserVersion(connection, transaction, HistoryCurrentSchemaVersion);
 
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private void MigrateCurrentFromV4ToV5(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath, masterKey, SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ApplicationIdentitySqlSchema.ValidateTables(connection);
+        ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+        ClipboardHistorySqlSchema.ValidateTables(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
+        UpdateCurrentSchemaVersion(
+            connection, transaction, expectedStorageId,
+            HistoryCurrentSchemaVersion, CurrentSchemaVersion);
+        SetUserVersion(connection, transaction, CurrentSchemaVersion);
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
     }
@@ -674,9 +711,14 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ApplicationCapturePolicySqlSchema.ValidateTables(connection);
         }
 
-        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        if (expectedRole == DatabaseRole.Current && schemaVersion >= HistoryCurrentSchemaVersion)
         {
             ClipboardHistorySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        {
+            GlobalCapturePolicySqlSchema.ValidateTables(connection);
         }
 
         if (expectedRole == DatabaseRole.StorageCatalog &&
