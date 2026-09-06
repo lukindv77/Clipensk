@@ -72,18 +72,46 @@ internal static class ExternalPayloadCatalogSqlSchema
             }
         }
 
-        using SqliteCommand indexCommand = connection.CreateCommand();
-        indexCommand.CommandText = """
-            SELECT COUNT(*)
-            FROM sqlite_master
-            WHERE type = 'index'
-              AND name = 'UX_ExternalPayloadAddressIndex_RelativePath'
-              AND tbl_name = 'ExternalPayloadAddressIndex';
-            """;
-        if (Convert.ToInt32(indexCommand.ExecuteScalar()) != 1)
+        bool foundRelativePathIndex = false;
+        using (SqliteCommand indexList = connection.CreateCommand())
+        {
+            indexList.CommandText = "PRAGMA index_list('ExternalPayloadAddressIndex');";
+            using SqliteDataReader reader = indexList.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!string.Equals(
+                        reader.GetString(1),
+                        "UX_ExternalPayloadAddressIndex_RelativePath",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foundRelativePathIndex = true;
+                if (reader.GetInt32(2) != 1)
+                {
+                    throw new InvalidDataException(
+                        "External payload relative-path index must be UNIQUE.");
+                }
+            }
+        }
+
+        if (!foundRelativePathIndex)
         {
             throw new InvalidDataException(
                 "External payload relative-path uniqueness index is missing.");
+        }
+
+        using SqliteCommand indexInfo = connection.CreateCommand();
+        indexInfo.CommandText =
+            "PRAGMA index_info('UX_ExternalPayloadAddressIndex_RelativePath');";
+        using SqliteDataReader indexReader = indexInfo.ExecuteReader();
+        if (!indexReader.Read() ||
+            !string.Equals(indexReader.GetString(2), "RelativePath", StringComparison.Ordinal) ||
+            indexReader.Read())
+        {
+            throw new InvalidDataException(
+                "External payload relative-path index must contain only RelativePath.");
         }
     }
 
