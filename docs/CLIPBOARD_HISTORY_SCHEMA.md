@@ -122,3 +122,12 @@ keyset continuation и UI composition остаются отдельными эт
 
 Существующие Current v4 / Catalog v2 сохраняются; app-level capture delivery по-прежнему требует явную
 глобальную `ClipboardCapturePolicy` с утверждённым источником, без самостоятельно выбранного Allow/Deny.
+
+## Protected composition
+
+`ProtectedClipboardHistoryServices.Create` создаёт `HistoryRepository` вместе с index/resolver/sink
+для одной активной `ProtectedStorageSessionLease` и той же connection factory. Свойство имеет тип
+`ICurrentClipboardHistoryRepository`. Creation не открывает БД и не вызывает extension provider;
+caller обязан передать period/limit при фактическом чтении. Отзыв session и caller cancellation
+остаются действующими после получения repository из composition.
+App/UI не подключаются автоматически, background worker не запускается.

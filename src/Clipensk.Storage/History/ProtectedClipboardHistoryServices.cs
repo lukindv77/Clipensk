@@ -1,4 +1,5 @@
 using Clipensk.Core.Clipboard;
+using Clipensk.Core.History;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.ExternalFiles;
 using Clipensk.Storage.Sqlite;
@@ -10,11 +11,13 @@ public sealed class ProtectedClipboardHistoryServices
     private ProtectedClipboardHistoryServices(
         SqliteExternalPayloadAddressIndex addressIndex,
         CatalogClipboardExternalPayloadAddressResolver externalPayloadResolver,
-        SqliteClipboardHistorySink historySink)
+        SqliteClipboardHistorySink historySink,
+        ICurrentClipboardHistoryRepository historyRepository)
     {
         AddressIndex = addressIndex;
         ExternalPayloadResolver = externalPayloadResolver;
         HistorySink = historySink;
+        HistoryRepository = historyRepository;
     }
 
     public SqliteExternalPayloadAddressIndex AddressIndex { get; }
@@ -22,6 +25,8 @@ public sealed class ProtectedClipboardHistoryServices
     public CatalogClipboardExternalPayloadAddressResolver ExternalPayloadResolver { get; }
 
     public IClipboardAcceptedCaptureSink HistorySink { get; }
+
+    public ICurrentClipboardHistoryRepository HistoryRepository { get; }
 
     public static ProtectedClipboardHistoryServices Create(
         ProtectedStorageSessionLease session,
@@ -48,9 +53,14 @@ public sealed class ProtectedClipboardHistoryServices
             externalPayloadResolver,
             connectionFactory);
 
+        var historyRepository = new SqliteCurrentClipboardHistoryRepository(
+            session,
+            connectionFactory);
+
         return new ProtectedClipboardHistoryServices(
             addressIndex,
             externalPayloadResolver,
-            historySink);
+            historySink,
+            historyRepository);
     }
 }

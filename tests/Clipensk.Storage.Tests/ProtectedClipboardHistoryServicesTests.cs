@@ -1,4 +1,5 @@
 using Clipensk.Core.Application;
+using Clipensk.Core.History;
 using Clipensk.Core.Security;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.History;
@@ -32,6 +33,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
         Assert.NotNull(services.AddressIndex);
         Assert.NotNull(services.ExternalPayloadResolver);
         Assert.NotNull(services.HistorySink);
+        Assert.NotNull(services.HistoryRepository);
         Assert.Equal(0, factory.OpenCallCount);
         Assert.Equal(0, extensionProvider.CallCount);
 
@@ -57,6 +59,39 @@ public sealed class ProtectedClipboardHistoryServicesTests
                 new ThrowingExtensionProvider(),
                 new ThrowingConnectionFactory()));
 
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Theory]
+    [InlineData("caller")]
+    [InlineData("lock")]
+    [InlineData("dispose")]
+    public async Task HistoryRepository_RejectsRevokedAccessWithoutOpeningDatabase(string cause)
+    {
+        string root = CreateTemporaryDirectory();
+        var lifecycle = CreateUnlockedLifecycle();
+        using var session = ProtectedStorageSessionLease.Create(
+            lifecycle,
+            root,
+            Guid.NewGuid(),
+            new MasterKeyLease(Enumerable.Repeat((byte)0x99, 32).ToArray()));
+        var factory = new ThrowingConnectionFactory();
+        var extensionProvider = new ThrowingExtensionProvider();
+        ProtectedClipboardHistoryServices services = ProtectedClipboardHistoryServices.Create(
+            session,
+            extensionProvider,
+            factory);
+        using var cancellation = new CancellationTokenSource();
+
+        if (cause == "caller") cancellation.Cancel();
+        if (cause == "lock") Assert.True(lifecycle.TryBeginLock());
+        if (cause == "dispose") session.Dispose();
+
+        var period = new JournalDateRange(new DateOnly(2026, 9, 6), new DateOnly(2026, 9, 6));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await services.HistoryRepository.ReadAsync(period, 1, cancellation.Token));
+        Assert.Equal(0, factory.OpenCallCount);
+        Assert.Equal(0, extensionProvider.CallCount);
         Directory.Delete(root, recursive: true);
     }
 

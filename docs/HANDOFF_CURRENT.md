@@ -158,7 +158,7 @@ C# build/tests подтверждены GitHub Build #129.
 - Microsoft.Data.Sqlite вызовы синхронны; preemptive interruption отдельного вызова не обещана;
 - future host должен явно определить execution/cancellation lifecycle перед UI;
 - уже возвращённые данные принадлежат вызывающей стороне, UI/cache clear при lock — её обязанность;
-- новый repository ещё не подключён в ProtectedClipboardHistoryServices или UI.
+- repository подключён в ProtectedClipboardHistoryServices (см. раздел L), но ещё не подключён к UI.
 
 ## G. Продуктовые и архитектурные инварианты
 
@@ -293,3 +293,24 @@ fetch_commit_workflow_runs ограничен pull_request event и может �
 - для источника global policy и app-level composition — GPT-6 Astra, Высокая;
 - Очень высокая уместна для отдельной сложной проработки конкурентного lifecycle.
 Это рекомендации, выбор всегда за пользователем; Максимальная сейчас не требуется.
+
+## L. Последующее продолжение: protected history read composition
+
+После подготовки исходного перехода пользователь дал новую команду «Продолжай разработку».
+Docs checkpoint 2041b246454f108fd47b05aba40b7cbbb56ea56f был подтверждён:
+Build #130 run 34007846980 — SUCCESS всех четырёх обязательных шагов.
+
+Следующий небольшой tranche:
+- ProtectedClipboardHistoryServices теперь предоставляет HistoryRepository через
+  ICurrentClipboardHistoryRepository;
+- Create собирает repository с той же active session и connection factory;
+- creation по-прежнему не открывает БД и не вызывает extension provider;
+- добавлены проверки caller cancellation, lock и dispose через полученный repository;
+- контракт описан в docs/CLIPBOARD_HISTORY_SCHEMA.md;
+- UI, worker и global policy не подключены и не выбраны.
+
+Ветка: feat/protected-history-read-composition.
+Этот раздел публикуется вместе с изменением кода. Его exact SHA и CI нужно получить свежим
+запросом GitHub; Build #130 относится к ПРЕДЫДУЩЕМУ docs checkpoint и не подтверждает этот tranche.
+Для продолжения сначала проверить exact Build и relevant Native run фактического main,
+затем вернуться к разделу K. Основной blocker global policy остаётся открытым.
