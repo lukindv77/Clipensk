@@ -73,6 +73,11 @@ public sealed class CatalogClipboardExternalPayloadAddressResolver :
             formatName,
             cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            throw new InvalidDataException(
+                "A new custom binary payload requires an explicit non-empty file extension.");
+        }
 
         ExternalPayloadAddress candidate = ExternalPayloadAddressFactory.ForCustomBinary(
             eventCalendarDate,
