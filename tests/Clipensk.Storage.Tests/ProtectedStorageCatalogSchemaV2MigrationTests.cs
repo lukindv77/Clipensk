@@ -110,7 +110,12 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
                 key,
                 allowInitialize: true);
             Assert.True(result.IsSuccess);
-            Assert.Equal(2, ReadSchemaVersion(factory, CatalogPathFor(root), key));
+            Assert.Equal(
+                2,
+                ProtectedStorageCatalogSchemaV2MigrationTests.ReadSchemaVersion(
+                    factory,
+                    CatalogPathFor(root),
+                    key));
 
             return new TestEnvironment(root, key, storageId, factory, service);
         }
@@ -195,7 +200,8 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
             Assert.Equal(1, command.ExecuteNonQuery());
         }
 
-        public int ReadSchemaVersion(string path) => ReadSchemaVersion(Factory, path, Key);
+        public int ReadSchemaVersion(string path) =>
+            ProtectedStorageCatalogSchemaV2MigrationTests.ReadSchemaVersion(Factory, path, Key);
 
         public bool HasTable(string path, string tableName)
         {
