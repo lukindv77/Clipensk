@@ -30,6 +30,55 @@ public sealed class ExternalPayloadStoreTests
     }
 
     [Fact]
+    public async Task EnsureStoredAtAddressAsync_RestoresMissingFileAtPersistedAddress()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            byte[] bytes = [4, 3, 2, 1];
+            ExternalPayloadAddress address = ExternalPayloadAddressFactory.ForNormalizedPng(
+                new DateOnly(2026, 8, 31),
+                bytes);
+            var store = new ExternalPayloadStore(root);
+
+            await store.EnsureStoredAtAddressAsync(address, bytes);
+
+            string path = Path.Combine(root, address.RelativePath);
+            Assert.True(File.Exists(path));
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+            Assert.Contains("2026-08-31", address.RelativePath, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteTemporaryRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task EnsureStoredAtAddressAsync_RejectsMismatchedAddressBeforeWriting()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            byte[] bytes = [1, 2, 3, 4];
+            var address = new ExternalPayloadAddress(
+                new string('0', 64),
+                Path.Combine("2026-09-05", new string('0', 64) + ".png"),
+                bytes.Length);
+            var store = new ExternalPayloadStore(root);
+
+            await Assert.ThrowsAsync<InvalidDataException>(async () =>
+                await store.EnsureStoredAtAddressAsync(address, bytes));
+
+            Assert.False(Directory.Exists(root));
+        }
+        finally
+        {
+            DeleteTemporaryRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task StoreNormalizedPngAsync_ConcurrentDuplicatesProduceOnePhysicalFile()
     {
         string root = CreateTemporaryRoot();
