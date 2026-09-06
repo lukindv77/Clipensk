@@ -1,6 +1,6 @@
 # Clipboard history schema contract
 
-Этот документ фиксирует durable representation clipboard history для Current schema v4. Он не включает worker lifecycle, archive transfer или UI/query behavior.
+Этот документ фиксирует durable representation clipboard history для Current schema v4 и минимальный Current read contract. Он не включает worker lifecycle, archive transfer или UI behavior.
 
 ## Event envelope
 
@@ -84,3 +84,41 @@ Cancellation проверяется непосредственно перед `C
 Current schema v1 содержала только database identity, v2 добавила application identity, v3 — persisted capture policies. Clipboard history добавлена как v4 поверх валидного v3.
 
 DDL/validation contract реализован `ClipboardHistorySqlSchema`; production bootstrap/migration принадлежит `ProtectedStorageDatabaseService`. History sink требует совместимую Current schema v4 или новее и сам schema не создаёт.
+
+## Current history read contract
+
+`ICurrentClipboardHistoryRepository.ReadAsync(JournalDateRange period, int limit, CancellationToken)`
+возвращает отдельный snapshot сохранённых событий из Current. `SqliteCurrentClipboardHistoryRepository`
+реализует этот boundary внутри `ProtectedStorageSessionLease`.
+
+- Период и положительный `limit` обязательны; скрытых defaults и автоматического выбора периода нет.
+- Период применяется к **сохранённой** `CalendarDate` включительно с обеих сторон, как задано `JournalDateRange`.
+- События упорядочены по `EventUtc DESC`, затем exact `EventId DESC` с BINARY comparison.
+- Лимит означает число событий, а не число payload rows. Он применяется в SQL до LEFT JOIN payloads;
+  все payload выбранного события возвращаются в порядке `PayloadOrder`.
+- Один SELECT обеспечивает единый SQLite read snapshot для event envelopes и payload rows.
+- Envelope возвращает исходный `EventId`, durable source `ApplicationId`, runtime source snapshot и полный
+  `EventTimeContext`. UTC и offset восстанавливаются из persisted values без обращения к текущей Windows
+  time zone; сохранённая calendar date проверяется на согласованность, а не заменяется новой датой.
+- Inline representations, `SearchText`, canonical byte counts и external `SHA/RelativePath/SizeBytes`
+  возвращаются из history rows. StorageItems JSON не пересериализуется, URI не нормализуется.
+- External payload bytes не читаются. Отсутствующий внешний файл не мешает получить его сохранённую ссылку.
+  Дата/путь первого сохранения не пересчитываются; Catalog и extension provider для чтения не нужны.
+- Чтение открывает только `Current/current.db` в `ReadOnly`, проверяет StorageId, роль, schema/user version
+  и history schema shape. Создание repository не открывает БД; чтение не создаёт и не мигрирует schema.
+- Некорректные event IDs, временные поля, source snapshot, payload order, canonical inline byte counts
+  или external reference metadata приводят к ошибке целого запроса без возврата частичного результата.
+  Проверка metadata внешней ссылки не является проверкой существования, размера или SHA фактического файла.
+- Caller cancellation и session cancellation объединяются. Отмена проверяется до открытия, после открытия,
+  между строками и перед возвратом результата. Reader/connection освобождаются при успехе, отмене и ошибке.
+- Repository не хранит результаты между вызовами и не продлевает session lifecycle. Возвращённые строки
+  уже являются данными в памяти вызывающей стороны; очистка UI/cache после lock остаётся её обязанностью.
+
+Это bounded Current read boundary, а не готовый journal query service: archive reads, FTS, source filters,
+keyset continuation и UI composition остаются отдельными этапами. `limit` ограничивает число событий,
+но не суммарный объём их payload. Microsoft.Data.Sqlite операции выполняются синхронно; этот метод
+не запускает background worker и не обещает preemptive interruption внутри отдельного SQLite вызова.
+Будущий host должен явно определить execution/cancellation lifecycle перед подключением к UI.
+
+Существующие Current v4 / Catalog v2 сохраняются; app-level capture delivery по-прежнему требует явную
+глобальную `ClipboardCapturePolicy` с утверждённым источником, без самостоятельно выбранного Allow/Deny.
