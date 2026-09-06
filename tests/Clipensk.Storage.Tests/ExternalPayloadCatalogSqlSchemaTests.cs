@@ -41,11 +41,7 @@ public sealed class ExternalPayloadCatalogSqlSchemaTests
     public void ValidateTables_RejectsMissingRelativePathUniquenessIndex()
     {
         using SqliteConnection connection = OpenMemoryDatabase();
-        using (SqliteTransaction transaction = connection.BeginTransaction())
-        {
-            ExternalPayloadCatalogSqlSchema.CreateTables(connection, transaction);
-            transaction.Commit();
-        }
+        CreateSchema(connection);
 
         using (SqliteCommand drop = connection.CreateCommand())
         {
@@ -55,6 +51,53 @@ public sealed class ExternalPayloadCatalogSqlSchemaTests
 
         Assert.Throws<InvalidDataException>(() =>
             ExternalPayloadCatalogSqlSchema.ValidateTables(connection));
+    }
+
+    [Fact]
+    public void ValidateTables_RejectsNonUniqueRelativePathIndexWithExpectedName()
+    {
+        using SqliteConnection connection = OpenMemoryDatabase();
+        CreateSchema(connection);
+
+        using (SqliteCommand replace = connection.CreateCommand())
+        {
+            replace.CommandText = """
+                DROP INDEX UX_ExternalPayloadAddressIndex_RelativePath;
+                CREATE INDEX UX_ExternalPayloadAddressIndex_RelativePath
+                    ON ExternalPayloadAddressIndex(RelativePath);
+                """;
+            replace.ExecuteNonQuery();
+        }
+
+        Assert.Throws<InvalidDataException>(() =>
+            ExternalPayloadCatalogSqlSchema.ValidateTables(connection));
+    }
+
+    [Fact]
+    public void ValidateTables_RejectsRelativePathIndexOnWrongColumn()
+    {
+        using SqliteConnection connection = OpenMemoryDatabase();
+        CreateSchema(connection);
+
+        using (SqliteCommand replace = connection.CreateCommand())
+        {
+            replace.CommandText = """
+                DROP INDEX UX_ExternalPayloadAddressIndex_RelativePath;
+                CREATE UNIQUE INDEX UX_ExternalPayloadAddressIndex_RelativePath
+                    ON ExternalPayloadAddressIndex(SizeBytes);
+                """;
+            replace.ExecuteNonQuery();
+        }
+
+        Assert.Throws<InvalidDataException>(() =>
+            ExternalPayloadCatalogSqlSchema.ValidateTables(connection));
+    }
+
+    private static void CreateSchema(SqliteConnection connection)
+    {
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ExternalPayloadCatalogSqlSchema.CreateTables(connection, transaction);
+        transaction.Commit();
     }
 
     private static void Insert(
