@@ -302,7 +302,11 @@ public sealed class SqliteCurrentClipboardHistoryRepositoryTests
         using TestEnvironment environment = await TestEnvironment.CreateAsync();
         environment.InsertTextEvent(Guid.Parse("abcdefab-cdef-abcd-efab-cdefabcdefab"),
             new DateTimeOffset(2026, 9, 6, 12, 0, 0, TimeSpan.Zero), "value");
-        environment.Execute("UPDATE ClipboardHistoryEvent SET EventId = upper(EventId);");
+        environment.Execute("""
+            PRAGMA foreign_keys = OFF;
+            UPDATE ClipboardHistoryPayload SET EventId = upper(EventId);
+            UPDATE ClipboardHistoryEvent SET EventId = upper(EventId);
+            """);
         var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
 
         await Assert.ThrowsAsync<InvalidDataException>(async () => await repository.ReadAsync(Period, 2));
