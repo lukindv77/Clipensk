@@ -14,7 +14,7 @@ namespace Clipensk.Storage.Tests;
 public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
 {
     [Fact]
-    public async Task Initialize_CreatesCurrentV4HistorySchemaAndLeavesCatalogV1()
+    public async Task Initialize_CreatesCurrentV4HistorySchemaAndCatalogV2()
     {
         string root = CreateTemporaryDirectory();
         byte[] key = RandomNumberGenerator.GetBytes(32);
@@ -30,11 +30,12 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
             Assert.True(result.IsSuccess);
             Assert.True(result.WasInitialized);
             Assert.Equal(4, ReadSchemaVersion(factory, CurrentPath(root), key));
-            Assert.Equal(1, ReadSchemaVersion(factory, CatalogPath(root), key));
+            Assert.Equal(2, ReadSchemaVersion(factory, CatalogPath(root), key));
             Assert.True(HasTable(factory, CurrentPath(root), key, "ApplicationIdentity"));
             Assert.True(HasTable(factory, CurrentPath(root), key, "ApplicationCapturePolicy"));
             Assert.True(HasTable(factory, CurrentPath(root), key, "ClipboardHistoryEvent"));
             Assert.True(HasTable(factory, CurrentPath(root), key, "ClipboardHistoryPayload"));
+            Assert.True(HasTable(factory, CatalogPath(root), key, "ExternalPayloadAddressIndex"));
             Assert.False(HasTable(factory, CatalogPath(root), key, "ClipboardHistoryEvent"));
         }
         finally
