@@ -7,7 +7,7 @@
 - `storage-catalog.db` v1: только `DatabaseIdentity`;
 - `storage-catalog.db` v2: добавляет rebuildable индекс адресов внешних clipboard payload.
 
-Версия catalog независима от `current.db` schema version.
+Версия catalog независима от `current.db` schema version. Текущий production bootstrap создаёт новый catalog сразу как v2 и принимает legacy v1 только как вход для resumable migration.
 
 ## Catalog v2 — external payload address index
 
@@ -26,6 +26,26 @@ SHA-256(exact stored bytes) -> RelativePath + SizeBytes
 Отдельное поле `FirstStoredDate` не требуется: дата первого физического размещения уже является частью canonical relative path `YYYY-MM-DD/<sha>.<extension>`.
 
 Глобальный ключ — именно SHA-256 exact stored bytes. Он не зависит от source application, clipboard format name, capture date или текущей БД истории.
+
+## Initialization и migration
+
+Новая storage pair создаётся как:
+
+- `current.db` v4;
+- `storage-catalog.db` v2 с `ExternalPayloadAddressIndex`.
+
+Для существующей pair сначала валидируются обе БД в их допустимых входных версиях. До успешной whole-pair validation mutation не выполняется.
+
+Legacy Catalog v1 мигрирует отдельной транзакцией:
+
+1. создаётся `ExternalPayloadAddressIndex`;
+2. `DatabaseIdentity.SchemaVersion` меняется `1 -> 2` только для роли `StorageCatalog` и ожидаемого `StorageId`;
+3. `PRAGMA user_version` меняется на 2;
+4. transaction commit.
+
+Если transaction не commit-ится, Catalog остаётся полноценным v1 и следующая разблокировка может повторить v1 -> v2. Current schema version этой migration не изменяется.
+
+После migration Current и Catalog повторно валидируются в production versions v4/v2.
 
 ## Source of truth и rebuild
 
