@@ -125,6 +125,34 @@ public sealed class SqliteClipboardHistorySinkTests
     }
 
     [Fact]
+    public async Task StoreAsync_RejectsIncorrectInlineCanonicalByteCountBeforeSqlWrite()
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        var sink = new SqliteClipboardHistorySink(
+            environment.Session,
+            new RejectingExternalPayloadResolver(),
+            environment.Factory);
+        var capture = new ClipboardAcceptedCapture(
+            new ClipboardCaptureContext(
+                new ClipboardCaptureRequest(
+                    new EventTimeContext(
+                        new DateTimeOffset(2026, 9, 6, 1, 30, 0, TimeSpan.FromHours(7)),
+                        "SE Asia Standard Time")),
+                null),
+            [
+                new ClipboardCapturedTextContent(
+                    Route("Text", ClipboardContentReaderKind.Text),
+                    "é",
+                    canonicalByteCount: 1),
+            ]);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await sink.StoreAsync(capture));
+
+        Assert.Equal(0, environment.CountRows("ClipboardHistoryEvent"));
+        Assert.Equal(0, environment.CountRows("ClipboardHistoryPayload"));
+    }
+
+    [Fact]
     public async Task StoreAsync_ExternalResolutionFailureLeavesNoHistoryRows()
     {
         using TestEnvironment environment = await TestEnvironment.CreateAsync();
