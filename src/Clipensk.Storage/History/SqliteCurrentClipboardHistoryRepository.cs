@@ -31,6 +31,30 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         int limit,
         CancellationToken cancellationToken = default)
     {
+        return ReadCore(period, limit, before: null, cancellationToken);
+    }
+
+    public ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadBeforeAsync(
+        JournalDateRange period,
+        int limit,
+        ClipboardHistoryCursor before,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        if (before.Period != period)
+        {
+            throw new ArgumentException("History cursor belongs to a different calendar period.", nameof(before));
+        }
+
+        return ReadCore(period, limit, before, cancellationToken);
+    }
+
+    private ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadCore(
+        JournalDateRange period,
+        int limit,
+        ClipboardHistoryCursor? before,
+        CancellationToken cancellationToken)
+    {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
         using CancellationTokenSource linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             _session.CancellationToken,
@@ -49,6 +73,9 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
                        SourceExecutablePath, SourceApplicationUserModelId
                 FROM ClipboardHistoryEvent
                 WHERE CalendarDate >= $startDate AND CalendarDate <= $endDate
+                  AND ($beforeUtc IS NULL
+                       OR EventUtc < $beforeUtc
+                       OR (EventUtc = $beforeUtc AND EventId COLLATE BINARY < $beforeId))
                 ORDER BY EventUtc DESC, EventId COLLATE BINARY DESC
                 LIMIT $limit
             )
@@ -65,6 +92,12 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         command.Parameters.AddWithValue("$startDate", period.StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$endDate", period.EndDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$beforeUtc", before is null
+            ? DBNull.Value
+            : before.UtcTimestamp.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$beforeId", before is null
+            ? DBNull.Value
+            : before.EventId.ToString("D"));
 
         var entries = new List<ClipboardHistoryEntry>();
         ClipboardHistoryEntry? current = null;
@@ -74,7 +107,12 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
             while (reader.Read())
             {
                 token.ThrowIfCancellationRequested();
-                Guid eventId = ReadNonEmptyGuid(reader.GetString(0), "EventId");
+                string storedEventId = reader.GetString(0);
+                Guid eventId = ReadNonEmptyGuid(storedEventId, "EventId");
+                if (!string.Equals(storedEventId, eventId.ToString("D"), StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException("History EventId must retain the canonical lowercase form used by the sink and cursor.");
+                }
                 if (current is null || current.EventId != eventId)
                 {
                     if (current is not null)

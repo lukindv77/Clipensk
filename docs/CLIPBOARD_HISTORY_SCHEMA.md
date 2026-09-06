@@ -115,10 +115,34 @@ DDL/validation contract реализован `ClipboardHistorySqlSchema`; produc
   уже являются данными в памяти вызывающей стороны; очистка UI/cache после lock остаётся её обязанностью.
 
 Это bounded Current read boundary, а не готовый journal query service: archive reads, FTS, source filters,
-keyset continuation и UI composition остаются отдельными этапами. `limit` ограничивает число событий,
+UI composition остаются отдельными этапами. `limit` ограничивает число событий,
 но не суммарный объём их payload. Microsoft.Data.Sqlite операции выполняются синхронно; этот метод
 не запускает background worker и не обещает preemptive interruption внутри отдельного SQLite вызова.
 Будущий host должен явно определить execution/cancellation lifecycle перед подключением к UI.
+
+### Keyset continuation для Current
+
+После первой страницы `ReadAsync` вызывающая сторона создаёт
+`ClipboardHistoryCursor.FromEntry(period, lastEntry)` из последнего события и вызывает
+`ReadBeforeAsync(period, limit, cursor, cancellationToken)`. Период и положительный лимит
+задаются явно на каждой странице; default page size, OFFSET и автоматического COUNT нет.
+
+- Курсор содержит только исходный период, UTC timestamp и непустой EventId; он не удерживает
+  lease, connection или payload. Не-UTC timestamp и смена периода отклоняются; при смене периода
+  чтение начинается заново через `ReadAsync`.
+- Продолжение эксклюзивно: `EventUtc < cursor.UtcTimestamp` либо равное время и
+  `EventId COLLATE BINARY < cursor.EventId`. GUID сериализуется в lowercase D, как в history sink.
+  Неканоническое написание persisted EventId отклоняется, чтобы преобразование в GUID и обратно
+  не меняло позицию в BINARY ordering.
+- LIMIT применяется к событиям до JOIN; payload одного события не разрываются между страницами.
+  Пустая страница означает отсутствие дальнейших событий на момент этого SELECT.
+- Каждая страница — отдельный snapshot. Удаление anchor event и вставка более нового события
+  не сдвигают продолжение. Вставка задним числом ниже курсора может появиться на следующей странице;
+  для записей выше курсора требуется начать чтение заново. Стабильный snapshot всей сессии просмотра,
+  поведение переноса в archive и полнота чтения при изменении старых событий этим API не обещаются.
+- Все проверки protected session, caller/session cancellation и metadata применяются и к продолжению.
+
+Current v4 / Catalog v2 и SQL schema не изменяются.
 
 Существующие Current v4 / Catalog v2 сохраняются; app-level capture delivery по-прежнему требует явную
 глобальную `ClipboardCapturePolicy` с утверждённым источником, без самостоятельно выбранного Allow/Deny.

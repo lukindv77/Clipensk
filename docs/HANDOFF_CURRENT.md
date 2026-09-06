@@ -153,7 +153,8 @@ C# build/tests подтверждены GitHub Build #129.
 
 Ограничения (НЕ объявлять реализованными):
 - это Current-only read boundary, не готовый журнал;
-- нет archive reads, FTS, source filters, keyset continuation и UI composition;
+- на исходном checkpoint нет archive reads, FTS, source filters, keyset continuation и UI composition
+  (последующее keyset continuation описано в разделе M);
 - limit ограничивает число events, не суммарные payload bytes;
 - Microsoft.Data.Sqlite вызовы синхронны; preemptive interruption отдельного вызова не обещана;
 - future host должен явно определить execution/cancellation lifecycle перед UI;
@@ -236,7 +237,7 @@ global ClipboardCapturePolicy — mandatory explicit dependency, но requiremen
 Не объявлять worker, UI history или end-to-end capture готовыми по наличию repository/sink.
 
 Другие открытые направления:
-- execution/cancellation/UI composition для Current reads; query continuation/FTS/source filters;
+- execution/cancellation/UI composition для Current reads; FTS/source filters;
 - безопасный RTF→SearchText contract;
 - Current→Archive lifecycle, Archive schema/read path, Catalog rebuild, external reference tracking/GC;
 - password/MasterKey change, crypto metadata и partial storage recovery;
@@ -314,3 +315,33 @@ Build #130 run 34007846980 — SUCCESS всех четырёх обязател�
 запросом GitHub; Build #130 относится к ПРЕДЫДУЩЕМУ docs checkpoint и не подтверждает этот tranche.
 Для продолжения сначала проверить exact Build и relevant Native run фактического main,
 затем вернуться к разделу K. Основной blocker global policy остаётся открытым.
+## M. Последующее продолжение: Current history keyset pagination
+
+Перед этим tranche фактический main: bc7abcfcde530671393ce1f4567e1b9d73744de1.
+Protected history read composition из раздела L подтверждён exact CI:
+- Build #131, run 34018456453: Verify x64-only implementation scope, Restore, Build, Test — SUCCESS;
+- Native SQLCipher #34, run 34018456413: SUCCESS, включая native build, smoke, encrypted storage
+  verification, unpackaged x64 publish и runtime SQLCipher loading verification.
+
+По следующей команде разработки реализовано независимое продолжение Current reads:
+- ClipboardHistoryCursor: явные period + UTC + непустой EventId, без session/payload ownership;
+- ICurrentClipboardHistoryRepository.ReadBeforeAsync: эксклюзивный keyset по EventUtc/EventId,
+  без OFFSET, скрытого limit или SQL schema migration;
+- курсор создаётся из последнего события; смена периода требует нового ReadAsync;
+- каждый SELECT возвращает полный набор payload выбранных событий в отдельном snapshot;
+- сохранённый EventId проверяется на lowercase D, используемый sink и BINARY cursor comparison;
+- добавлены тесты границ страниц, одинакового UTC, local/UTC date mismatch, удаления anchor,
+  вставки нового события, недопустимых курсоров/лимитов и protected/caller cancellation.
+
+Ветка: feat/current-history-keyset-pagination.
+Этот раздел публикуется с кодом: его собственные SHA и CI необходимо получить свежим запросом.
+Build #131 / Native #34 подтверждают только предыдущий bc7 checkpoint, не этот tranche.
+Локальный .NET SDK отсутствует; SQLite query check не заменяет exact GitHub Build/Test evidence.
+
+Актуальная resume point: fresh main → exact Build/head_sha и relevant Native run.
+Если CI failed — первый failed step/log и минимальный failure-driven fix; если ещё выполняется —
+не делать пустой polling. После SUCCESS не повторять Current read composition/keyset implementation.
+Global ClipboardCapturePolicy остаётся NOT READY: источник/default не утверждён, Allow/Deny не выбран.
+Worker/UI не запущены. Archive lifecycle/rebuild и новые schema остаются без придуманного контракта.
+Дальнейшие направления — согласование policy/composition либо отдельный явно выбранный query/UI этап.
+Рекомендация для exact CI check: GPT-5.6 Sol, Низкая; для policy/composition: GPT-6 Astra, Высокая.

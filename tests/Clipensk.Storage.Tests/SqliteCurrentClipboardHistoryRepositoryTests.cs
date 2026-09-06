@@ -187,6 +187,127 @@ public sealed class SqliteCurrentClipboardHistoryRepositoryTests
         Assert.Equal(System.Data.ConnectionState.Closed, environment.Factory.LastConnection!.State);
     }
 
+    [Fact]
+    public async Task ReadBeforeAsync_PagesUtcAndEqualTimeIdsWithoutDuplicatesOrSplitPayloads()
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        Guid[] ids = Enumerable.Range(1, 5)
+            .Select(value => Guid.Parse($"00000000-0000-0000-0000-{value:D12}"))
+            .ToArray();
+        // Calendar day is September 6 although the UTC date is September 5.
+        var timestamp = new DateTimeOffset(2026, 9, 6, 0, 15, 0, TimeSpan.FromHours(7));
+        for (int index = 0; index < ids.Length; index++)
+        {
+            DateTimeOffset eventTime = index == 0 ? timestamp.AddMinutes(1)
+                : index == 1 ? timestamp.AddMinutes(-1) : timestamp;
+            environment.InsertTextEvent(ids[index], eventTime, "one", "two", "three");
+        }
+        environment.InsertTextEvent(Guid.NewGuid(), timestamp.AddDays(-1), "outside");
+        ICurrentClipboardHistoryRepository repository = new SqliteCurrentClipboardHistoryRepository(
+            environment.Session, environment.Factory);
+
+        IReadOnlyList<ClipboardHistoryEntry> first = await repository.ReadAsync(Period, 2);
+        IReadOnlyList<ClipboardHistoryEntry> second = await repository.ReadBeforeAsync(
+            Period, 2, ClipboardHistoryCursor.FromEntry(Period, first[^1]));
+        IReadOnlyList<ClipboardHistoryEntry> third = await repository.ReadBeforeAsync(
+            Period, 2, ClipboardHistoryCursor.FromEntry(Period, second[^1]));
+        IReadOnlyList<ClipboardHistoryEntry> end = await repository.ReadBeforeAsync(
+            Period, 2, ClipboardHistoryCursor.FromEntry(Period, third[^1]));
+
+        Assert.Equal(new[] { ids[0], ids[4] }, first.Select(e => e.EventId));
+        Assert.Equal(new[] { ids[3], ids[2] }, second.Select(e => e.EventId));
+        Assert.Equal(ids[1], Assert.Single(third).EventId);
+        Assert.Empty(end);
+        ClipboardHistoryEntry[] all = first.Concat(second).Concat(third).ToArray();
+        Assert.Equal(5, all.Select(e => e.EventId).Distinct().Count());
+        Assert.All(all, entry => Assert.Equal(new[] { "one", "two", "three" },
+            entry.Payloads.Select(payload => payload.InlineCanonicalText)));
+    }
+
+    [Fact]
+    public async Task ReadBeforeAsync_SurvivesDeletedAnchorAndNewerInsertionWithoutOffsetShift()
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        var timestamp = new DateTimeOffset(2026, 9, 6, 12, 0, 0, TimeSpan.Zero);
+        Guid[] ids = Enumerable.Range(0, 4).Select(_ => Guid.NewGuid()).ToArray();
+        for (int index = 0; index < ids.Length; index++)
+        {
+            environment.InsertTextEvent(ids[index], timestamp.AddMinutes(-index), "value");
+        }
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+        IReadOnlyList<ClipboardHistoryEntry> first = await repository.ReadAsync(Period, 2);
+        ClipboardHistoryCursor cursor = ClipboardHistoryCursor.FromEntry(Period, first[^1]);
+
+        environment.Execute("""
+            PRAGMA foreign_keys = ON;
+            DELETE FROM ClipboardHistoryEvent WHERE EventId = $id;
+            """, ("$id", cursor.EventId.ToString("D")));
+        environment.InsertTextEvent(Guid.NewGuid(), timestamp.AddMinutes(1), "newer");
+
+        IReadOnlyList<ClipboardHistoryEntry> next = await repository.ReadBeforeAsync(Period, 2, cursor);
+        Assert.Equal(new[] { ids[2], ids[3] }, next.Select(e => e.EventId));
+    }
+
+    [Fact]
+    public async Task ReadBeforeAsync_RejectsChangedPeriodAndNullCursorBeforeDatabaseAccess()
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+        var cursor = new ClipboardHistoryCursor(Period, new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc), Guid.NewGuid());
+        var otherPeriod = new JournalDateRange(Period.StartDate.AddDays(-1), Period.EndDate);
+        int opens = environment.Factory.Modes.Count;
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await repository.ReadBeforeAsync(otherPeriod, 2, cursor));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () => await repository.ReadBeforeAsync(Period, 2, null!));
+        Assert.Equal(opens, environment.Factory.Modes.Count);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task ReadBeforeAsync_RejectsNonPositiveLimitBeforeDatabaseAccess(int limit)
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+        var cursor = new ClipboardHistoryCursor(Period, new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc), Guid.NewGuid());
+        int opens = environment.Factory.Modes.Count;
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () => await repository.ReadBeforeAsync(Period, limit, cursor));
+        Assert.Equal(opens, environment.Factory.Modes.Count);
+    }
+
+    [Theory]
+    [InlineData("caller")]
+    [InlineData("lock")]
+    [InlineData("dispose")]
+    public async Task ReadBeforeAsync_RejectsRevokedAccessBeforeDatabaseAccess(string cause)
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+        var cursor = new ClipboardHistoryCursor(Period, new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc), Guid.NewGuid());
+        using var cancellation = new CancellationTokenSource();
+        if (cause == "caller") cancellation.Cancel();
+        if (cause == "lock") Assert.True(environment.Lifecycle.TryBeginLock());
+        if (cause == "dispose") environment.Session.Dispose();
+        int opens = environment.Factory.Modes.Count;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await repository.ReadBeforeAsync(Period, 2, cursor, cancellation.Token));
+        Assert.Equal(opens, environment.Factory.Modes.Count);
+    }
+
+    [Fact]
+    public async Task ReadAsync_RejectsEventIdSpellingThatCannotRoundTripThroughCursor()
+    {
+        using TestEnvironment environment = await TestEnvironment.CreateAsync();
+        environment.InsertTextEvent(Guid.Parse("abcdefab-cdef-abcd-efab-cdefabcdefab"),
+            new DateTimeOffset(2026, 9, 6, 12, 0, 0, TimeSpan.Zero), "value");
+        environment.Execute("UPDATE ClipboardHistoryEvent SET EventId = upper(EventId);");
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await repository.ReadAsync(Period, 2));
+    }
+
     private static ClipboardContentReaderRoute Route(string name, ClipboardContentReaderKind kind) =>
         new(new ClipboardSelectedFormat(name, null), kind);
 
