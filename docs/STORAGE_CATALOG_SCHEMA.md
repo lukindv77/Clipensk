@@ -47,6 +47,19 @@ Legacy Catalog v1 мигрирует отдельной транзакцией:
 
 После migration Current и Catalog повторно валидируются в production versions v4/v2.
 
+## Runtime reservation semantics
+
+`SqliteExternalPayloadAddressIndex` предоставляет protected-session lookup/reservation поверх Catalog v2.
+
+`GetOrAdd(candidate)` выполняется транзакционно:
+
+- для нового SHA сохраняется candidate address;
+- для уже существующего SHA возвращается ранее сохранённый address, даже если новый candidate построен из более поздней capture date;
+- тот же SHA с другим `SizeBytes` считается конфликтом и завершается fail-closed;
+- collision одного `RelativePath` между разными SHA не перезаписывается и завершается fail-closed.
+
+Индекс проверяет `StorageId`, роль `StorageCatalog`, schema/user version и точную форму `UNIQUE(RelativePath)` перед использованием. Операции связаны с cancellation token активного `ProtectedStorageSessionLease`.
+
 ## Source of truth и rebuild
 
 Catalog row не является единственным источником адреса. Исторические payload rows в `current.db` и `archive_*.db` сохраняют `ExternalSha256`, `ExternalRelativePath` и `ExternalSizeBytes`.
