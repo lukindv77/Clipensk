@@ -51,7 +51,11 @@ External row хранит SHA-256, relative path и size. Бинарные bytes
 
 Переданный resolver-у `eventCalendarDate` является только candidate date для **впервые сохраняемого** content object. Для уже известного content-address resolver обязан вернуть ранее зафиксированный address/relative path и тем самым сохранить исходную `firstStoredDate`. Использовать дату текущего capture как новую `firstStoredDate` для существующего duplicate запрещено.
 
-Sink дополнительно проверяет, что возвращённый address соответствует exact payload bytes по SHA-256 и size и не выходит за configured `Files` root. Persistent hash/address index и его race semantics реализуются отдельным storage tranche.
+`CatalogClipboardExternalPayloadAddressResolver` использует Catalog v2 `IExternalPayloadAddressIndex` как race-safe SHA→address reservation и затем `ExternalPayloadStore.EnsureStoredAtAddressAsync` для записи или восстановления exact persisted file. Поэтому повторный SHA всегда использует первый зарезервированный path, даже если текущий capture пришёл в другую календарную дату.
+
+Для PNG physical extension фиксирован `.png`. Для нового custom binary extension обязан предоставить `IClipboardCustomBinaryFileExtensionProvider`; пустой результат запрещён и не получает скрытого `.bin` fallback. Если custom SHA уже присутствует в Catalog, старый persisted address используется без вызова extension provider.
+
+Sink дополнительно проверяет, что возвращённый address соответствует exact payload bytes по SHA-256 и size и не выходит за configured `Files` root.
 
 ## Transaction boundary
 
