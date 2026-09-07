@@ -68,7 +68,8 @@ public partial class App : Application
             _credentialService,
             _databaseService,
             credentialState);
-        _window.GlobalCapturePolicyInitialized += OnGlobalCapturePolicyInitialized;
+        _window.GlobalCapturePolicyMutationStarting += OnGlobalCapturePolicyMutationStarting;
+        _window.GlobalCapturePolicyRefreshRequested += OnGlobalCapturePolicyRefreshRequested;
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;
 
@@ -207,7 +208,8 @@ public partial class App : Application
 
         if (_window is not null)
         {
-            _window.GlobalCapturePolicyInitialized -= OnGlobalCapturePolicyInitialized;
+            _window.GlobalCapturePolicyMutationStarting -= OnGlobalCapturePolicyMutationStarting;
+            _window.GlobalCapturePolicyRefreshRequested -= OnGlobalCapturePolicyRefreshRequested;
         }
 
         if (_hotKeyService is not null)
