@@ -214,7 +214,7 @@ public sealed class ProtectedStorageCatalogRecoveryService
             archives.Add(archive.Descriptor);
         }
 
-        StorageQueryPlanner.ValidateArchiveCoverage(archives);
+        ValidateNonOverlappingArchives(archives);
 
         ArchiveSegmentDescriptor[] projectedArchives = archives
             .OrderBy(item => item.Coverage.StartDate)
@@ -952,6 +952,28 @@ public sealed class ProtectedStorageCatalogRecoveryService
             result.Add(name);
         }
         return result.OrderBy(name => name, StringComparer.Ordinal).ToArray();
+    }
+
+    private static void ValidateNonOverlappingArchives(
+        IReadOnlyCollection<ArchiveSegmentDescriptor> archives)
+    {
+        ArchiveSegmentDescriptor[] ordered = archives
+            .OrderBy(item => item.Coverage.StartDate)
+            .ThenBy(item => item.Coverage.EndDate)
+            .ThenBy(item => item.FileName, StringComparer.Ordinal)
+            .ToArray();
+
+        for (int index = 1; index < ordered.Length; index++)
+        {
+            ArchiveSegmentDescriptor previous = ordered[index - 1];
+            ArchiveSegmentDescriptor current = ordered[index];
+            if (previous.Coverage.Intersects(current.Coverage))
+            {
+                throw new InvalidDataException(
+                    $"Archive coverage overlaps during Catalog recovery: " +
+                    $"'{previous.FileName}' and '{current.FileName}'.");
+            }
+        }
     }
 
     private static bool SnapshotsEqual(
