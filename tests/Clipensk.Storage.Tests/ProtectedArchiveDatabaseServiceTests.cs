@@ -287,7 +287,7 @@ public sealed class ProtectedArchiveDatabaseServiceTests
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         var service = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             service.CreateAsync(default, Range(2026, 8, 1, 2026, 8, 31)));
     }
 
