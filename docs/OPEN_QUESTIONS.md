@@ -74,8 +74,8 @@
 Источник global policy и отсутствие автоматического default зафиксированы в
 `GLOBAL_CAPTURE_POLICY.md`: защищённый Current, storage scope, явная первичная настройка.
 Current v6, repository, JournalWindow setup UI, app-level policy loading, custom-binary extension
-repository/provider и inert App composition уже реализованы. **Worker lifecycle и policy cleanup
-для последующего изменения ещё не реализованы.**
+repository/provider, protected composition и worker lifecycle реализованы. **Policy cleanup для
+последующего изменения ещё не реализован.**
 
 Нужно утвердить конкретные defaults:
 
@@ -97,8 +97,12 @@ repository/provider и inert App composition уже реализованы. **Wo
 - изображения нормализуются в PNG и хранятся как external files;
 - explicitly allowed registered/private binary payload читается только как `IRandomAccessStream`, измеряется по exact bytes и остаётся выключенным по умолчанию;
 - exact custom-binary `FormatName → FileExtension` хранится storage-scoped в Current v6; hidden `.bin` fallback отсутствует как в production resolver, так и в низкоуровневых address/store API;
-- App строит protected delivery graph после active unlock session и повторно после первого policy COMMIT, но `ProcessNextAsync` пока не запускается;
+- App compose-ит protected delivery после active unlock session и повторно после первого policy COMMIT;
+- listener стартует только для non-null persisted policy graph, а single-reader worker использует cancellation exact protected session;
+- lock останавливает listener, инвалидирует capture epoch и worker/composition generations; новая session не начинает dequeue до завершения предыдущего worker task;
 - CF_WAVE, CF_RIFF и virtual file contents не сохраняются и блокируются до reader routing.
+
+Manual WinUI/real-clipboard smoke для полного runtime остаётся отдельным неполученным evidence; unit/CI tests не эмулируют настоящий `WM_CLIPBOARDUPDATE`, foreground source application и WinRT `DataPackageView`.
 
 Открытым остаётся безопасный `RTF -> SearchText` boundary. Raw RTF control syntax не может использоваться как поисковый текст. Нельзя вводить скрытый `RichEditBox`/UI-thread dependency либо непроверенный RTF parser без отдельного lifecycle/parser contract.
 
