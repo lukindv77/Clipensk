@@ -187,7 +187,11 @@ public sealed partial class JournalWindow
         {
             var repository = new SqliteGlobalClipboardCapturePolicyRepository(session);
             await Task.Run(async () => await repository.InitializeAsync(policy, session.CancellationToken), session.CancellationToken);
-            if (IsCurrentPolicyOperation(session, generation)) DisplayStoredGlobalPolicy(policy);
+            if (IsCurrentPolicyOperation(session, generation))
+            {
+                DisplayStoredGlobalPolicy(policy);
+                NotifyGlobalCapturePolicyInitialized();
+            }
         }
         catch (OperationCanceledException)
         {
