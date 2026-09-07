@@ -90,11 +90,6 @@ public partial class App
             lifecycle,
             session,
             services);
-        TryStartClipboardMonitoringForSession(
-            host,
-            window,
-            lifecycle,
-            session);
     }
 
     private void InvalidateClipboardDeliveryComposition()
