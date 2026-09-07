@@ -12,7 +12,8 @@ custom-binary extension configuration; production App использует её 
 `RepositoryClipboardCustomBinaryFileExtensionProvider`.
 
 Composition строит **inert graph**. Само создание не читает clipboard payload, не потребляет
-capture queue, не вызывает `ProcessNextAsync` и не запускает worker.
+capture queue, не вызывает `ProcessNextAsync` и не запускает worker. Запуск resident processing
+принадлежит отдельному App lifecycle, описанному в `CLIPBOARD_WORKER_LIFECYCLE.md`.
 
 ## Явные зависимости
 
@@ -48,39 +49,31 @@ MIME/registry associations или hidden `.bin` default.
 application-policy operations и custom-binary extension lookup остаются lazy до фактического
 `ProcessNextAsync`.
 
-## App-level composition lifecycle
-
-`App` теперь подключает этот boundary к unlock lifecycle, но **не запускает worker**.
+## App-level composition и запуск runtime
 
 После `ProtectedDataAccessChanged(true)` событие приходит до того, как `JournalWindow` успевает
-создать `ProtectedStorageSessionLease`. Поэтому App сохраняет существующий deferred-dispatcher
-шаг и после возврата unlock-handler повторно проверяет:
+создать `ProtectedStorageSessionLease`. Поэтому App использует deferred-dispatcher шаг и после
+возврата unlock-handler повторно проверяет host/lifecycle и наличие active session.
 
-- тот же `ResidentWindowsHost`;
-- тот же `ProtectedApplicationLifecycle`;
-- `CanAccessProtectedData`;
-- наличие active session в `JournalWindow`.
+После этих проверок App выполняет composition вне UI thread через `Task.Run`. Результат публикуется
+только если совпадают composition generation, window/host/lifecycle references, active session и её
+reference identity. Старый результат после lock, close или нового composition request не принимается.
 
-После этих проверок App оставляет существующий clipboard listener lifecycle и отдельно запускает
-composition вне UI thread через `Task.Run`. Для session создаются
-`SqliteCustomBinaryFormatConfigurationRepository` и
-`RepositoryClipboardCustomBinaryFileExtensionProvider`, затем вызывается
-`ProtectedClipboardDeliveryServices.TryCreateAsync`.
+Clipboard listener **не запускается просто после unlock**. Если global policy отсутствует,
+boundary возвращает `null`; App оставляет monitoring выключенным и worker не создаёт. Ошибка
+composition также не включает fallback capture path.
 
-Результат публикуется в retained App field только если совпадают composition generation,
-window/host/lifecycle references, active session и её reference identity. Старый результат после
-lock, close или нового composition request не принимается.
-
-Если global policy ещё не настроена, boundary возвращает `null`; App не подменяет это Allow/Deny
-и не создаёт worker.
+Если services non-null, App сначала планирует exact-session `ClipboardAcceptedCaptureWorker`, а
+затем включает `ClipboardUpdateMonitor`. Поэтому requests до первичной настройки policy не могут
+попасть в queue и быть обработаны позже после настройки.
 
 После первого успешного `GlobalCapturePolicy.InitializeAsync` JournalWindow отправляет внутреннее
-уведомление App **после COMMIT**. Уведомление изолировано от результата durable операции: ошибка
-подписчика не может превратить уже committed policy в UI failure. App выполняет новый composition
-request с той же generation/session защитой.
+уведомление App **после COMMIT**. Ошибка подписчика не может превратить already committed policy в
+UI failure. App выполняет новый composition request, и non-null graph запускает worker/listener.
 
-При lock и при закрытии App увеличивает generation и очищает retained composition reference.
-Старая session одновременно теряет protected access через существующий lifecycle cancellation.
+При lock App останавливает listener, инвалидирует worker generation и composition generation.
+Session cancellation завершает blocked/active worker. Новая session становится reader только после
+завершения task предыдущего worker, сохраняя single-reader contract `ClipboardCaptureQueue`.
 
 ## Custom-binary extension semantics
 
@@ -94,35 +87,34 @@ request с той же generation/session защитой.
 6. first persisted Catalog address остаётся неизменным для duplicate SHA.
 
 Низкоуровневые `ExternalPayloadAddressFactory.ForCustomBinary` и
-`ExternalPayloadStore.StoreCustomBinaryAsync` также требуют explicit extension параметр; optional
-`.bin` fallback отсутствует структурно.
+`ExternalPayloadStore.StoreCustomBinaryAsync` требуют explicit extension параметр; optional `.bin`
+fallback отсутствует структурно.
 
 Полный storage contract — `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
 
 ## Отмена и владение
 
-Creation token не является lifetime token возвращённого graph. Доступ после создания определяется
-исходной protected session и caller token будущего `ProcessNextAsync`.
+Creation token не является lifetime token возвращённого graph. После создания processing lifetime
+ограничен исходной `ProtectedStorageSessionLease.CancellationToken`.
 
 Lock/dispose/reopen не передаёт новый доступ старому graph: repositories, sink, provider и delivery
-остаются привязаны к старой session. App generation guard дополнительно запрещает публикацию
-stale composition result.
+остаются привязаны к старой session. Composition/worker generation guards дополнительно запрещают
+публикацию или запуск stale result.
 
-Ошибки composition не публикуют partial graph и не ослабляют protected access. Они не запускают
-fallback capture path.
+Worker не меняет history COMMIT semantics: successful COMMIT не демотируется late cancellation.
+Non-cancellation failure одного capture fail-closed для этого request и не прекращает последующие
+resident captures; production queue request уже dequeued до downstream processing.
 
-## Проверки и оставшийся этап
+## Проверки и оставшийся evidence
 
 Storage composition tests покрывают unconfigured policy, Allow/Deny, durable identity,
 individual overrides, cancellation/lock/dispose, malformed policy, mandatory extension provider,
 operation-token lifetime и committed accepted-text path. Current v6 tests отдельно покрывают
 extension repository/provider и migration.
 
-App-level wiring компилируется как часть Windows x64 Build. Ручная WinUI/clipboard проверка пока
-не выполнена.
+Core worker tests покрывают blocked cancellation, продолжение после item failure и serial
+`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle wiring.
 
-**Worker lifecycle остаётся отдельным tranche.** Retained `ProtectedClipboardDeliveryServices`
-сейчас никто не вызывает через `ProcessNextAsync`; capture queue не потребляется. Следующий этап
-должен отдельно определить и реализовать start/stop, lock/unlock cancellation, stale-session rules,
-close/dispose, queue ownership и worker failure/retry semantics. До этого end-to-end real clipboard
-capture остаётся NOT READY.
+После успешного CI этот tranche делает автоматический capture runtime архитектурно связанным end-to-end.
+Однако **manual WinUI/real-clipboard smoke остаётся UNVERIFIED**: unit/CI tests не эмулируют настоящий
+foreground source application, Windows `WM_CLIPBOARDUPDATE` и WinRT `DataPackageView`.
