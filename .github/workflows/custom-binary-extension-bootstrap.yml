@@ -25,9 +25,13 @@ jobs:
       - name: Apply implementation patch
         shell: pwsh
         run: |
-          git apply --check eng/custom-binary-extension-config.patch
+          $patchPath = 'eng/custom-binary-extension-config.patch'
+          $patch = Get-Content -LiteralPath $patchPath -Raw
+          $patch = $patch.Replace('@@ -21,14 +21,19 @@ public static class ExternalPayloadAddressFactory', '@@ -21,14 +21,18 @@ public static class ExternalPayloadAddressFactory')
+          Set-Content -LiteralPath $patchPath -Value $patch -Encoding utf8NoBOM -NoNewline
+          git apply --check $patchPath
           if ($LASTEXITCODE -ne 0) { throw 'git apply --check failed.' }
-          git apply eng/custom-binary-extension-config.patch
+          git apply $patchPath
           if ($LASTEXITCODE -ne 0) { throw 'git apply failed.' }
           git diff --check
           if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed.' }
