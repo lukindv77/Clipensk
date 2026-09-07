@@ -73,9 +73,9 @@
 
 Источник global policy и отсутствие автоматического default зафиксированы в
 `GLOBAL_CAPTURE_POLICY.md`: защищённый Current, storage scope, явная первичная настройка.
-Current v6, repository, JournalWindow setup UI, app-level policy loading, custom-binary extension
-repository/provider, protected composition и worker lifecycle реализованы. **Policy cleanup для
-последующего изменения ещё не реализован.**
+Current v6, repository, JournalWindow setup/reset UI, app-level policy loading,
+custom-binary extension repository/provider, protected composition, policy cleanup lifecycle
+и worker lifecycle реализованы.
 
 Нужно утвердить конкретные defaults:
 
@@ -97,7 +97,9 @@ repository/provider, protected composition и worker lifecycle реализов�
 - изображения нормализуются в PNG и хранятся как external files;
 - explicitly allowed registered/private binary payload читается только как `IRandomAccessStream`, измеряется по exact bytes и остаётся выключенным по умолчанию;
 - exact custom-binary `FormatName → FileExtension` хранится storage-scoped в Current v6; hidden `.bin` fallback отсутствует как в production resolver, так и в низкоуровневых address/store API;
-- App compose-ит protected delivery после active unlock session и повторно после первого policy COMMIT;
+- configured global policy не перезаписывается in-place: отдельный cleanup переводит storage в unconfigured state, после чего новая policy снова требует explicit initialization;
+- cleanup перед write transaction останавливает listener/worker/composition, а после результата App повторно compose-ит фактически persisted state;
+- App compose-ит protected delivery после active unlock session и после policy runtime-refresh notification;
 - listener стартует только для non-null persisted policy graph, а single-reader worker использует cancellation exact protected session;
 - lock останавливает listener, инвалидирует capture epoch и worker/composition generations; новая session не начинает dequeue до завершения предыдущего worker task;
 - CF_WAVE, CF_RIFF и virtual file contents не сохраняются и блокируются до reader routing.
