@@ -12,7 +12,9 @@ Latest Current schema — **v6**. Global capture policy остаётся тем 
 Отсутствие policy не превращается в `Allow`, `Deny`, пустую разрешающую policy или значения
 форматов/лимитов по умолчанию. Пользователь должен явно выполнить первичную настройку.
 До этого чтение истории после unlock допустимо, но обработка новых clipboard payload
-не должна запускаться. Само сохранение policy не запускает worker.
+не должна запускаться. Само сохранение policy не запускает worker напрямую: post-COMMIT
+уведомление инициирует повторную composition, и runtime стартует только если persisted policy
+успешно прочитана обратно через composition boundary.
 
 ## Schema
 
@@ -89,7 +91,7 @@ Migration tests дополнительно подтверждают сохран
 Раздел «Приложения и правила сбора» содержит первичную настройку и read-only сводку
 сохранённых правил. После создания active protected session выполняется чтение policy,
 которое различает отсутствие настройки, сохранённые правила и ошибку чтения. Отсутствие
-настройки не блокирует доступ к журналу.
+настройки не блокирует доступ к журналу, но capture listener и worker остаются выключенными.
 
 UI предлагает только поддерживаемые стандартные formats через exact Windows
 `StandardDataFormats`: Text, Html, Rtf, Bitmap, WebLink, ApplicationLink, StorageItems.
@@ -105,29 +107,32 @@ Custom-format UI всё ещё отсутствует. При этом durable e
 не создаёт и не добавляет custom formats автоматически.
 
 SQLite read/write выполняются вне UI thread с session cancellation и generation checks.
-Lock/close инвалидирует stale results и очищает protected UI state. Само чтение или
-сохранение policy worker не запускает.
+Lock/close инвалидирует stale results и очищает protected UI state.
 
-## Composition status
+## Composition и worker status
 
 Persisted policy подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`: boundary
 собирает capture/history services и protected delivery через явную factory, а для отсутствующей
-policy возвращает `null`. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
+policy возвращает `null`. Контракты: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md` и
+`CLIPBOARD_WORKER_LIFECYCLE.md`.
 
-Источник custom-binary extensions реализован через Current v6 repository/provider, и App теперь
-вызывает composition после появления active protected session. Вызов выполняется вне UI thread;
-результат принимается только при совпадающей generation, lifecycle/window/host references и той же
-active session. При lock/close retained composition invalidated.
+App вызывает composition после появления active protected session. Вызов выполняется вне UI
+thread; результат принимается только при совпадающей generation, lifecycle/window/host references
+и той же active session.
 
-Если policy отсутствует на unlock, App получает `null` и не создаёт runtime worker. После первого
-успешного `InitializeAsync` JournalWindow уведомляет App только **после COMMIT**, и App выполняет
-повторный composition request. Ошибка этого уведомления не превращает уже committed policy в
-ошибку сохранения.
+Если policy отсутствует на unlock, App получает `null`: listener остаётся выключенным, worker не
+создаётся и clipboard updates до настройки не попадают в capture queue. После первого успешного
+`InitializeAsync` JournalWindow уведомляет App только **после COMMIT**; App повторно compose-ит
+runtime. Ошибка уведомления не превращает committed policy в ошибку сохранения.
 
-**Worker lifecycle всё ещё не реализован.** Retained delivery graph не вызывает `ProcessNextAsync`,
-queue не потребляется и end-to-end clipboard capture пока NOT READY. Отдельный следующий tranche
-должен определить start/stop, cancellation, lock/unlock, stale-session, close и worker failure
-semantics.
+Для non-null composition App планирует single-reader `ClipboardAcceptedCaptureWorker` на exact
+session и только затем запускает Windows listener. Lock сначала останавливает monitoring и
+инвалидирует capture epoch, затем invalidates worker/composition; session cancellation завершает
+blocked или active worker. Worker новой session ждёт завершения предыдущего task перед dequeue.
+
+После CI этот lifecycle делает automatic clipboard capture runtime связанным от listener до
+history sink. Ручной WinUI/real-clipboard smoke всё ещё требует отдельной проверки и не считается
+подтверждённым unit/CI тестами.
 
 Policy cleanup для последующего изменения остаётся отдельным этапом. Конкретные format/size
 defaults по-прежнему не назначены.
