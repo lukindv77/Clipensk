@@ -8,7 +8,7 @@ Resident clipboard runtime состоит из трёх отдельных ча�
 2. protected delivery composition строит session-bound `ProtectedClipboardDeliveryServices`;
 3. `ClipboardAcceptedCaptureWorker` последовательно вызывает `Delivery.ProcessNextAsync`.
 
-Worker не создаёт собственную storage session и не владеет MasterKey. Его lifetime ограничен той же `ProtectedStorageSessionLease`, на которой построен delivery graph.
+Worker не создаёт собственную storage session и не владеет MasterKey. Его lifetime ограничен той же `ProtectedStorageSessionLease`, на которой построен delivery graph, и дополнительной App-owned cancellation для конкретной worker generation.
 
 ## Gate запуска
 
@@ -46,7 +46,12 @@ Clipboard listener **не запускается при одном только 
 - только после этого повторно проверяет generation и exact session identity и становится новым reader;
 - stale generation после lock/reopen не начинает dequeue.
 
-App не создаёт отдельный lifetime CTS для worker. Используется `ProtectedStorageSessionLease.CancellationToken`, который отменяется при revoke protected access и dispose session.
+Для каждой worker generation App создаёт отдельный `CancellationTokenSource`, linked с `ProtectedStorageSessionLease.CancellationToken`. Поэтому worker прекращается при любом из двух событий:
+
+- revoke/dispose protected session;
+- явный `InvalidateClipboardWorker()` при runtime replacement, lock или close.
+
+При replacement App сначала публикует новую generation/state, затем best-effort отменяет previous CTS. Новый worker всё равно ждёт previous task, поэтому одновременно два queue reader не появляются. CTS принадлежит своему worker task и освобождается в его `finally`; race между completion и App cancellation допускается и обрабатывается без нарушения lock/close path.
 
 ## Listener и capture epoch
 
@@ -55,17 +60,19 @@ App не создаёт отдельный lifetime CTS для worker. Испо�
 При lock App:
 
 1. останавливает monitoring, поэтому новые updates не принимаются и текущий epoch invalidated;
-2. инвалидирует worker generation;
+2. инвалидирует worker generation и явно отменяет App-owned worker CTS;
 3. инвалидирует retained composition;
-4. protected lifecycle отменяет session token, из-за чего blocked dequeue/processing worker завершается.
+4. protected lifecycle также отменяет session token.
 
 Даже если Win32 remove-listener вызов завершится ошибкой, monitor уже устанавливает `_acceptUpdates = false` и инвалидирует epoch до этой операции; stale Windows callback не принимается в queue.
 
 При следующем unlock новая session не наследует requests старого capture epoch.
 
+Listener включается только после non-null composition и scheduling worker exact session. Перед и после Win32 `Start()` App повторно проверяет window/host/lifecycle/session ownership; если lock/close выиграл race, monitoring сразу отзывается.
+
 ## Close и reopen
 
-При закрытии JournalWindow его protected session освобождается, что отменяет worker token и отзывает MasterKey. App дополнительно останавливает monitoring, invalidates worker/composition generations и освобождает Windows host.
+При закрытии JournalWindow его protected session освобождается, что отменяет session token и отзывает MasterKey. App дополнительно останавливает monitoring, explicitly отменяет worker generation, invalidates composition и освобождает Windows host.
 
 Повторный unlock создаёт новую `ProtectedStorageSessionLease` и требует нового composition. Старые services не получают доступ новой session.
 
