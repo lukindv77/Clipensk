@@ -4,7 +4,8 @@ namespace Clipensk.App;
 
 public sealed partial class JournalWindow
 {
-    internal event EventHandler? GlobalCapturePolicyInitialized;
+    internal event EventHandler? GlobalCapturePolicyMutationStarting;
+    internal event EventHandler? GlobalCapturePolicyRefreshRequested;
 
     internal bool HasActiveProtectedStorageSession =>
         _protectedStorageSession?.IsActive == true;
@@ -22,16 +23,23 @@ public sealed partial class JournalWindow
         return false;
     }
 
-    private void NotifyGlobalCapturePolicyInitialized()
+    private void NotifyGlobalCapturePolicyMutationStarting()
+    {
+        // Cleanup must not begin until the App has had a synchronous opportunity to
+        // suspend listener/worker/composition for the current protected runtime.
+        GlobalCapturePolicyMutationStarting?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void NotifyGlobalCapturePolicyRefreshRequested()
     {
         try
         {
-            GlobalCapturePolicyInitialized?.Invoke(this, EventArgs.Empty);
+            GlobalCapturePolicyRefreshRequested?.Invoke(this, EventArgs.Empty);
         }
         catch
         {
-            // The policy commit already succeeded. Runtime composition notification is
-            // best-effort and must never change the durable operation result.
+            // The durable policy operation has already reached its result. Runtime
+            // recomposition is best-effort and must not change that result.
         }
     }
 }
