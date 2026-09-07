@@ -1,8 +1,9 @@
 namespace Clipensk.Core.History;
 
 /// <summary>
-/// An exclusive position in Current history's UTC/EventId descending order.
-/// It retains no session, connection or payload and is bound to one calendar period.
+/// An exclusive position in the logical history UTC/EventId descending order shared
+/// by Current and Archive readers. It retains no session, connection, physical
+/// location or payload and is bound to one calendar period.
 /// </summary>
 public sealed record ClipboardHistoryCursor
 {
