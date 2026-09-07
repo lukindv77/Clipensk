@@ -24,6 +24,11 @@ jobs:
         shell: pwsh
         run: ./eng/apply-catalog-v3-archive-segments.ps1
 
+      - name: Apply stale Catalog expectation fix
+        if: github.actor != 'github-actions[bot]'
+        shell: pwsh
+        run: ./eng/fix-catalog-v3-stale-tests.ps1
+
       - name: Verify x64-only implementation scope
         shell: pwsh
         run: |
