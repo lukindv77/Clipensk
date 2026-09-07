@@ -104,8 +104,9 @@ public partial class App : Application
 
         if (!canAccessProtectedData)
         {
-            InvalidateClipboardDeliveryComposition();
             TrySetClipboardMonitoring(host, start: false);
+            InvalidateClipboardWorker();
+            InvalidateClipboardDeliveryComposition();
             return;
         }
 
@@ -117,8 +118,10 @@ public partial class App : Application
         }
 
         // CompleteUnlock raises ProtectedDataAccessChanged before JournalWindow finishes
-        // establishing ProtectedStorageSessionLease. Defer listener startup and composition
-        // until the current unlock handler returns, then re-check lifecycle, host, and session readiness.
+        // establishing ProtectedStorageSessionLease. Defer composition until the current
+        // unlock handler returns, then re-check lifecycle, host, and session readiness.
+        // The clipboard listener stays disabled until composition finds a persisted policy
+        // and the worker for that exact protected session has been scheduled.
         window.DispatcherQueue.TryEnqueue(() =>
         {
             if (!ReferenceEquals(_residentWindowsHost, host) ||
@@ -129,7 +132,6 @@ public partial class App : Application
                 return;
             }
 
-            TrySetClipboardMonitoring(host, start: true);
             RequestClipboardDeliveryComposition(window, host);
         });
     }
@@ -159,6 +161,12 @@ public partial class App : Application
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
+        if (_residentWindowsHost is { } host)
+        {
+            TrySetClipboardMonitoring(host, start: false);
+        }
+
+        InvalidateClipboardWorker();
         InvalidateClipboardDeliveryComposition();
 
         if (_window is not null)
