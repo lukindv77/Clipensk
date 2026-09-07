@@ -66,7 +66,7 @@ public partial class App
         }
         catch
         {
-            // Composition failure must not publish a partial graph or weaken protected access.
+            // Composition failure must not publish a partial graph or enable capture.
             return;
         }
 
@@ -83,6 +83,20 @@ public partial class App
         }
 
         _clipboardDeliveryServices = services;
+        if (services is null)
+        {
+            InvalidateClipboardWorker();
+            TrySetClipboardMonitoring(host, start: false);
+            return;
+        }
+
+        RequestClipboardWorkerStart(
+            window,
+            host,
+            lifecycle,
+            session,
+            services);
+        TrySetClipboardMonitoring(host, start: true);
     }
 
     private void InvalidateClipboardDeliveryComposition()
