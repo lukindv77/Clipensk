@@ -22,9 +22,9 @@ Worker не создаёт собственную storage session и не вла
 
 Clipboard listener **не запускается при одном только unlock**. Сначала выполняется composition. Если global policy отсутствует или composition завершается ошибкой, listener остаётся выключенным и worker отсутствует.
 
-После первой успешной инициализации global policy JournalWindow отправляет App post-COMMIT notification. App повторяет composition; только после non-null результата планирует worker и включает listener.
+После первой успешной инициализации global policy JournalWindow отправляет App post-COMMIT notification. App повторяет composition. Non-null result только планирует exact-session worker; listener включается позже, когда эта generation уже дождалась предыдущего worker и стала единственным queue reader.
 
-Так request, возникший до первичной настройки policy, не может остаться в queue и позже обработаться по только что сохранённой policy.
+Так request, возникший до первичной настройки policy или пока новый worker ещё ждёт старого reader, не может остаться в queue и позже получить source-application metadata слишком поздно.
 
 ## Worker loop
 
@@ -33,9 +33,9 @@ Clipboard listener **не запускается при одном только 
 - параллельных вызовов delivery из одного worker нет;
 - `false`/`true` result одного capture не завершает resident loop;
 - cancellation текущей worker token является нормальным завершением;
-- non-cancellation ошибка одного capture fail-closed отбрасывает этот request и worker продолжает ждать следующего.
+- non-cancellation ошибка одного production capture fail-closed отбрасывает этот request и worker продолжает ждать следующего.
 
-Продолжение после item failure допустимо, потому что production pipeline сначала удаляет request из `ClipboardCaptureQueue` в `ClipboardCaptureSourceStage.ResolveNextAsync`, и только затем выполняет source resolution, identity/policy, format read и persistence. Повтор poisoned request в hot loop не происходит.
+Продолжение после item failure допустимо для production graph, потому что protected wrapper до inner pipeline выполняет только cancellation gates, а сам pipeline сначала удаляет request из `ClipboardCaptureQueue` в `ClipboardCaptureSourceStage.ResolveNextAsync` и только затем выполняет source resolution, identity/policy, format read и persistence. Повтор poisoned request в hot loop не происходит.
 
 ## Один reader между сессиями
 
@@ -68,7 +68,9 @@ Clipboard listener **не запускается при одном только 
 
 При следующем unlock новая session не наследует requests старого capture epoch.
 
-Listener включается только после non-null composition и scheduling worker exact session. Перед и после Win32 `Start()` App повторно проверяет window/host/lifecycle/session ownership; если lock/close выиграл race, monitoring сразу отзывается.
+Listener запускается на window dispatcher только **после** того, как worker дождался previous task и прошёл exact generation/session checks. Worker уже может блокироваться в `DequeueAsync`, когда dispatcher включает listener, поэтому первый новый request сразу имеет готового single reader. Перед и после Win32 `Start()` App повторно проверяет window/host/lifecycle/session ownership; дополнительно dispatcher callback проверяет exact worker generation/CTS. Если lock/close/replacement выиграл race, monitoring не запускается либо сразу отзывается.
+
+Если dispatcher больше не принимает callback, listener остаётся выключенным; worker затем завершается по App/session cancellation. Это fail-closed, а не fallback capture path.
 
 ## Close и reopen
 
