@@ -98,7 +98,26 @@ public partial class App
         _clipboardDeliveryServices = null;
     }
 
-    private void OnGlobalCapturePolicyInitialized(object? sender, EventArgs e)
+    private void OnGlobalCapturePolicyMutationStarting(object? sender, EventArgs e)
+    {
+        JournalWindow? window = _window;
+        ResidentWindowsHost? host = _residentWindowsHost;
+        if (window is null ||
+            host is null ||
+            !ReferenceEquals(sender, window))
+        {
+            return;
+        }
+
+        // Stop accepting new clipboard epochs before the Current policy mutation begins.
+        // The linked worker CTS then cancels any blocked/active delivery, while the
+        // composition generation prevents stale services from being republished.
+        TrySetClipboardMonitoring(host, start: false);
+        InvalidateClipboardWorker();
+        InvalidateClipboardDeliveryComposition();
+    }
+
+    private void OnGlobalCapturePolicyRefreshRequested(object? sender, EventArgs e)
     {
         JournalWindow? window = _window;
         ResidentWindowsHost? host = _residentWindowsHost;
@@ -115,8 +134,8 @@ public partial class App
         }
         catch
         {
-            // The policy is already durably committed. Runtime composition is retried
-            // independently and must not retroactively turn that commit into a failure.
+            // The durable policy operation has already reached its result. Runtime
+            // composition is retried independently and must not change that result.
         }
     }
 }
