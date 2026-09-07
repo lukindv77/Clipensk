@@ -12,12 +12,14 @@ public sealed class ProtectedClipboardHistoryServices
         SqliteExternalPayloadAddressIndex addressIndex,
         CatalogClipboardExternalPayloadAddressResolver externalPayloadResolver,
         SqliteClipboardHistorySink historySink,
-        ICurrentClipboardHistoryRepository historyRepository)
+        ICurrentClipboardHistoryRepository historyRepository,
+        IUnifiedClipboardHistoryRepository unifiedHistoryRepository)
     {
         AddressIndex = addressIndex;
         ExternalPayloadResolver = externalPayloadResolver;
         HistorySink = historySink;
         HistoryRepository = historyRepository;
+        UnifiedHistoryRepository = unifiedHistoryRepository;
     }
 
     public SqliteExternalPayloadAddressIndex AddressIndex { get; }
@@ -27,6 +29,8 @@ public sealed class ProtectedClipboardHistoryServices
     public IClipboardAcceptedCaptureSink HistorySink { get; }
 
     public ICurrentClipboardHistoryRepository HistoryRepository { get; }
+
+    public IUnifiedClipboardHistoryRepository UnifiedHistoryRepository { get; }
 
     public static ProtectedClipboardHistoryServices Create(
         ProtectedStorageSessionLease session,
@@ -56,11 +60,15 @@ public sealed class ProtectedClipboardHistoryServices
         var historyRepository = new SqliteCurrentClipboardHistoryRepository(
             session,
             connectionFactory);
+        var unifiedHistoryRepository = new ProtectedUnifiedClipboardHistoryRepository(
+            session,
+            connectionFactory);
 
         return new ProtectedClipboardHistoryServices(
             addressIndex,
             externalPayloadResolver,
             historySink,
-            historyRepository);
+            historyRepository,
+            unifiedHistoryRepository);
     }
 }
