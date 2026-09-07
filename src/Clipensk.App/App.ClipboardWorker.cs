@@ -26,8 +26,8 @@ public partial class App
             return;
         }
 
-        long generation = Interlocked.Increment(ref _clipboardWorkerGeneration);
         Task previousTask;
+        long generation;
 
         lock (_clipboardWorkerGate)
         {
@@ -38,6 +38,7 @@ public partial class App
                 return;
             }
 
+            generation = Interlocked.Increment(ref _clipboardWorkerGeneration);
             previousTask = _clipboardWorkerTask;
             _clipboardWorkerSession = session;
             _clipboardWorkerServices = services;
