@@ -11,7 +11,7 @@ namespace Clipensk.App;
 
 public sealed partial class JournalWindow
 {
-    private enum PolicyViewState { Locked, Loading, Unconfigured, Saving, Configured, Failed }
+    private enum PolicyViewState { Locked, Loading, Unconfigured, Saving, Configured, Cleaning, Failed }
     private PolicyViewState _policyViewState = PolicyViewState.Locked;
     private ProtectedStorageSessionLease? _policyViewSession;
     private long _policyUiGeneration;
@@ -31,6 +31,7 @@ public sealed partial class JournalWindow
         GlobalPolicyExternalHelp.Text = PolicyText("ExternalHelp");
         GlobalPolicySetupHelp.Text = PolicyText("SetupHelp");
         SaveGlobalPolicyButton.Content = PolicyText("Save");
+        ResetGlobalPolicyButton.Content = PolicyText("Reset");
         ReloadGlobalPolicyButton.Content = PolicyText("Reload");
         OpenGlobalPolicyButton.Content = PolicyText("Open");
         SetGlobalPolicyState(PolicyViewState.Locked);
@@ -121,7 +122,7 @@ public sealed partial class JournalWindow
             return;
         }
         if (ReferenceEquals(_policyViewSession, session) &&
-            (_policyViewState is PolicyViewState.Loading or PolicyViewState.Saving ||
+            (_policyViewState is PolicyViewState.Loading or PolicyViewState.Saving or PolicyViewState.Cleaning ||
              (!reload && (_policyViewState is PolicyViewState.Unconfigured or PolicyViewState.Configured))))
         {
             return;
@@ -190,7 +191,7 @@ public sealed partial class JournalWindow
             if (IsCurrentPolicyOperation(session, generation))
             {
                 DisplayStoredGlobalPolicy(policy);
-                NotifyGlobalCapturePolicyInitialized();
+                NotifyGlobalCapturePolicyRefreshRequested();
             }
         }
         catch (OperationCanceledException)
@@ -203,6 +204,77 @@ public sealed partial class JournalWindow
             {
                 SetGlobalPolicyState(PolicyViewState.Failed);
                 GlobalPolicyInfo.Message = PolicyText("SaveFailed");
+            }
+        }
+    }
+
+    private async void OnResetGlobalPolicyClicked(object sender, RoutedEventArgs e)
+    {
+        ProtectedStorageSessionLease? session = _policyViewSession;
+        long generation = Volatile.Read(ref _policyUiGeneration);
+        if (session is null || _policyViewState != PolicyViewState.Configured ||
+            !IsCurrentPolicyOperation(session, generation)) return;
+
+        ContentDialogResult confirmation;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = ShellNavigation.XamlRoot,
+                Title = PolicyText("ResetConfirmTitle"),
+                Content = PolicyText("ResetConfirmBody"),
+                PrimaryButtonText = PolicyText("ResetConfirm"),
+                CloseButtonText = PolicyText("Cancel"),
+                DefaultButton = ContentDialogButton.Close,
+            };
+            confirmation = await dialog.ShowAsync();
+        }
+        catch (Exception)
+        {
+            GlobalPolicyInfo.Severity = InfoBarSeverity.Error;
+            GlobalPolicyInfo.Message = PolicyText("ResetDialogFailed");
+            return;
+        }
+
+        if (confirmation != ContentDialogResult.Primary ||
+            _policyViewState != PolicyViewState.Configured ||
+            !IsCurrentPolicyOperation(session, generation))
+        {
+            return;
+        }
+
+        bool runtimeSuspensionRequested = false;
+        SetGlobalPolicyState(PolicyViewState.Cleaning);
+        try
+        {
+            runtimeSuspensionRequested = true;
+            NotifyGlobalCapturePolicyMutationStarting();
+
+            var repository = new SqliteGlobalClipboardCapturePolicyRepository(session);
+            await Task.Run(async () => await repository.CleanupAsync(session.CancellationToken), session.CancellationToken);
+            if (!IsCurrentPolicyOperation(session, generation)) return;
+
+            ClearGlobalPolicyContents();
+            BuildGlobalPolicyEditors();
+            SetGlobalPolicyState(PolicyViewState.Unconfigured);
+        }
+        catch (OperationCanceledException)
+        {
+            if (IsCurrentPolicyOperation(session, generation)) SetGlobalPolicyState(PolicyViewState.Failed);
+        }
+        catch (Exception)
+        {
+            if (IsCurrentPolicyOperation(session, generation))
+            {
+                SetGlobalPolicyState(PolicyViewState.Failed);
+                GlobalPolicyInfo.Message = PolicyText("CleanupFailed");
+            }
+        }
+        finally
+        {
+            if (runtimeSuspensionRequested)
+            {
+                NotifyGlobalCapturePolicyRefreshRequested();
             }
         }
     }
@@ -235,14 +307,16 @@ public sealed partial class JournalWindow
     private void SetGlobalPolicyState(PolicyViewState state)
     {
         _policyViewState = state;
-        bool busy = state is PolicyViewState.Loading or PolicyViewState.Saving;
+        bool busy = state is PolicyViewState.Loading or PolicyViewState.Saving or PolicyViewState.Cleaning;
         GlobalPolicyProgress.IsActive = busy;
         GlobalPolicyProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         GlobalPolicyEditor.Visibility = state is PolicyViewState.Unconfigured or PolicyViewState.Saving ? Visibility.Visible : Visibility.Collapsed;
         GlobalPolicyEditor.IsEnabled = state == PolicyViewState.Unconfigured;
         SaveGlobalPolicyButton.IsEnabled = state == PolicyViewState.Unconfigured;
+        ResetGlobalPolicyButton.Visibility = state is PolicyViewState.Configured or PolicyViewState.Cleaning ? Visibility.Visible : Visibility.Collapsed;
+        ResetGlobalPolicyButton.IsEnabled = state == PolicyViewState.Configured;
         ReloadGlobalPolicyButton.IsEnabled = !busy && state != PolicyViewState.Locked;
-        GlobalPolicySummary.Visibility = state == PolicyViewState.Configured ? Visibility.Visible : Visibility.Collapsed;
+        GlobalPolicySummary.Visibility = state is PolicyViewState.Configured or PolicyViewState.Cleaning ? Visibility.Visible : Visibility.Collapsed;
         GlobalPolicyInfo.Severity = state == PolicyViewState.Failed ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
         GlobalPolicyInfo.Message = PolicyText("State." + state);
         JournalPolicyStatus.Text = PolicyText("State." + state);
