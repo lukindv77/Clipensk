@@ -136,6 +136,42 @@ public partial class App : Application
         });
     }
 
+    private void TryStartClipboardMonitoringForSession(
+        ResidentWindowsHost host,
+        JournalWindow window,
+        ProtectedApplicationLifecycle lifecycle,
+        ProtectedStorageSessionLease session)
+    {
+        if (!IsCurrentClipboardRuntimeSession(host, window, lifecycle, session))
+        {
+            return;
+        }
+
+        TrySetClipboardMonitoring(host, start: true);
+
+        // A lock/close can race the Win32 start boundary from another callback thread.
+        // Re-check after Start and immediately revoke monitoring if protected ownership changed.
+        if (!IsCurrentClipboardRuntimeSession(host, window, lifecycle, session))
+        {
+            TrySetClipboardMonitoring(host, start: false);
+        }
+    }
+
+    private bool IsCurrentClipboardRuntimeSession(
+        ResidentWindowsHost host,
+        JournalWindow window,
+        ProtectedApplicationLifecycle lifecycle,
+        ProtectedStorageSessionLease session)
+    {
+        return ReferenceEquals(_residentWindowsHost, host) &&
+            ReferenceEquals(_window, window) &&
+            ReferenceEquals(_lifecycle, lifecycle) &&
+            lifecycle.CanAccessProtectedData &&
+            session.IsActive &&
+            window.TryGetActiveProtectedStorageSession(out ProtectedStorageSessionLease? currentSession) &&
+            ReferenceEquals(currentSession, session);
+    }
+
     private static void TrySetClipboardMonitoring(ResidentWindowsHost host, bool start)
     {
         try
