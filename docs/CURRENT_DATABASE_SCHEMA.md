@@ -4,12 +4,13 @@
 
 Schema versions принадлежат конкретной роли БД, а не всей storage pair как одному числу.
 
-Текущее состояние:
+Текущее production состояние:
 
 - `current.db`: schema version **6**;
-- `storage-catalog.db`: schema version **2**.
+- `storage-catalog.db`: schema version **3**;
+- Archive DB: schema version **1**.
 
-`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history или custom-binary extension configuration.
+`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration или assigned Archive coverage.
 
 ## Current v2 — durable application identity
 
@@ -59,24 +60,24 @@ Current v6 добавляет `CustomBinaryFormatConfiguration`, описанн�
 
 Mapping storage-scoped и хранится только в зашифрованном Current. Catalog сохраняет уже назначенный SHA → relative path, но не является источником configuration.
 
-Repository выполняет exact/BINARY lookup и атомарное первое назначение. Повторный initialize/rebind запрещён без отдельного cleanup contract. Missing mapping для нового custom-binary SHA является fail-closed; скрытый `.bin` не используется production resolver-ом.
+Repository выполняет exact/BINARY lookup и атомарное первое назначение. Повторный initialize/rebind запрещён без отдельного cleanup contract. Missing mapping для нового custom-binary SHA является fail-closed; скрытый `.bin` production resolver не использует.
 
 ## New storage initialization
 
 Новая storage pair создаётся staging-операцией:
 
 1. `current.db` создаётся сразу как v6 с identity, application-policy, history, global-policy и custom-binary configuration tables;
-2. `storage-catalog.db` создаётся как v2 с `ExternalPayloadAddressIndex`;
+2. `storage-catalog.db` создаётся сразу как v3 с `ExternalPayloadAddressIndex` и пустой `ArchiveSegmentIndex`;
 3. обе БД полностью валидируются;
 4. только затем staging `Current` перемещается на final path.
 
-Policy и custom-binary mappings не seed-ятся defaults.
+Policy и custom-binary mappings не seed-ятся defaults. Catalog archive projection также не seed-ится из догадок: она строится отдельно из authoritative Archive DB.
 
 ## Resumable legacy migration
 
-Вся Current/Catalog pair проверяется **до** mutation Current. Catalog v1/v2 должен успешно открыться и подтвердить identity/schema contract перед migration.
+Вся Current/Catalog pair проверяется **до** mutation. Catalog v1/v2/v3 должен успешно открыться и подтвердить identity/schema contract перед migration Current или Catalog.
 
-Каждый шаг имеет отдельную transaction и durable version boundary.
+Каждый migration step имеет отдельную transaction и durable version boundary.
 
 ### Current v1 → v2
 
@@ -84,8 +85,6 @@ Policy и custom-binary mappings не seed-ятся defaults.
 2. `DatabaseIdentity.SchemaVersion: 1 → 2`;
 3. `PRAGMA user_version = 2`;
 4. COMMIT.
-
-Ошибка/отмена до COMMIT оставляет полноценный v1.
 
 ### Current v2 → v3
 
@@ -108,8 +107,6 @@ Policy и custom-binary mappings не seed-ятся defaults.
 3. version `4 → 5` и `user_version = 5`;
 4. cancellation check и COMMIT.
 
-Ошибка/отмена сохраняет полноценный v4.
-
 ### Current v5 → v6
 
 1. валидировать identity, application-policy, history и global-policy schemas;
@@ -117,21 +114,32 @@ Policy и custom-binary mappings не seed-ятся defaults.
 3. version `5 → 6` и `user_version = 6`;
 4. cancellation check и COMMIT.
 
-Ошибка/отмена сохраняет полноценный v5. Existing global policy, identity/application policy, history и Catalog addresses не переписываются.
+Existing global policy, identity/application policy, history и Catalog rows не переписываются.
 
-Catalog v1→v2 остаётся отдельным migration step согласно `STORAGE_CATALOG_SCHEMA.md`.
+### Catalog v1 → v2 → v3
 
-Для legacy pair v1/v1 последовательность выполняется как отдельные durable steps `v1 → v2 → v3 → v4 → v5 → v6`; шаги не схлопываются в одну неразличимую mutation.
+Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SCHEMA.md`:
+
+- v1 → v2 создаёт `ExternalPayloadAddressIndex`;
+- v2 → v3 сначала валидирует v2 contract, затем создаёт `ArchiveSegmentIndex` и его indexes;
+- каждый шаг отдельно меняет `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version`;
+- v1 не перепрыгивает прямо в v3.
+
+Ошибка/отмена до COMMIT оставляет полноценную предыдущую schema version, поэтому следующий unlock может повторить конкретный шаг.
+
+Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6`, Catalog — `1→2→3`; эти durable boundaries не схлопываются.
 
 ## Fail-closed validation
 
 Одного `SchemaVersion` недостаточно.
 
-- Current v2+ обязан иметь identity table/PK/FK/index contract.
-- Current v3+ дополнительно обязан иметь application-policy contract.
-- Current v4+ дополнительно обязан иметь clipboard-history contract.
-- Current v5+ дополнительно обязан иметь global-policy contract.
-- Current v6+ дополнительно обязан иметь custom-binary configuration contract.
+- Current v2+ обязан иметь identity contract.
+- Current v3+ дополнительно application-policy contract.
+- Current v4+ clipboard-history contract.
+- Current v5+ global-policy contract.
+- Current v6+ custom-binary configuration contract.
+- Catalog v2+ обязан иметь external-payload address contract.
+- Catalog v3+ дополнительно обязан иметь archive-segment projection table/index contract.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
 - malformed schema/data не принимаются только потому, что version number совпадает.
 
@@ -139,8 +147,10 @@ Repositories schema не создают и не мигрируют. Это пр�
 
 Совместимость repository boundaries:
 
-- `SqliteApplicationIdentityRepository`: Current v2+ при сохранении identity contract;
+- `SqliteApplicationIdentityRepository`: Current v2+;
 - `SqliteClipboardCapturePolicyRepository`: Current v3+;
 - history repository/sink: Current v4+;
 - `SqliteGlobalClipboardCapturePolicyRepository`: Current v5+;
-- `SqliteCustomBinaryFormatConfigurationRepository`: Current v6+.
+- `SqliteCustomBinaryFormatConfigurationRepository`: Current v6+;
+- `SqliteExternalPayloadAddressIndex`: Catalog v2+;
+- `ProtectedArchiveSegmentCatalog`: Catalog v3 + active Current history schema.
