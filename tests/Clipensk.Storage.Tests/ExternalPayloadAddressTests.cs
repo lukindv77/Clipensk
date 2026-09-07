@@ -51,6 +51,19 @@ public sealed class ExternalPayloadAddressTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CustomBinary_RejectsMissingExtension(string extension)
+    {
+        byte[] bytes = [1, 2, 3];
+
+        Assert.Throws<ArgumentException>(() => ExternalPayloadAddressFactory.ForCustomBinary(
+            new DateOnly(2026, 9, 5),
+            bytes,
+            extension));
+    }
+
+    [Theory]
     [InlineData(".")]
     [InlineData("../escape.bin")]
     [InlineData(@".\..\escape.bin")]
