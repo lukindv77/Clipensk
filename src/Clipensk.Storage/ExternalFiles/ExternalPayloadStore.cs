@@ -32,7 +32,7 @@ public sealed class ExternalPayloadStore
     public async ValueTask<ExternalPayloadAddress> StoreCustomBinaryAsync(
         DateOnly firstStoredDate,
         ReadOnlyMemory<byte> bytes,
-        string extension = ".bin",
+        string extension,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
