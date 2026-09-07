@@ -16,9 +16,9 @@ function Replace-Required([string]$Path, [string]$Old, [string]$New) {
     $oldLf = $Old.Replace("`r`n", "`n")
     $newLf = $New.Replace("`r`n", "`n")
     $first = $text.IndexOf($oldLf, [StringComparison]::Ordinal)
-    if ($first -lt 0) { throw "Required context not found in $Path: $oldLf" }
+    if ($first -lt 0) { throw "Required context not found in ${Path}: $oldLf" }
     if ($text.IndexOf($oldLf, $first + $oldLf.Length, [StringComparison]::Ordinal) -ge 0) {
-        throw "Required context is not unique in $Path: $oldLf"
+        throw "Required context is not unique in ${Path}: $oldLf"
     }
     Write-Lf $Path ($text.Substring(0, $first) + $newLf + $text.Substring($first + $oldLf.Length))
 }
