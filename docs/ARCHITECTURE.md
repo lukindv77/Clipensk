@@ -473,6 +473,12 @@ JournalWindow предоставляет первичную настройку �
 сохранённой policy. Все решения и лимиты задаются пользователем. SQL выполняется вне UI
 thread; результаты привязаны к active session и generation, поля очищаются при lock/close.
 Этот UI не запускает capture worker и не заменяет policy-cleanup lifecycle.
+`ProtectedClipboardDeliveryServices.TryCreateAsync` связывает persisted global policy,
+capture services и history sink с Core delivery factory и одной protected session.
+`ResidentWindowsHost` реализует factory существующим identity-aware pipeline.
+Это не автоматический app-level запуск: extension provider и worker lifecycle остаются
+явными зависимостями. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
+
 
 
 ## 21. Очистка после изменения политики
@@ -589,3 +595,4 @@ Journal Shell
 5. только после успешной регистрации считать новое значение действующим.
 
 Конкретная комбинация по умолчанию пока не зафиксирована.
+

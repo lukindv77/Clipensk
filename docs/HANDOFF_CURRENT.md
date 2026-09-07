@@ -2,7 +2,7 @@
 
 Дата checkpoint: 2026-09-06 (UTC).
 
-Последнее продолжение — раздел O: UI первичной настройки глобальной policy.
+Последнее продолжение — раздел P: protected delivery composition.
 Его решения заменяют прежние упоминания неизвестного источника policy и Current v4 как latest.
 
 ## A. Проект и источники
@@ -409,3 +409,33 @@ custom binary extension provider, затем отдельный cleanup для �
 Не повторять storage v5 или первичную настройку после их подтверждения.
 Рекомендация: exact CI — GPT-5.6 Sol, Низкая; app composition — GPT-6 Astra, Высокая;
 для полной конкурентной проработки worker lifecycle — GPT-6 Astra, Очень высокая.
+
+
+## P. Последующее продолжение: protected delivery composition
+
+Baseline: 1b9bb53361663c8399034149a62d0b0bd7b81b37.
+Exact Build #136, run 34051641820: SUCCESS x64 guard, Restore, Build, Test.
+Этот SHA исправил Build #135: StackPanel редактора обёрнут ContentControl для IsEnabled.
+UI первичной настройки теперь подтверждён compilation/tests; ручной Windows UI smoke не выполнен.
+
+Реализован composition boundary:
+- Core IClipboardAcceptedCaptureDeliveryFactory; ResidentWindowsHost реализует его через
+  существующий identity-aware accepted capture pipeline, без зависимости Windows → Storage;
+- ProtectedClipboardDeliveryServices.TryCreateAsync читает persisted global policy;
+- null только для отсутствия настройки, ошибка не превращается в default;
+- одна session/connection factory для capture services, identity, history sink и protected delivery;
+- обязательный explicit custom binary extension provider, без fallback;
+- создание inert graph без worker/queue processing; cancellation checks до и после factory;
+- tests для persisted policies, реальных identity/overrides, cancellation/lifetime и sink COMMIT.
+
+Ветка: feat/protected-delivery-composition. Exact SHA/Build нового этапа получать свежим запросом.
+Локального .NET SDK нет; тесты и Windows adapter должен подтвердить CI нового SHA.
+Документ: PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md.
+
+Следующий шаг: источник расширений custom binary, затем app-level вызов composition после
+unlock/первичной настройки и полный worker lifecycle. App ещё не вызывает этот boundary;
+worker не запущен. Не объявлять end-to-end capture готовым по готовности composition factory.
+Resume: fresh main → exact Build и relevant Native run; при failure — первый failed step/log
+и минимальный failure-driven fix. Не повторять уже выполненные storage/UI/composition этапы.
+Рекомендация: exact CI — GPT-5.6 Sol, Низкая; app composition — GPT-6 Astra, Высокая;
+полный конкурентный lifecycle worker — GPT-6 Astra, Очень высокая.

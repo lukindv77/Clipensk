@@ -127,7 +127,9 @@ Int64 boundaries и отрицательные/дробные/переполне
 связи проверяются статически; ручное интерактивное испытание WinUI в Linux scratch недоступно.
 Компиляция приложения и C# tests должны подтверждаться exact GitHub Build нового SHA.
 
-Осталось: accepted capture delivery/worker composition, custom-binary extension configuration
-и policy cleanup для последующего изменения. `ProtectedClipboardCaptureServices` продолжает
-принимать явный policy snapshot; соединение этих сервисов с настроенной policy будет отдельным
-этапом. Конкретные format/size defaults по-прежнему не назначены.
+Persisted policy уже подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`:
+он собирает capture/history services и protected delivery через явную factory, а для отсутствующей
+policy возвращает null. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
+App-level вызов этого boundary, custom-binary extension configuration и worker lifecycle ещё
+не подключены. Policy cleanup для последующего изменения остаётся отдельным этапом.
+Конкретные format/size defaults по-прежнему не назначены.

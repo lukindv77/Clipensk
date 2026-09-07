@@ -8,7 +8,7 @@ using Clipensk.Windows.Interop;
 
 namespace Clipensk.Windows;
 
-public sealed class ResidentWindowsHost : IDisposable
+public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCaptureDeliveryFactory
 {
     private readonly ResidentMessageWindow _messageWindow;
     private readonly GlobalHotKeyService _hotKeyService;
@@ -180,6 +180,14 @@ public sealed class ResidentWindowsHost : IDisposable
                 sink));
     }
 
+    IClipboardAcceptedCaptureDelivery IClipboardAcceptedCaptureDeliveryFactory.Create(
+        IClipboardCapturePolicyProvider policyProvider,
+        IClipboardAcceptedCaptureSink sink,
+        IApplicationIdentityRegistry identityRegistry)
+    {
+        return CreateAcceptedCaptureDeliveryPipeline(policyProvider, sink, identityRegistry);
+    }
+
     public IClipboardAcceptedCaptureDelivery CreateProtectedAcceptedCaptureDelivery(
         IClipboardCapturePolicyProvider policyProvider,
         IClipboardAcceptedCaptureSink sink,
@@ -297,3 +305,4 @@ public sealed class ResidentWindowsHost : IDisposable
                 FormatSelectionStage);
     }
 }
+
