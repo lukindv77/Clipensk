@@ -53,10 +53,12 @@ Caller cancellation и session cancellation объединяются. Отмен
 2. если address существует, он используется без обращения к provider;
 3. если SHA новый, provider делает exact lookup по `FormatName`;
 4. отсутствие mapping завершается fail-closed `InvalidDataException`;
-5. скрытого `.bin` fallback в production resolver нет;
+5. hidden `.bin` fallback отсутствует в production resolver и в low-level `ForCustomBinary` / `StoreCustomBinaryAsync` API: extension является обязательным параметром;
 6. canonical extension участвует в создании первого relative path и затем фиксируется Catalog address.
 
 Этот contract не включает custom-format UI. Текущий первичный global-policy editor по-прежнему показывает только standard formats. Будущий discovered-format/application-policy UI должен сначала иметь явное extension решение до включения custom binary capture.
+
+App-level composition теперь создаёт `SqliteCustomBinaryFormatConfigurationRepository` и `RepositoryClipboardCustomBinaryFileExtensionProvider` из той же active protected session и передаёт provider в `ProtectedClipboardDeliveryServices.TryCreateAsync`. Это только inert graph composition; worker и `ProcessNextAsync` пока не запускаются.
 
 ## Migration
 
@@ -82,7 +84,7 @@ Storage tests покрывают:
 - normalization и exact/ordinal lookup;
 - сохранность mapping через новую protected session;
 - запрет rebind;
-- invalid extensions до открытия БД;
+- invalid/missing extensions;
 - caller/lock/dispose cancellation;
 - connection cleanup;
 - rollback при отмене внутри initialization и последующий retry;
@@ -91,4 +93,4 @@ Storage tests покрывают:
 - invalid Catalog before mutation;
 - migration SQL failure/cancellation rollback и retry.
 
-Bootstrap evidence для implementation commit был получен отдельным Windows GitHub Actions run с успешными Restore, Build и Test. Official main CI должен подтверждаться заново после продвижения final commit в `main`.
+Windows feature Build #139 подтвердил x64 scope, Restore, Build и Test после app-composition и low-level fallback hardening. Official main Build и Native SQLCipher должны подтверждаться заново после продвижения final tree в `main`.
