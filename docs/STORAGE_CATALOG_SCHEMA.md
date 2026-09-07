@@ -84,6 +84,38 @@ IsSealed = Coverage.EndDate < currentCalendarDate
 
 `IsSealed` не изменяет Archive v1, не запрещает explicit maintenance write сам по себе и не заменяет повторную authoritative Archive validation.
 
+## External payload projection rebuild
+
+`ProtectedExternalPayloadCatalogRebuildService` восстанавливает `ExternalPayloadAddressIndex` из durable external references в Current + всех canonical Archive v1.
+
+Rebuild намеренно не использует paged unified journal API. Он выполняет исчерпывающий physical scan:
+
+1. Current ReadOnly первым;
+2. canonical Archive ReadOnly в ordinal filename order;
+3. полный identity/schema/history preflight;
+4. collision validation для SHA/path/size;
+5. Catalog ReadWrite только после successful preflight;
+6. replacement только `ExternalPayloadAddressIndex` одной transaction;
+7. cancellation непосредственно перед COMMIT.
+
+Current-first scan совместим с существующим Current→Archive durable order `Archive COMMIT -> verify -> Current purge`: если reference уже исчез из Current, его Archive copy обязана быть durable до последующего Archive scan; если Current scan произошёл раньше purge, reference уже присутствует в projection.
+
+Exact одинаковый `SHA + RelativePath + SizeBytes` из Current/Archive схлопывается. Один SHA с другим path/size либо один relative path для разных SHA завершается fail-closed до Catalog mutation.
+
+Physical `Files/...` не является source of truth для rebuild: файл может отсутствовать, но persisted history address остаётся authoritative metadata. Rebuild не читает file bytes, не пересчитывает SHA, не перемещает файлы в Trash и не меняет `ArchiveSegmentIndex`. Stale Catalog reservations без history references удаляются из rebuilt projection; orphan physical-file cleanup относится к отдельному GC contract.
+
+Подробный concurrency/recovery contract: `EXTERNAL_PAYLOAD_CATALOG_REBUILD.md`.
+
+### Mutation coordination
+
+`ProtectedStorageSessionLease.AcquireMutationLeaseAsync` предоставляет session-wide exclusive mutation gate.
+
+Capture history sink удерживает его от момента **до external SHA reservation** до successful Current history COMMIT. External payload Catalog rebuild удерживает тот же lease от начала scan до Catalog replacement. Это исключает race, в котором rebuild удалил бы свежую SHA reservation до появления соответствующей durable Current row.
+
+Caller cancellation и protected-session cancellation отменяют ожидание/операцию. Поздний release lease после lock безопасен и idempotent.
+
+Поддерживаемый Current→Archive transfer не обязан участвовать в этом gate для external projection correctness, поскольку archive-first durable order + Current-first rebuild scan уже предотвращают logical miss. Будущие maintenance writes, удаляющие или переписывающие durable external references, обязаны использовать этот gate либо иметь отдельно доказанный эквивалентный ordering contract.
+
 ## Read boundary
 
 `ProtectedArchiveSegmentCatalog.ReadAsync`:
@@ -150,7 +182,9 @@ Current и Catalog имеют независимые schema versions. Для с�
 
 Catalog остаётся rebuildable. Исторические payload rows сохраняют `ExternalSha256`, `ExternalRelativePath`, `ExternalSizeBytes`; Archive DB сами хранят `DatabaseId` и assigned coverage.
 
-Потеря `storage-catalog.db` не должна означать потерю критической metadata. Для archive inventory существует production rebuild projection из валидных Archive + Current state. Полный rebuild external SHA index из Current + Archive history остаётся отдельной maintenance capability.
+Для archive inventory production rebuild projection из валидных Archive + Current state уже реализован. Для external SHA index production rebuild содержимого `ExternalPayloadAddressIndex` из Current + Archive history также реализован и не зависит от наличия physical external files.
+
+Отдельно остаётся full recovery, когда сам `storage-catalog.db` отсутствует/повреждён или Current/Catalog pair стала partial: текущий external rebuild требует уже существующий валидный Catalog v3 и не является catalog-file recreation.
 
 ## Custom binary extension
 
