@@ -5,9 +5,10 @@
 ## Version ownership
 
 - `storage-catalog.db` v1: только `DatabaseIdentity`;
-- `storage-catalog.db` v2: добавляет rebuildable индекс адресов внешних clipboard payload.
+- `storage-catalog.db` v2: добавляет rebuildable индекс адресов внешних clipboard payload;
+- `storage-catalog.db` v3: добавляет rebuildable projection архивных сегментов.
 
-Версия Catalog независима от `current.db` schema version. Текущий production bootstrap создаёт новую protected pair как **Current v6 / Catalog v2**. Legacy Catalog v1 принимается только как вход для resumable migration.
+Версия Catalog независима от `current.db` и Archive schema versions. Текущий production bootstrap создаёт protected pair как **Current v6 / Catalog v3**. Archive остаётся **v1**.
 
 ## Catalog v2 — external payload address index
 
@@ -20,66 +21,120 @@ SHA-256(exact stored bytes) -> RelativePath + SizeBytes
 Поля:
 
 - `Sha256` — lowercase 64-character SHA-256, primary key;
-- `RelativePath` — единственный persisted путь внутри `Files`, unique;
+- `RelativePath` — persisted путь внутри `Files`, unique;
 - `SizeBytes` — размер exact stored bytes, неотрицательный.
 
-Отдельное поле `FirstStoredDate` не требуется: дата первого физического размещения входит в canonical relative path `YYYY-MM-DD/<sha>.<extension>`.
+Дата первого физического размещения входит в canonical relative path `YYYY-MM-DD/<sha>.<extension>`. Глобальный ключ — SHA-256 exact stored bytes, независимо от source application, clipboard format name, capture date и физической history DB.
 
-Глобальный ключ — именно SHA-256 exact stored bytes. Он не зависит от source application, clipboard format name, capture date или текущей/архивной БД истории.
+`SqliteExternalPayloadAddressIndex.GetOrAdd(candidate)` транзакционно сохраняет первый address для нового SHA. Для уже известного SHA возвращается первый persisted address. Тот же SHA с другим `SizeBytes` или collision одного `RelativePath` между разными SHA завершается fail-closed.
 
-## Initialization и migration
+## Catalog v3 — archive segment projection
+
+Catalog v3 добавляет `ArchiveSegmentIndex`:
+
+```text
+DatabaseId -> FileName + CoverageStartDate + CoverageEndDate + IsSealed
+```
+
+Поля:
+
+- `DatabaseId TEXT NOT NULL PRIMARY KEY` — durable `DatabaseIdentity.DatabaseId` Archive DB;
+- `FileName TEXT NOT NULL` — canonical `ArchiveFileName`, unique;
+- `CoverageStartDate TEXT NOT NULL` — canonical `yyyy-MM-dd`;
+- `CoverageEndDate TEXT NOT NULL` — canonical `yyyy-MM-dd`, не раньше start;
+- `IsSealed INTEGER NOT NULL` — только `0` или `1`.
+
+Индексы:
+
+- unique `UX_ArchiveSegmentIndex_FileName(FileName)`;
+- `IX_ArchiveSegmentIndex_Coverage(CoverageStartDate, CoverageEndDate)`.
+
+`ArchiveSegmentIndex` не является authoritative metadata. Источником истины для DatabaseId/filename/coverage остаются сами Archive v1 databases и их `DatabaseIdentity`. `IsSealed` также не хранится в Archive и является только rebuildable derived projection.
+
+## Segment discovery and rebuild
+
+`ProtectedArchiveSegmentCatalog` работает только через active `ProtectedStorageSessionLease`.
+
+`RebuildAsync(currentCalendarDate)` выполняет следующие фазы:
+
+1. перечисляет только `Archive/archive_*.db` верхнего уровня;
+2. требует canonical exact `ArchiveFileName`;
+3. каждый Archive полностью валидируется ReadOnly через `ProtectedArchiveDatabaseService`;
+4. duplicate `DatabaseId` между файлами завершается fail-closed;
+5. обязательные assigned coverage берутся из Archive `DatabaseIdentity`;
+6. все discovered coverage проверяются на отсутствие overlap **до** Catalog mutation;
+7. Current открывается ReadOnly и для каждого segment проверяется наличие ещё не purged `ClipboardHistoryEvent` внутри его coverage;
+8. derived `IsSealed` вычисляется;
+9. Catalog открывается ReadWrite только после успешного discovery/preflight;
+10. вся `ArchiveSegmentIndex` projection заменяется одной transaction;
+11. cancellation проверяется непосредственно перед COMMIT.
+
+Если discovery/validation/overlap/cancellation завершается ошибкой до Catalog transaction, существующая projection не меняется. Если Catalog transaction не commit-ится, прежняя projection остаётся durable.
+
+### Derived sealing rule
+
+Для текущего `currentCalendarDate`:
+
+```text
+IsSealed = Coverage.EndDate < currentCalendarDate
+           AND Current не содержит ни одной history row внутри coverage
+```
+
+Это специально учитывает safe crash window Current→Archive transfer. После Archive COMMIT, но до Current purge, данные временно присутствуют в обеих DB, поэтому segment остаётся unsealed. После успешного purge следующий rebuild может вывести `IsSealed = true` для полностью прошлого coverage.
+
+`IsSealed` не изменяет Archive v1, не запрещает explicit maintenance write сам по себе и не заменяет повторную authoritative Archive validation.
+
+## Read boundary
+
+`ReadAsync`:
+
+- открывает Catalog ReadOnly;
+- проверяет active storage identity, Catalog schema/user version, v2 external-payload contract и v3 archive-segment contract;
+- materializes `ArchiveSegmentDescriptor` в coverage order;
+- повторно reject-ит overlap fail-closed.
+
+Catalog row с malformed GUID, filename, date range или sealing value не принимается.
+
+## Initialization and migration
 
 Новая storage pair создаётся как:
 
 - `current.db` v6;
-- `storage-catalog.db` v2 с `ExternalPayloadAddressIndex`.
+- `storage-catalog.db` v3 с `ExternalPayloadAddressIndex` и `ArchiveSegmentIndex`.
 
-Current и Catalog имеют независимые schema versions. Current v1→v6 и Catalog v1→v2 мигрируют resumably по своим контрактам.
+Current и Catalog имеют независимые schema versions. Для существующей pair обе БД сначала валидируются в допустимых входных версиях; whole-pair validation предшествует mutation.
 
-Для существующей pair сначала валидируются обе БД в допустимых входных версиях. До успешной whole-pair validation mutation не выполняется.
+### Catalog v1 → v2
 
-Legacy Catalog v1 мигрирует отдельной транзакцией:
+Отдельная transaction:
 
-1. создаётся `ExternalPayloadAddressIndex`;
-2. `DatabaseIdentity.SchemaVersion` меняется `1 -> 2` только для роли `StorageCatalog` и ожидаемого `StorageId`;
-3. `PRAGMA user_version` меняется на 2;
-4. transaction commit.
+1. создать `ExternalPayloadAddressIndex`;
+2. `DatabaseIdentity.SchemaVersion: 1 -> 2` только для ожидаемого StorageCatalog/StorageId;
+3. `PRAGMA user_version = 2`;
+4. cancellation check;
+5. COMMIT.
 
-Если transaction не commit-ится, Catalog остаётся полноценным v1 и следующая разблокировка может повторить migration. Current schema version этой transaction не изменяется.
+### Catalog v2 → v3
 
-После всех migration production pair повторно валидируется как Current v6 / Catalog v2.
+Отдельная transaction:
 
-## Runtime reservation semantics
+1. валидировать существующий v2 `ExternalPayloadAddressIndex` contract;
+2. создать пустую `ArchiveSegmentIndex` + required indexes;
+3. `DatabaseIdentity.SchemaVersion: 2 -> 3` только для ожидаемого StorageCatalog/StorageId;
+4. `PRAGMA user_version = 3`;
+5. cancellation check;
+6. COMMIT.
 
-`SqliteExternalPayloadAddressIndex` предоставляет protected-session lookup/reservation поверх Catalog v2.
+Каждый migration boundary resumable. Ошибка до COMMIT оставляет полноценную предыдущую schema version. v1 не перепрыгивает прямо в v3: шаги выполняются `v1 -> v2 -> v3`.
 
-`GetOrAdd(candidate)` выполняется транзакционно:
+После migration pair повторно валидируется как **Current v6 / Catalog v3**.
 
-- для нового SHA сохраняется candidate address;
-- для уже существующего SHA возвращается ранее сохранённый address, даже если новый candidate построен из более поздней capture date;
-- тот же SHA с другим `SizeBytes` считается конфликтом и завершается fail-closed;
-- collision одного `RelativePath` между разными SHA не перезаписывается и завершается fail-closed.
+## Source of truth and recovery
 
-Индекс проверяет `StorageId`, роль `StorageCatalog`, schema/user version и exact `UNIQUE(RelativePath)` contract перед использованием. Операции связаны с cancellation token активного `ProtectedStorageSessionLease`.
+Catalog остаётся rebuildable. Исторические payload rows сохраняют `ExternalSha256`, `ExternalRelativePath`, `ExternalSizeBytes`; Archive DB сами хранят `DatabaseId` и assigned coverage.
 
-## Source of truth и rebuild
-
-Catalog row не является единственным источником адреса. Исторические payload rows сохраняют `ExternalSha256`, `ExternalRelativePath` и `ExternalSizeBytes`.
-
-Когда archive storage будет реализован, rebuild Catalog должен сканировать Current + все валидные Archive и fail-closed при конфликте, если один SHA встречается с разными relative paths или sizes. До появления archive implementation production runtime фактически имеет только Current history source.
-
-Потеря `storage-catalog.db` не должна превращать Catalog в единственный носитель критической информации; восстановление индекса остаётся обязательной maintenance capability.
-
-## First-stored semantics
-
-Для нового SHA capture calendar date может использоваться как дата первого размещения.
-
-Для уже известного SHA resolver обязан вернуть ранее сохранённый `RelativePath`; новая capture date не перемещает payload и не создаёт второй physical file.
+Потеря `storage-catalog.db` не должна означать потерю критической metadata. Для archive inventory существует production rebuild projection из валидных Archive + Current state. Полный rebuild external SHA index из Current + Archive history остаётся отдельной maintenance capability.
 
 ## Custom binary extension
 
-Catalog schema не определяет правило выбора расширения для нового custom binary payload. Оно хранит уже выбранный physical relative path и не требует знания extension при повторном dedup lookup.
-
-В Current v6 storage-scoped mapping `FormatName -> FileExtension` хранится отдельно в `CustomBinaryFormatConfiguration`; production provider читает его через protected session. Для нового custom SHA mapping обязателен; существующий Catalog SHA использует persisted address без повторного выбора extension.
-
-Первичная global capture policy + custom-binary extension configuration сохраняется aggregate service-ом атомарно в Current v6. Catalog v2 при этом не меняется.
+Catalog schema не выбирает extension нового custom binary payload. Current v6 хранит storage-scoped `FormatName -> FileExtension`; Catalog сохраняет уже выбранный SHA/address. Для существующего SHA extension provider повторно не требуется.
