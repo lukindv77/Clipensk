@@ -78,7 +78,7 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["CapturePolicy.State.Loading"] = "Загрузка правил сбора…",
         ["CapturePolicy.State.Unconfigured"] = "Правила ещё не заданы. Сбор новых данных буфера обмена не выполняется.",
         ["CapturePolicy.State.Saving"] = "Сохранение правил…",
-        ["CapturePolicy.State.Configured"] = "Правила сохранены. Автоматический сбор выполняется согласно этой policy, пока защищённое хранилище разблокировано.",
+        ["CapturePolicy.State.Configured"] = "Правила сохранены. Автоматический сбор разрешён этой policy, пока защищённое хранилище разблокировано; фактический listener остаётся fail-closed при runtime-ошибке.",
         ["CapturePolicy.State.Cleaning"] = "Сброс правил: сбор остановлен, выполняется удаление persisted policy…",
         ["CapturePolicy.State.Failed"] = "Не удалось загрузить или изменить правила. Перечитайте состояние хранилища перед следующим действием.",
         ["CapturePolicy.Format.Text"] = "Обычный текст",
