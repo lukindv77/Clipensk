@@ -1,0 +1,80 @@
+name: Catalog v3 Feature
+
+on:
+  push:
+    branches: [ feat/catalog-v3-archive-segments ]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalog-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply catalog v3 implementation
+        if: github.actor != 'github-actions[bot]'
+        shell: pwsh
+        run: ./eng/apply-catalog-v3-archive-segments.ps1
+
+      - name: Verify x64-only implementation scope
+        shell: pwsh
+        run: |
+          $patterns = 'arm64|windows-11-arm|VC-WIN64-ARM|amd64_arm64|aa64'
+          $implementationFiles = & git ls-files -- `
+            src tests tools eng `
+            .github/workflows/sqlcipher-native.yml `
+            Directory.Build.props Directory.Packages.props Clipensk.slnx
+          if ($LASTEXITCODE -ne 0) {
+            throw "git ls-files failed with exit code $LASTEXITCODE."
+          }
+
+          $matches = @(
+            foreach ($file in $implementationFiles) {
+              Select-String -LiteralPath $file -Pattern $patterns -CaseSensitive:$false
+            }
+          )
+
+          if ($matches.Count -gt 0) {
+            $matches | ForEach-Object { Write-Host $_ }
+            throw 'ARM64 implementation marker found. Clipensk supports Windows x64 only.'
+          }
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Clipensk.slnx
+
+      - name: Build
+        run: dotnet build Clipensk.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Clipensk.slnx --configuration Release --no-build
+
+      - name: Commit validated implementation
+        if: github.actor != 'github-actions[bot]'
+        shell: pwsh
+        run: |
+          $changes = git status --porcelain -- src tests
+          if ([string]::IsNullOrWhiteSpace(($changes -join "`n"))) {
+            Write-Host 'No implementation changes to commit.'
+            exit 0
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src tests
+          git commit -m 'feat: index archive segments in catalog v3'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin "HEAD:${{ github.ref_name }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
