@@ -50,8 +50,10 @@ public sealed class ProtectedCurrentToArchiveTransferService
         linked.Token.ThrowIfCancellationRequested();
 
         var archiveService = new ProtectedArchiveDatabaseService(_session, _connectionFactory);
-        DatabaseIdentity archiveIdentity = await archiveService
-            .ValidateAsync(archiveFileName, linked.Token)
+        DatabaseIdentity archiveIdentity = await ValidateArchiveSetAsync(
+                archiveService,
+                archiveFileName,
+                linked.Token)
             .ConfigureAwait(false);
         EnsureTransferRangeInsideArchiveCoverage(transferRange, archiveIdentity);
 
@@ -62,6 +64,70 @@ public sealed class ProtectedCurrentToArchiveTransferService
                 archiveService,
                 linked.Token),
             CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task<DatabaseIdentity> ValidateArchiveSetAsync(
+        ProtectedArchiveDatabaseService archiveService,
+        ArchiveFileName targetArchiveFileName,
+        CancellationToken cancellationToken)
+    {
+        string archiveDirectory = Path.Combine(Path.GetFullPath(_session.DataRootPath), "Archive");
+        if (!Directory.Exists(archiveDirectory))
+        {
+            throw new DirectoryNotFoundException("Archive directory was not found.");
+        }
+
+        var descriptors = new List<ArchiveSegmentDescriptor>();
+        DatabaseIdentity? targetIdentity = null;
+        foreach (string archivePath in Directory.EnumerateFiles(
+                     archiveDirectory,
+                     "archive_*.db",
+                     SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string persistedFileName = Path.GetFileName(archivePath);
+            if (!ArchiveFileName.TryParse(persistedFileName, out ArchiveFileName parsedFileName) ||
+                !string.Equals(
+                    persistedFileName,
+                    parsedFileName.FileName,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Archive file '{persistedFileName}' does not use a canonical Clipensk name.");
+            }
+
+            DatabaseIdentity identity = await archiveService
+                .ValidateAsync(parsedFileName, cancellationToken)
+                .ConfigureAwait(false);
+            if (identity.CoverageStartDate is not DateOnly coverageStart ||
+                identity.CoverageEndDate is not DateOnly coverageEnd)
+            {
+                throw new InvalidDataException(
+                    $"Archive '{persistedFileName}' does not have assigned coverage.");
+            }
+
+            descriptors.Add(new ArchiveSegmentDescriptor(
+                identity.DatabaseId,
+                parsedFileName.FileName,
+                new JournalDateRange(coverageStart, coverageEnd),
+                IsSealed: false));
+
+            if (parsedFileName == targetArchiveFileName)
+            {
+                targetIdentity = identity;
+            }
+        }
+
+        if (targetIdentity is null)
+        {
+            throw new FileNotFoundException(
+                "Target Archive database was not found.",
+                Path.Combine(archiveDirectory, targetArchiveFileName.FileName));
+        }
+
+        StorageQueryPlanner.ValidateArchiveCoverage(descriptors);
+        cancellationToken.ThrowIfCancellationRequested();
+        return targetIdentity;
     }
 
     private CurrentToArchiveTransferResult TransferCore(
@@ -363,7 +429,7 @@ public sealed class ProtectedCurrentToArchiveTransferService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return result with
+        return result! with
         {
             Payloads = ReadPayloads(connection, transaction, eventId, cancellationToken),
         };
