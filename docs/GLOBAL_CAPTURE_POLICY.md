@@ -1,4 +1,6 @@
-# Глобальная capture policy — Current v5
+# Глобальная capture policy — введена в Current v5
+
+Latest Current schema — **v6**. Global capture policy остаётся тем же storage-scoped контрактом, введённым в v5; v6 добавляет отдельно custom-binary file-extension configuration и не меняет семантику policy.
 
 ## Принятый контракт
 
@@ -6,18 +8,15 @@
 `Current/current.db`. Она не является общей настройкой процесса в JSON и не хранится
 только в rebuildable Catalog. Индивидуальные overrides остаются привязаны к `ApplicationId`.
 
-При создании или миграции хранилища policy **не настроена**: обе таблицы пусты.
+При создании или миграции хранилища policy **не настроена**: обе policy-таблицы пусты.
 Отсутствие policy не превращается в `Allow`, `Deny`, пустую разрешающую policy или значения
 форматов/лимитов по умолчанию. Пользователь должен явно выполнить первичную настройку.
 До этого чтение истории после unlock допустимо, но обработка новых clipboard payload
 не должна запускаться. Само сохранение policy не запускает worker.
 
-Этот контракт принят по команде пользователя продолжить разработку после предложения
-хранить policy в Current и выполнять явную первичную настройку без defaults.
-
 ## Schema
 
-Current v5 добавляет:
+Current v5 добавила:
 
 | Таблица | Данные и ограничения |
 |---|---|
@@ -32,10 +31,9 @@ Repository дополнительно отклоняет пустые/whitespace
 Размер измеряется по `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`.
 
 В таблицы попадают только переданные caller rules. Для неуказанного формата repository
-ничего не добавляет. Существующий selector читает формат только при итоговых
-`Capture = Allow` и явном `Formats[name].Capture = Allow` после merge.
-Global `Deny` является базовым правилом наследования; существующий application override
-может заменить его. Это не новый безусловный выключатель всего мониторинга.
+ничего не добавляет. Selector читает формат только при итоговых `Capture = Allow` и явном
+`Formats[name].Capture = Allow` после merge. Global `Deny` является базовым правилом
+наследования; application override может заменить его. Это не безусловный kill switch.
 
 ## Repository и границы операций
 
@@ -59,77 +57,68 @@ COMMIT откатывает всю запись. После успешного C
 превращающей сохранённую policy в ошибку отмены. Connections/readers освобождаются.
 SQLite calls синхронны; preemptive interruption отдельного SQL-вызова не обещается.
 
-Проверяются storage identity/Current role, точная поддерживаемая версия v5,
-`user_version`, table/PK/FK shape и persisted rules. Некорректная policy не трактуется
-как отсутствие настройки. Repository не создаёт и не мигрирует schema.
-Возвращённые policy snapshots принадлежат caller; repository их не кэширует и не продлевает session.
+Repository принимает Current **v5 и более позднюю совместимую схему**. Проверяются
+storage identity/Current role, `user_version`, table/PK/FK shape и persisted rules.
+Некорректная policy не трактуется как отсутствие настройки. Repository не создаёт и не
+мигрирует schema. Возвращённые policy snapshots принадлежат caller; repository их не
+кэширует и не продлевает session.
 
-## Миграция
+## Миграция и latest schema
 
-`ProtectedStorageDatabaseService` создаёт новую пару как Current v5 / Catalog v2.
-Для существующей пары сначала полностью проверяются обе БД. Затем Current v1/v2/v3
-проходит существующие шаги до v4; новый v4→v5 отдельно создаёт пустые policy tables,
-обновляет identity/version и commit-ит одну transaction. Catalog v1→v2 сохраняет отдельный шаг.
+`ProtectedStorageDatabaseService` теперь создаёт новую пару как **Current v6 / Catalog v2**.
+Global-policy tables по-прежнему появляются отдельным durable шагом `Current v4 → v5`.
+После него отдельный `v5 → v6` создаёт пустую `CustomBinaryFormatConfiguration`, не
+переписывая global policy. Подробности v6 — в `CUSTOM_BINARY_FORMAT_CONFIGURATION.md` и
+`CURRENT_DATABASE_SCHEMA.md`.
 
-Не используются IF NOT EXISTS, seed или перенос rules из JSON. History, application identity,
+Для существующей пары обе БД полностью проверяются до mutation Current. Не используются
+`IF NOT EXISTS`, seed или перенос rules из JSON. History, application identity,
 индивидуальные policies и persisted external addresses не переписываются.
-Отмена/ошибка в шаге v4→v5 оставляет v4; повторное открытие продолжает миграцию.
-Malformed v4 history по-прежнему отклоняется до mutation; повышение latest version до v5
-не отменяет обязательную validation history начиная с v4.
+Ошибка/отмена шага v4→v5 сохраняет полноценный v4; ошибка/отмена v5→v6 сохраняет
+полноценный v5. Повторное открытие может безопасно продолжить migration.
 
-## Проверки и оставшийся этап
+## Проверки
 
-Тесты покрывают отсутствие defaults, exact round-trip через новую session, изоляцию
-хранилищ, явный Deny, повторную настройку, неверные rules/schema/data, orphan rows,
-отмену/lock/dispose, освобождение connection, rollback записи и повтор после сбоя.
-Migration tests покрывают новую пару, сохранность v4 history/policies, повторное открытие,
-некорректную вторую БД, malformed v4/v5 schema, SQL failure и отмену внутри migration.
-Существующие v1/v2/v3 migration tests проверяют продвижение до latest Current.
+Тесты global policy покрывают отсутствие defaults, exact round-trip через новую session,
+изоляцию хранилищ, explicit Deny, повторную настройку, неверные rules/schema/data, orphan
+rows, отмену/lock/dispose, освобождение connection, rollback записи и повтор после сбоя.
+Migration tests дополнительно подтверждают сохранность policy при продвижении Current до v6.
 
 ## Первичная настройка в JournalWindow
 
-Раздел «Приложения и правила сбора» теперь содержит первичную настройку и read-only
-сводку сохранённых правил. Из журнала доступна кнопка перехода. После создания active
-protected session выполняется чтение policy, которое различает отсутствие настройки,
-сохранённые правила и ошибку чтения. Отсутствие настройки не блокирует переход к журналу.
+Раздел «Приложения и правила сбора» содержит первичную настройку и read-only сводку
+сохранённых правил. После создания active protected session выполняется чтение policy,
+которое различает отсутствие настройки, сохранённые правила и ошибку чтения. Отсутствие
+настройки не блокирует доступ к журналу.
 
 UI предлагает только поддерживаемые стандартные formats через exact Windows
 `StandardDataFormats`: Text, Html, Rtf, Bitmap, WebLink, ApplicationLink, StorageItems.
 Набор элементов редактора не является defaults: общий и все format selectors первоначально
 не выбраны. Каждый формат требует явного Allow/Deny, в том числе при global Deny.
-Для разрешённого формата обязательно выбрать положительный целочисленный лимит в байтах
-либо явно «Без лимита». Для запрещённого формата size controls отключены и MaxBytes не задаётся.
-Неуказанные custom formats не добавляются; их настройка требует отдельного extension contract.
+Для разрешённого формата обязательно выбрать положительный Int64 limit в байтах либо явно
+«Без лимита». Для запрещённого формата `MaxBytes` не задаётся.
 
-Core `GlobalClipboardCapturePolicySetup` валидирует явные решения до записи:
-неизвестные/Inherit/missing rules, duplicate exact names, отсутствие выбора размера,
-ноль/отрицательные/дробные/переполненные размеры отклоняются. Используются Int64 bytes,
-без double, округления, clamping или выбранного системой лимита. Ordinal names сохраняются.
-UI использует локализованные подписи и объясняет незашифрованное хранение изображений,
-отсутствие копирования файлов и недоступность последующего редактирования в этом этапе.
+Custom-format UI всё ещё отсутствует. При этом durable extension contract для custom binary
+уже существует в Current v6: exact `FormatName → FileExtension` хранится в
+`CustomBinaryFormatConfiguration`, а `RepositoryClipboardCustomBinaryFileExtensionProvider`
+предоставляет fail-closed production provider. UI первичной global policy этот mapping пока
+не создаёт и не добавляет custom formats автоматически.
 
-SQLite read/write выполняются через Task.Run с session cancellation, вне UI thread.
-На время операции редактор и повторное сохранение отключены. Перед отображением результата
-проверяются generation, reference equality active session, её IsActive, lifecycle и состояние
-закрытия окна. Lock инвалидирует generation, очищает редактор и сводку на DispatcherQueue;
-закрытие окна отписывает lifecycle handler, очищает UI и освобождает session.
-Результат старой сессии не принимается после повторного unlock или закрытия.
-Навигация сама по себе не продлевает storage session.
+SQLite read/write выполняются вне UI thread с session cancellation и generation checks.
+Lock/close инвалидирует stale results и очищает protected UI state. Само чтение или
+сохранение policy worker не запускает.
 
-Ошибка чтения не показывает пустую форму как будто policy отсутствует. При ошибке сохранения
-предлагается перечитать состояние: если другой writer уже сохранил policy, отображается
-его read-only snapshot. Повторное чтение требует отказа от текущих несохранённых полей;
-worker не запускается ни при загрузке, ни при сохранении. UI прямо показывает, что сбор
-истории пока недоступен, и не заявляет его готовность после успешной настройки.
+## Composition status
 
-Core tests проверяют missing/invalid decisions, explicit unlimited, exact names/duplicates,
-Int64 boundaries и отрицательные/дробные/переполненные значения. XAML/handler/localization
-связи проверяются статически; ручное интерактивное испытание WinUI в Linux scratch недоступно.
-Компиляция приложения и C# tests должны подтверждаться exact GitHub Build нового SHA.
+Persisted policy подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`: boundary
+собирает capture/history services и protected delivery через явную factory, а для отсутствующей
+policy возвращает `null`. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
 
-Persisted policy уже подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`:
-он собирает capture/history services и protected delivery через явную factory, а для отсутствующей
-policy возвращает null. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
-App-level вызов этого boundary, custom-binary extension configuration и worker lifecycle ещё
-не подключены. Policy cleanup для последующего изменения остаётся отдельным этапом.
-Конкретные format/size defaults по-прежнему не назначены.
+Источник custom-binary extensions больше не является открытым архитектурным вопросом:
+Current v6 repository/provider реализованы. **App-level вызов composition и worker lifecycle
+по-прежнему не подключены.** App должен после unlock/initial setup создать provider из той же
+active session и передать его в composition boundary; запуск/остановка worker остаются отдельным
+lifecycle tranche.
+
+Policy cleanup для последующего изменения остаётся отдельным этапом. Конкретные format/size
+defaults по-прежнему не назначены.
