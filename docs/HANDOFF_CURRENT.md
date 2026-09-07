@@ -1,441 +1,227 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Дата checkpoint: 2026-09-06 (UTC).
-
-Последнее продолжение — раздел P: protected delivery composition.
-Его решения заменяют прежние упоминания неизвестного источника policy и Current v4 как latest.
-
-## A. Проект и источники
-
-Clipensk — Open Source резидентный Windows clipboard-history manager с WinUI 3.
-Репозиторий: https://github.com/lukindv77/Clipensk
-Каноническая ветка: main. GitHub и exact GitHub Actions evidence — source of truth.
-Платформа: только Windows x64/AMD64; .NET 10, WinUI 3 / Windows App SDK.
-Development/runtime host — unpackaged. Финальная схема MSIX/portable и лицензия ещё не выбраны.
-
-Прочитать: AGENTS.md; docs/WORKFLOW_NEW_CHAT_HANDOFF.md; docs/REQUIREMENTS.md;
-docs/ARCHITECTURE.md; docs/CLIPBOARD_CAPTURE_SIZE_LIMITS.md;
-docs/APPLICATION_IDENTITY.md; docs/CLIPBOARD_HISTORY_SCHEMA.md;
-docs/STORAGE_CATALOG_SCHEMA.md; docs/CURRENT_DATABASE_SCHEMA.md;
-docs/CRYPTOGRAPHY.md; docs/NATIVE_SQLCIPHER_BUILD.md; docs/OPEN_QUESTIONS.md.
-
-## B. Намерение пользователя и границы нового чата
-
-Восстановить проект с сохранением решений, правил, истории этапов и последней рабочей точки.
-При первом получении этого handoff выполнить восстановление и fresh сверку GitHub,
-дать краткий отчёт о main, CI, завершённых этапах и блокерах, затем ждать команды пользователя.
-Не начинать новую разработку, исправления, исследование или подключение worker автоматически.
-Фраза для завершения первоначального восстановления:
-«Контекст восстановлен. Готов продолжать. Жду вашей команды.»
-
-Полный текст старых чатов доступен не гарантированно. В предыдущей сессии восстановлены
-документы и история main от инициализации репозитория; соседний проект WebClip к Clipensk не относится.
-
-## C. Подтверждённая функциональная точка и CI
-
-Последний функциональный main:
-072b31e428f0202f1fa08c679e6c565a0d6740a7
-feat: read Current clipboard history with explicit period and limit
-
-Exact Build #129:
-- run 34006675571;
-- https://github.com/lukindv77/Clipensk/actions/runs/34006675571
-- head_sha 072b31e428f0202f1fa08c679e6c565a0d6740a7;
-- completed / SUCCESS;
-- Verify x64-only implementation scope, Restore, Build, Test — все SUCCESS.
-
-Exact Native SQLCipher #33:
-- run 34006675566;
-- https://github.com/lukindv77/Clipensk/actions/runs/34006675566
-- тот же head_sha 072b31e428f0202f1fa08c679e6c565a0d6740a7;
-- completed / SUCCESS;
-- pinned SQLCipher x64 build, provenance, smoke host, encrypted storage verification,
-  unpackaged runtime publish, runtime SQLCipher loading verification и uploads — SUCCESS.
-
-Оба запуска перепроверены при подготовке перехода. На этом SHA активных workflow нет.
-Статус «CI ещё выполняется» из предыдущего ответа теперь superseded.
-PASS managed Build не равен доказательству готовности финального installer или UI.
-
-Этот файл публикуется ПОСЛЕ функциональной точки отдельным docs commit.
-Поэтому SHA фактического main после публикации будет другим: его и exact docs Build
-нужно определить свежим запросом GitHub. Не приписывать Build #129 будущему docs SHA.
-При наличии отдельного приложения с publication checkpoint использовать его как указатель,
-но mutable state всё равно перепроверять.
-
-## D. Правила durable работы
-
-1. Перед durable работой использовать свежий фактический main.
-2. Работать через feature/fix branches; для документации допустима docs branch.
-3. Перед КАЖДЫМ обновлением main:
-   - свежий fetch/read main;
-   - compare feature head vs фактический main;
-   - behind=0;
-   - merge base равняется этому main;
-   - обновление только fast-forward через update_ref(... force:false).
-4. После изменения main найти exact Actions Build по точному head_sha.
-5. PASS разрешён только после SUCCESS всех четырёх обязательных шагов:
-   Verify x64-only implementation scope / Restore / Build / Test.
-6. При failure: первый failed step → его log → минимальный failure-driven fix;
-   не добавлять unrelated изменения и speculative fixes.
-7. Во время CI допустима только уже запланированная независимая полезная работа.
-   При её отсутствии ожидать не более 2 минут; затем точный status/run/SHA и остановка.
-   Пустой polling запрещён. Не запускать новые задачи для заполнения ожидания.
-8. Если connector не даёт необходимого evidence, дать пользователю точную инструкцию,
-   какой run/job/log предоставить. Отсутствие evidence не заменять предположением.
-
-Постоянное правило рекомендации модели записано в AGENTS.md коммитом
-5050d2c0a5ed60f5af5265c295c138dd5d16bc8e, Build #128 run 34006152047 — SUCCESS.
-После каждой задачи, остановки/итогов сессии и handoff сообщать модель, сложность и краткое
-обоснование для следующего конкретного шага. Окончательный выбор — за пользователем;
-самостоятельно модель не переключать. Пользователь сообщил подписку Plus и доступ вплоть
-до Astra с максимальной сложностью; доступность и квоты могут измениться.
-Различать: Низкая, Средняя, Высокая (High), Очень высокая (xHigh), Максимальная.
-Рекомендации не являются автоматическим разрешением следующей задачи.
-
-## E. Последние завершённые этапы
-
-До текущей сессии:
-- protected lifecycle, password → MasterKey, SQLCipher Current/Catalog bootstrap;
-- clipboard signal queue, time/source metadata, retained snapshot, readers,
-  explicit policy evaluation, canonical MaxBytes enforcement;
-- cancellation leases/epochs, protected storage session и protected delivery boundaries;
-- durable ApplicationId registry/aliases, SQL repository и per-application policies;
-- Current history schema v4 и миграции;
-- transactional SqliteClipboardHistorySink;
-- SHA-based external storage, exact-address ensure/restore;
-- Catalog v2, migration v1→v2 и SqliteExternalPayloadAddressIndex;
-- CatalogClipboardExternalPayloadAddressResolver;
-- ProtectedClipboardHistoryServices: lazy index → resolver → sink;
-- JournalWindow.TryGetActiveProtectedStorageSession(out ProtectedStorageSessionLease? session).
-  Accessor возвращает только активную lease, не выделяет master key отдельно и не продлевает lifecycle.
-  Commit 35207c2d9d46e6b53abe3287fceb8fa2a45f25b2, Build #127 run 34004958174 — SUCCESS.
-
-В текущей сессии:
-1. Восстановлена доступная история и сверены устаревшие документы с кодом.
-2. Постоянное правило рекомендации модели/сложности добавлено в AGENTS.md.
-3. Реализован Current read repository — commit 072b31e428f0202f1fa08c679e6c565a0d6740a7.
-   Ветка feat/current-clipboard-history-read-repository.
-   Перед продвижением: ahead=1, behind=0, merge base=5050d2c0a5ed60f5af5265c295c138dd5d16bc8e;
-   main обновлён через force:false.
-4. Подтверждены Build #129 и Native SQLCipher #33. Известного failed CI на функциональной
-   точке нет; failure-driven fix для этого tranche не требуется.
-
-## F. Точный контракт нового Current read repository
-
-Изменены/добавлены:
-- src/Clipensk.Core/History/ICurrentClipboardHistoryRepository.cs
-- src/Clipensk.Core/History/ClipboardHistoryEntry.cs
-- src/Clipensk.Storage/History/SqliteCurrentClipboardHistoryRepository.cs
-- tests/Clipensk.Storage.Tests/SqliteCurrentClipboardHistoryRepositoryTests.cs
-- docs/CLIPBOARD_HISTORY_SCHEMA.md
-
-API: ReadAsync(JournalDateRange period, int limit, CancellationToken).
-Период обязателен и включителен по сохранённой CalendarDate; limit обязателен и >0.
-Никаких default periods/limits.
-SQL сортирует EventUtc DESC, EventId COLLATE BINARY DESC.
-LIMIT применяется к events в CTE ДО LEFT JOIN payloads.
-Один SELECT возвращает единый read snapshot envelope + payloads, порядок payload — PayloadOrder.
-Возвращаются detached read models: EventId, полный EventTimeContext, durable source ApplicationId,
-runtime source snapshot, inline canonical text/SearchText или external SHA/path/size.
-UTC/offset/timezone сохраняются; calendar date проверяется на согласованность без обращения
-к текущей Windows time zone. StorageItems JSON и URI string не пересериализуются.
-External bytes не читаются, Catalog и extension provider не вызываются.
-Даже при отсутствующем файле сохраняется исторический persisted path/date.
-Открывается только Current/current.db в ReadOnly. Schema не создаётся и не мигрирует.
-Проверяются StorageId/role/schema/user_version и history schema shape.
-Caller/session cancellation связаны; проверки до/после открытия, между rows и перед возвратом.
-При ошибке или отмене частичный результат не возвращается; reader/connection освобождаются.
-Constructor не открывает БД, repository не кэширует результаты и не продлевает session.
-
-Тесты покрывают sink→read representations/time/source, границы периода и UTC/local date,
-лимит целых events, tie order, null source, пустой результат, обязательный positive limit,
-caller cancellation / lock / dispose, отмену при открытии с закрытием connection,
-неверные identity/schema и malformed persisted data.
-Локально проверен actual SQL через SQLite/Python. .NET SDK в scratch отсутствовал;
-C# build/tests подтверждены GitHub Build #129.
-
-Ограничения (НЕ объявлять реализованными):
-- это Current-only read boundary, не готовый журнал;
-- на исходном checkpoint нет archive reads, FTS, source filters, keyset continuation и UI composition
-  (последующее keyset continuation описано в разделе M);
-- limit ограничивает число events, не суммарные payload bytes;
-- Microsoft.Data.Sqlite вызовы синхронны; preemptive interruption отдельного вызова не обещана;
-- future host должен явно определить execution/cancellation lifecycle перед UI;
-- уже возвращённые данные принадлежат вызывающей стороне, UI/cache clear при lock — её обязанность;
-- repository подключён в ProtectedClipboardHistoryServices (см. раздел L), но ещё не подключён к UI.
-
-## G. Продуктовые и архитектурные инварианты
-
-- Только Windows x64/AMD64. Platforms=x64, RuntimeIdentifiers=win-x64.
-  ARM64 вне scope и не является будущей незавершённой задачей.
-- WM_CLIPBOARDUPDATE WndProc — только signal/enqueue; никаких clipboard reads,
-  source resolution, persistence или тяжёлой работы.
-- Monitoring разрешён только после разблокировки и готовности active protected storage session.
-  Listener и payload worker — разные вещи: listener boundary есть, автоматический worker не запущен.
-- Один Windows DataPackageView от format discovery до всех reader calls.
-  Никакого повторного Clipboard.GetContent() на reader stage.
-- Полный EventTimeContext: UTC timestamp, local offset, Windows timezone ID, calendar date.
-- SourceApplication и InvocationApplication — разные сущности. Invocation не источник history event.
-- Durable identity — Clipensk-owned непустой GUID ApplicationId.
-  PID/HWND/path/display name/AUMID не primary key. Exact path и packaged AUMID — aliases/evidence.
-  Не вводить silent identity merge/case folding/path heuristics; конфликты fail closed.
-- Не выбирать format defaults, значения size limits, global Allow/Deny без утверждённого источника.
-- Worker не запускать до готовности lifecycle cancellation, policy, sink и composition dependencies.
-- Archive/catalog schema и поведение сверх зафиксированных контрактов не придумывать заранее.
-
-MaxBytes canonical semantics:
-- Text/HTML/RTF: UTF-8 bytes exact reader string.
-- WebLink/ApplicationLink: UTF-8 Uri.OriginalString.
-- Bitmap: normalized PNG bytes.
-- StorageItems: versioned canonical UTF-8 JSON v1.
-- Registered/private custom binary: exact preserved bytes.
-- SearchText, служебные metadata, FTS и storage overhead не входят в лимит.
-- При наличии лимит положительный, проверка <=; null означает отсутствие заданного лимита.
-- HTML SearchText строится managed projection после size gate; raw HTML сохраняется.
-  Для RTF SearchText пока null; UI RichEdit/parser без отдельного контракта не добавлять.
-- CF_WAVE, CF_RIFF, virtual file contents запрещены; CF_HDROP не копирует содержимое файлов.
-
-## H. Storage/history и более широкая архитектура
-
-Фактические версии: Current v4, Catalog v2.
-Current: v1 identity БД → v2 Application identities/aliases → v3 policies → v4 history.
-Catalog v2 — rebuildable ExternalPayloadAddressIndex: SHA-256 exact bytes → RelativePath + SizeBytes;
-RelativePath unique. First persisted path выигрывает; same-SHA size conflict и path collision fail closed.
-Whole-pair validation выполняется до migration mutation; новая пара сразу v4/v2.
-Catalog не единственный источник адресов: history rows сохраняют SHA/path/size.
-
-History sink разрешает ВСЕ external payload до SQL transaction; inline byte counts валидирует.
-В одной transaction event и ordered payloads. Отмена проверяется до COMMIT.
-После успешного COMMIT не превращать успех в late cancellation.
-Event→payload ON DELETE CASCADE; Application→event ON DELETE SET NULL.
-
-External store: temp + atomic move, containment внутри Files root, existing file exact size+SHA.
-Duplicate не получает текущую дату capture как новую firstStoredDate.
-Resolver резервирует address в Catalog до exact-address ensure; recovery повторяемый.
-Новый custom binary требует explicit IClipboardCustomBinaryFileExtensionProvider, без скрытого .bin.
-Существующий custom SHA использует persisted address без вызова extension provider.
-PNG — normalized bytes и .png. External files сознательно не шифруются MasterKey.
-
-Password не persistится. Argon2id v1.3: 64 MiB / 3 iterations / 4 lanes / salt 16 bytes /
-MasterKey 32 bytes. Один MasterKey на защищённые БД. storage-crypto.json не содержит пароль/ключ.
-SQLCipher raw key через sqlite3_key, cipher_compatibility=4, cipher_memory_security=ON;
-runtime gates cipher_version>=4.12.0, cipher_status=1, quick_check и DatabaseIdentity.
-Pinned SQLCipher 4.17.0 commit 810db22f575ee7cf94ea96a3e91622b5fcece3dc, OpenSSL 3.5.8.
-Управляемая очистка ключей best-effort; immutable password strings не гарантируют физическое стирание.
-
-Архивная архитектура утверждена концептуально, но lifecycle/schema не завершены:
-владение целыми календарными днями, не более одного archive owner для дня;
-Current→Archive сначала copy/verify, затем purge, временный дубль разрешён, потеря обеих копий запрещена.
-Архивы обычно ReadOnly; запись только через maintenance. Query period ограничивает открываемые архивы.
-Catalog должен перестраиваться из Current + Archive.
-External Trash требует глобальной проверки допустимых ссылок; утверждённый retention default — 30 дней.
-Журнал — главный UI shell, русский fallback; hotkey настраивается пользователем.
-
-## I. Известные блокеры, незавершённая работа и расхождения docs
-
-Главный ближайший blocker:
-global ClipboardCapturePolicy — mandatory explicit dependency, но requirements-backed источник
-и default policy ещё не утверждены. Не выбирать Allow/Deny самостоятельно.
-Следующий основной этап после решения — app-level accepted capture delivery после unlock.
-Не объявлять worker, UI history или end-to-end capture готовыми по наличию repository/sink.
-
-Другие открытые направления:
-- execution/cancellation/UI composition для Current reads; FTS/source filters;
-- безопасный RTF→SearchText contract;
-- Current→Archive lifecycle, Archive schema/read path, Catalog rebuild, external reference tracking/GC;
-- password/MasterKey change, crypto metadata и partial storage recovery;
-- auto-lock end-to-end teardown;
-- identity user merge/rebind, alias retention и discovered-app UI;
-- финальная упаковка, installer/installed-launch evidence, byte-for-byte reproducibility;
-- hot backup/snapshot отложен;
-- Windows product support floor, лицензия, format defaults/limits, journal period, rotation defaults,
-  localization file schema и paste/focus behavior требуют отдельных решений.
-
-Устаревшие status summaries нельзя принимать за current:
-- прежний docs/HANDOFF_CURRENT.md описывал Build #65; этот checkpoint его заменяет;
-- docs/CURRENT_DATABASE_SCHEMA.md ещё содержит Catalog v1/new pair v4/v1:
-  фактический код ProtectedStorageDatabaseService и docs/STORAGE_CATALOG_SCHEMA.md задают v4/v2;
-- части docs/CRYPTOGRAPHY.md перечисляют уже сделанные history/migration/runtime-delivery этапы
-  как отсутствующие. Native #33 подтверждает unpackaged runtime, но не финальный installer.
-- README/общая ARCHITECTURE также содержат ранние status/planned/candidate формулировки.
-Исправление остальных status summaries отдельно не выполнялось; не открывать закрытые задачи
-по таким старым формулировкам и не смешивать их cleanup с новой implementation задачей.
-
-## J. Ветки, рабочая среда и отсутствие скрытой незавершённой работы
-
-До публикации этого docs checkpoint проверены 103 ветки, open PR/issues — 0.
-Последние:
-- feat/current-clipboard-history-read-repository → 072b31e428f0202f1fa08c679e6c565a0d6740a7;
-- docs/model-recommendation-rule → 5050d2c0a5ed60f5af5265c295c138dd5d16bc8e;
-- feat/journal-active-storage-session-accessor → 35207c2d9d46e6b53abe3287fceb8fa2a45f25b2.
-Остались исторические ветки, включая 15 вершин вне истории main при восстановлении;
-их наличие не означает active task или обязательство merge. Branch hygiene не начиналась.
-Публикация этого документа добавляет docs branch; fresh список получать с pagination.
-
-Среда предыдущей сессии: /workspace/scratch/a7ce8b8d8338/Clipensk —
-частичная локальная копия нужных файлов, НЕ полный git checkout. Не использовать как source of truth.
-Все изменения функционального tranche сохранены в GitHub. Несохранённого implementation нет.
-Работа шла GitHub connector API; .NET SDK локально отсутствовал. Windows build — GitHub Actions.
-Для runs по SHA использовался GET actions/runs?head_sha=...; wrapper
-fetch_commit_workflow_runs ограничен pull_request event и может пропускать main push Build.
-Для окончательного evidence читать run metadata и job steps, не один общий commit status.
-
-## K. Exact resume point и bootstrap
-
-Следующий чат должен начать с:
-1. Fresh main → exact Actions Build по его head_sha; отдельно проверить relevant Native SQLCipher.
-2. Прочитать AGENTS.md и authoritative contracts, учесть publication checkpoint и расхождения docs.
-3. Сообщить, что Current read repository уже DONE и Build #129 / Native #33 SUCCESS.
-   Если новый docs Build ещё идёт — назвать точный run/SHA/status, PASS ему не приписывать.
-4. Дать краткий отчёт о восстановлении и ждать команды пользователя.
-5. Только по новой команде разработки перейти к согласованию источника global capture policy
-   или другой явно выбранной независимой задаче. Не повторять реализованный read repository.
-
-Рекомендация модели:
-- для полного восстановления контекста и сверки документов — GPT-5.6 Sol, Средняя;
-- для одной проверки exact CI — GPT-5.6 Sol, Низкая;
-- для источника global policy и app-level composition — GPT-6 Astra, Высокая;
-- Очень высокая уместна для отдельной сложной проработки конкурентного lifecycle.
-Это рекомендации, выбор всегда за пользователем; Максимальная сейчас не требуется.
-
-## L. Последующее продолжение: protected history read composition
-
-После подготовки исходного перехода пользователь дал новую команду «Продолжай разработку».
-Docs checkpoint 2041b246454f108fd47b05aba40b7cbbb56ea56f был подтверждён:
-Build #130 run 34007846980 — SUCCESS всех четырёх обязательных шагов.
-
-Следующий небольшой tranche:
-- ProtectedClipboardHistoryServices теперь предоставляет HistoryRepository через
-  ICurrentClipboardHistoryRepository;
-- Create собирает repository с той же active session и connection factory;
-- creation по-прежнему не открывает БД и не вызывает extension provider;
-- добавлены проверки caller cancellation, lock и dispose через полученный repository;
-- контракт описан в docs/CLIPBOARD_HISTORY_SCHEMA.md;
-- UI, worker и global policy не подключены и не выбраны.
-
-Ветка: feat/protected-history-read-composition.
-Этот раздел публикуется вместе с изменением кода. Его exact SHA и CI нужно получить свежим
-запросом GitHub; Build #130 относится к ПРЕДЫДУЩЕМУ docs checkpoint и не подтверждает этот tranche.
-Для продолжения сначала проверить exact Build и relevant Native run фактического main,
-затем вернуться к разделу K. Основной blocker global policy остаётся открытым.
-## M. Последующее продолжение: Current history keyset pagination
-
-Перед этим tranche фактический main: bc7abcfcde530671393ce1f4567e1b9d73744de1.
-Protected history read composition из раздела L подтверждён exact CI:
-- Build #131, run 34018456453: Verify x64-only implementation scope, Restore, Build, Test — SUCCESS;
-- Native SQLCipher #34, run 34018456413: SUCCESS, включая native build, smoke, encrypted storage
-  verification, unpackaged x64 publish и runtime SQLCipher loading verification.
-
-По следующей команде разработки реализовано независимое продолжение Current reads:
-- ClipboardHistoryCursor: явные period + UTC + непустой EventId, без session/payload ownership;
-- ICurrentClipboardHistoryRepository.ReadBeforeAsync: эксклюзивный keyset по EventUtc/EventId,
-  без OFFSET, скрытого limit или SQL schema migration;
-- курсор создаётся из последнего события; смена периода требует нового ReadAsync;
-- каждый SELECT возвращает полный набор payload выбранных событий в отдельном snapshot;
-- сохранённый EventId проверяется на lowercase D, используемый sink и BINARY cursor comparison;
-- добавлены тесты границ страниц, одинакового UTC, local/UTC date mismatch, удаления anchor,
-  вставки нового события, недопустимых курсоров/лимитов и protected/caller cancellation.
-
-Ветка: feat/current-history-keyset-pagination.
-Этот раздел публикуется с кодом: его собственные SHA и CI необходимо получить свежим запросом.
-Build #131 / Native #34 подтверждают только предыдущий bc7 checkpoint, не этот tranche.
-Локальный .NET SDK отсутствует; SQLite query check не заменяет exact GitHub Build/Test evidence.
-
-Актуальная resume point: fresh main → exact Build/head_sha и relevant Native run.
-Если CI failed — первый failed step/log и минимальный failure-driven fix; если ещё выполняется —
-не делать пустой polling. После SUCCESS не повторять Current read composition/keyset implementation.
-Global ClipboardCapturePolicy остаётся NOT READY: источник/default не утверждён, Allow/Deny не выбран.
-Worker/UI не запущены. Archive lifecycle/rebuild и новые schema остаются без придуманного контракта.
-Дальнейшие направления — согласование policy/composition либо отдельный явно выбранный query/UI этап.
-Рекомендация для exact CI check: GPT-5.6 Sol, Низкая; для policy/composition: GPT-6 Astra, Высокая.
-
-
-## N. Последующее продолжение: global policy source and Current v5
-
-Baseline этого этапа: 19fcc793cbc6c22ba641dbc447e7fcad07ae3f08.
-Exact Build #133, run 34034457639: SUCCESS x64 guard, Restore, Build, Test.
-Он подтвердил исправление pagination test fixture и не подтверждает новый этап.
-
-Пользователь дал команду продолжить после предложения: хранить global policy в зашифрованном
-Current, привязать её к storage, не выбирать defaults и выполнять явную первичную настройку.
-Контракт принят; REQUIREMENTS §18.1, ARCHITECTURE §20 и GLOBAL_CAPTURE_POLICY.md обновлены.
-
-Реализовано в этом этапе:
-- Current v5 / Catalog v2; отдельная v4→v5 transaction, пустые policy tables без seed;
-- IGlobalClipboardCapturePolicyRepository и SqliteGlobalClipboardCapturePolicyRepository;
-- nullable ReadAsync и initialize-only InitializeAsync; повторное сохранение запрещено;
-- exact explicit Allow/Deny rules, ordinal names и positive-or-null MaxBytes;
-- protected cancellation, rollback до COMMIT и отсутствие late cancellation после COMMIT;
-- migration/repository tests, обновлены latest-version expectations ранних migration tests.
-
-Источник policy больше не продуктовый blocker. Следующие задачи: UI первичной настройки,
-загрузка persisted policy после unlock, app composition и готовность custom binary extension
-provider. Отсутствующая policy означает NOT READY для delivery. Worker ещё не запущен.
-Последующее редактирование policy требует cleanup по REQUIREMENTS §18; простого update API нет.
-Конкретные format/size defaults по-прежнему не назначены. Archive/Catalog lifecycle не изменён.
-
-Ветка: feat/persist-global-capture-policy.
-Exact SHA и CI этого этапа нужно получить свежим запросом GitHub. Локального .NET SDK нет;
-проверка SQL не заменяет Windows Build/Test. Resume: fresh main → exact Build + relevant Native
-run; при failure читать первый failed step/log и делать только failure-driven fix.
-После PASS продолжать UI первичной настройки/загрузку policy, не повторять этот storage этап.
-Рекомендация: exact CI — GPT-5.6 Sol, Низкая; policy/app composition — GPT-6 Astra, Высокая.
-
-
-## O. Последующее продолжение: UI первичной настройки global policy
-
-Baseline: 8906e4b154e3b231eca138e578bf799686da98db.
-Подтверждены exact runs для этого SHA:
-- Build #134, run 34035711758: x64 guard, Restore, Build, Test — SUCCESS;
-- Native SQLCipher #36, run 34035711732: SUCCESS, включая encrypted storage и runtime loading.
-
-По команде продолжения реализованы:
-- первичная настройка в разделе «Приложения и правила сбора» и переход из журнала;
-- загрузка persisted policy после active session creation, nullable/error/configured states;
-- семь standard formats по Windows StandardDataFormats, без предвыбранных rules или sizes;
-- Core GlobalClipboardCapturePolicySetup с тестами explicit choices и exact Int64 size parsing;
-- initialize-only сохранение и read-only сводка, без update/cleanup bypass;
-- Task.Run для SQLite, session cancellation, generation/ref guards против stale UI results;
-- очистка полей и сводки при lock/close, локализация и сообщения о фактической готовности.
-
-Ветка: feat/global-capture-policy-setup-ui. SHA и exact CI этого этапа получать свежим запросом.
-Локально проверены XAML/handlers/localization и код; .NET SDK и WinUI runtime недоступны.
-Ручной Windows UI smoke не выполнен и не заменяется успешным CI.
-
-Resume: fresh main → exact Build/head_sha и relevant Native run. При failed step — его log и
-минимальный failure-driven fix. После PASS: app-level delivery/worker composition, readiness
-custom binary extension provider, затем отдельный cleanup для изменения policy. Worker ещё
-не запущен; стандартные form choices не являются автоматическими defaults.
-Не повторять storage v5 или первичную настройку после их подтверждения.
-Рекомендация: exact CI — GPT-5.6 Sol, Низкая; app composition — GPT-6 Astra, Высокая;
-для полной конкурентной проработки worker lifecycle — GPT-6 Astra, Очень высокая.
-
-
-## P. Последующее продолжение: protected delivery composition
-
-Baseline: 1b9bb53361663c8399034149a62d0b0bd7b81b37.
-Exact Build #136, run 34051641820: SUCCESS x64 guard, Restore, Build, Test.
-Этот SHA исправил Build #135: StackPanel редактора обёрнут ContentControl для IsEnabled.
-UI первичной настройки теперь подтверждён compilation/tests; ручной Windows UI smoke не выполнен.
-
-Реализован composition boundary:
-- Core IClipboardAcceptedCaptureDeliveryFactory; ResidentWindowsHost реализует его через
-  существующий identity-aware accepted capture pipeline, без зависимости Windows → Storage;
-- ProtectedClipboardDeliveryServices.TryCreateAsync читает persisted global policy;
-- null только для отсутствия настройки, ошибка не превращается в default;
-- одна session/connection factory для capture services, identity, history sink и protected delivery;
-- обязательный explicit custom binary extension provider, без fallback;
-- создание inert graph без worker/queue processing; cancellation checks до и после factory;
-- tests для persisted policies, реальных identity/overrides, cancellation/lifetime и sink COMMIT.
-
-Ветка: feat/protected-delivery-composition. Exact SHA/Build нового этапа получать свежим запросом.
-Локального .NET SDK нет; тесты и Windows adapter должен подтвердить CI нового SHA.
-Документ: PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md.
-
-Следующий шаг: источник расширений custom binary, затем app-level вызов composition после
-unlock/первичной настройки и полный worker lifecycle. App ещё не вызывает этот boundary;
-worker не запущен. Не объявлять end-to-end capture готовым по готовности composition factory.
-Resume: fresh main → exact Build и relevant Native run; при failure — первый failed step/log
-и минимальный failure-driven fix. Не повторять уже выполненные storage/UI/composition этапы.
-Рекомендация: exact CI — GPT-5.6 Sol, Низкая; app composition — GPT-6 Astra, Высокая;
-полный конкурентный lifecycle worker — GPT-6 Astra, Очень высокая.
+Checkpoint prepared: 2026-09-07.
+
+Этот файл — operational checkpoint. Mutable GitHub state всегда важнее текста handoff. После публикации этого файла exact `main` SHA изменится, поэтому перед любой новой записью следующий чат обязан сделать fresh TOCTOU-проверку GitHub.
+
+## A. Project identity
+
+Clipensk — Open Source резидентный Windows clipboard-history manager.
+
+- repository: `lukindv77/Clipensk`;
+- canonical branch: `main`;
+- platform: Windows x64/AMD64 only; ARM64 не поддерживается;
+- stack: C# / .NET 10 / WinUI 3 / Windows App SDK;
+- development/runtime host: unpackaged;
+- protected storage: SQLCipher, один MasterKey на storage;
+- production schema на verified functional baseline: Current v6 / Catalog v2.
+
+Ключевые документы: `AGENTS.md`, `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/CURRENT_DATABASE_SCHEMA.md`, `docs/CLIPBOARD_HISTORY_SCHEMA.md`, `docs/STORAGE_CATALOG_SCHEMA.md`, `docs/GLOBAL_CAPTURE_POLICY.md`, `docs/CUSTOM_BINARY_FORMAT_CONFIGURATION.md`, `docs/PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `docs/CLIPBOARD_WORKER_LIFECYCLE.md`, `docs/OPEN_QUESTIONS.md`.
+
+## B. User intent and working style
+
+Пользователь последовательно просит продолжать разработку Clipensk, не повторяя уже завершённые этапы.
+
+Рабочие правила:
+
+- GitHub `main` и exact Actions evidence — source of truth;
+- перед durable write делать fresh TOCTOU;
+- работать через feature/docs branches;
+- перед `main` update требуются fresh main, compare, `behind=0`, merge-base=current main и только fast-forward `force:false`;
+- PASS нельзя объявлять без exact-SHA evidence обязательных workflow/steps;
+- failure-driven fixes only, без speculative unrelated изменений;
+- не запускать тяжёлую работу из `WM_CLIPBOARDUPDATE`;
+- не подключать policy mutation без обязательной cleanup semantics;
+- пользователь выбирает смену model/reasoning level; автоматически модель не переключать.
+
+## C. Current authoritative functional baseline
+
+Последний подтверждённый **functional** `main` до этого docs-only checkpoint:
+
+`797d736bf1ae22d329f46a4b293a6aa76b00f3ed`
+
+Этот SHA включает initial custom-binary policy setup UI и atomic aggregate persistence. Он был fresh-проверен 2026-09-07 перед docs-sync.
+
+Exact Actions на этом SHA:
+
+- Build #158 — run `34102717624`, completed / SUCCESS, `head_sha=797d736bf1ae22d329f46a4b293a6aa76b00f3ed`;
+- Native SQLCipher #40 — run `34102717645`, completed / SUCCESS, тот же exact head SHA.
+
+Build #158 подтвердил x64 scope, Restore, Build и Test. Native #40 подтвердил pinned SQLCipher x64 chain и published runtime checks по существующему workflow contract.
+
+Этот handoff публикуется отдельным docs commit после functional baseline, поэтому **не считать `797d...` текущим main без fresh fetch**. После publication нужно определить новый exact `main` и exact Actions для него.
+
+Manual real-clipboard / WinUI smoke остаётся UNVERIFIED.
+
+## D. Current owner / active task
+
+Текущий следующий кодовый owner — **Archive/Maintenance foundation**, а не direct policy UPDATE.
+
+Root cause: REQUIREMENTS §18 требует cleanup при последующих изменениях policy. Для external-file formats ссылки должны удаляться не только из Current, но и из Archive; physical file отправляется в Trash только после исчезновения последней допустимой ссылки. Текущий Storage runtime не имеет archive database implementation/maintenance coordinator, поэтому безопасный policy mutation пока невозможно реализовать честно.
+
+Acceptance direction следующего tranche:
+
+1. отдельный archive database boundary;
+2. self-describing encrypted Archive identity;
+3. exact filename/base/split/coverage validation;
+4. history-compatible archive schema без ослабления referential contract;
+5. ReadOnly normal access, ReadWrite только maintenance;
+6. tests для corruption/cancellation/coverage mismatch;
+7. только после этого — resumable Current→Archive transfer;
+8. policy cleanup/update ещё позже.
+
+## E. What has been completed
+
+### Protected capture pipeline
+
+- `WM_CLIPBOARDUPDATE` остаётся signal/enqueue only.
+- Один clipboard snapshot проходит discovery/read pipeline.
+- standard readers: text/HTML/RTF, links, PNG-normalized bitmap, StorageItems.
+- registered/private custom binary reader поддержан отдельно.
+- prohibited: CF_WAVE, CF_RIFF, virtual-file contents; CF_HDROP не копирует file contents.
+- exact MaxBytes semantics зафиксированы per canonical representation.
+
+### Durable application identity
+
+- Clipensk-owned ApplicationId;
+- PID/HWND/path не являются durable identity;
+- identity conflict fail-closed;
+- source runtime snapshot сохраняется отдельно от durable identity.
+
+### Current history
+
+- history schema введена в Current v4 и остаётся совместимой в Current v6;
+- ordered payloads, exact canonical byte counts, external references;
+- external address resolved до history SQL transaction;
+- cancellation перед COMMIT, committed success остаётся success;
+- bounded Current read + keyset continuation реализованы.
+
+### Catalog v2 / external payload addresses
+
+- `SHA-256(exact stored bytes) -> RelativePath + SizeBytes`;
+- first stored path wins;
+- same-SHA size conflict/path collision fail-closed;
+- existing file проверяется exact size+SHA;
+- PNG extension `.png`;
+- existing custom SHA не требует extension provider.
+
+### Global capture policy
+
+- storage-scoped encrypted Current state;
+- absent policy отличается от explicit Deny;
+- initial setup требует явных Allow/Deny и explicit limited/unlimited;
+- no preselected formats/sizes;
+- global Deny — inherited baseline, не kill switch для app override model;
+- policy read errors не превращаются в null/Allow/Deny.
+
+### Custom binary extension configuration
+
+Current v6 добавляет storage-scoped exact mapping `FormatName -> FileExtension`.
+
+- exact BINARY format-name keying;
+- canonical extension normalization;
+- first-write-only, no rebind/update API;
+- new custom SHA требует explicit mapping/provider;
+- missing mapping fail-closed;
+- existing Catalog SHA bypasses provider;
+- production provider: `RepositoryClipboardCustomBinaryFileExtensionProvider`.
+
+### Initial aggregate capture configuration
+
+На functional baseline `797d...` добавлен `SqliteInitialClipboardCaptureConfigurationService`.
+
+- initial global policy + custom extension mappings записываются одной Current transaction;
+- partial policy/mapping durable state при failure/cancellation не допускается;
+- cancellation проверяется до COMMIT;
+- late cancellation после successful COMMIT не демотирует успех;
+- partial pre-existing initial configuration отклоняется fail-closed.
+
+WinUI initial setup теперь позволяет явно добавить custom binary row с exact format name, Allow/Deny, extension и MaxBytes/unlimited. Custom format не добавляется автоматически.
+
+### App protected delivery and worker
+
+App уже:
+
+- получает active `ProtectedStorageSessionLease`;
+- создаёт storage-backed custom extension repository/provider;
+- вызывает protected delivery composition после active session/policy readiness;
+- запускает `ClipboardAcceptedCaptureWorker` только при готовом protected graph;
+- останавливает monitoring/worker и инвалидирует старый graph при lock/dispose/reopen;
+- не запускает worker, если initial global policy отсутствует.
+
+Worker lifecycle contract находится в `docs/CLIPBOARD_WORKER_LIFECYCLE.md`.
+
+## F. Current conclusions
+
+1. **Production Current = v6, Catalog = v2.** History tables сами по себе остаются v4-compatible contract внутри v6.
+2. **Custom extension source больше не неизвестен.** Он хранится в encrypted Current v6 и читается repository-backed provider-ом.
+3. **Initial custom policy setup должен быть aggregate/atomic.** Separate first-write repository calls недостаточны для product path.
+4. **Policy mutation нельзя реализовывать как простой UPDATE.** Cleanup semantics обязательна.
+5. **Archive foundation — prerequisite для policy cleanup external formats.** Current-only cleanup нарушит requirements.
+6. **Archive schema не должна молча ослаблять history FK.** Текущий `ClipboardHistoryEvent.SourceApplicationId` ссылается на `ApplicationIdentity`; archive должен оставаться self-contained и referentially valid.
+7. Наиболее совместимое направление — archive содержит необходимый ApplicationIdentity слой вместе с history rows; перенос всех mutable Current overlays автоматически не предполагается.
+8. `storage-catalog.db` остаётся rebuildable accelerator; критическая archive metadata должна жить в самих archive DB.
+
+## G. Important invariants
+
+- x64 only.
+- Password не сохраняется.
+- Monitoring/capture только при unlocked protected access.
+- Lock/close очищает protected UI/session-derived state.
+- One snapshot from discovery through readers.
+- Full `EventTimeContext` durable.
+- No silent durable identity merge.
+- No invented custom format/extension/size defaults.
+- HTML SearchText после size gate; RTF SearchText сейчас null.
+- external files не шифруются MasterKey.
+- external payload address resolved before history transaction.
+- Catalog first stored path wins globally per SHA.
+- whole storage pair validation before migration mutation.
+- archive ownership = whole calendar days; archive coverages must not overlap.
+- archive normal mode ReadOnly; writes только maintenance/transfer/cleanup/split/migration/recovery.
+- Current→Archive: write → verify → only then purge Current; temporary duplicate допустим, missing both copies запрещён.
+- Archive coverage не сужается автоматически из-за cleanup rows.
+
+## H. Known risks and unresolved questions
+
+- Archive SQLCipher database implementation отсутствует.
+- Current→Archive transfer отсутствует.
+- Unified Current+Archive journal query отсутствует.
+- Catalog rebuild по Current+Archive отсутствует.
+- Policy mutation/cleanup отсутствует.
+- Trash reference tracking/GC across Current+Archive отсутствует.
+- FTS/unified search не завершены.
+- Archive application-identity copy/minimization contract нужно окончательно оформить до implementation.
+- финальная packaging scheme MSIX/portable не выбрана;
+- лицензия Open Source ещё не выбрана;
+- manual real clipboard/WinUI smoke не выполнен.
+
+Низкоуровневые optional `.bin` defaults в `ExternalPayloadAddressFactory.ForCustomBinary` / `ExternalPayloadStore.StoreCustomBinaryAsync` исторически могут существовать; production new-custom resolver path на них не полагается. Удаление этих defaults — отдельный hardening change с новым CI evidence, не смешивать с archive tranche.
+
+## I. Remaining work — priority
+
+1. После публикации этого docs checkpoint сделать fresh `main` fetch и exact Build/Native verification для docs SHA.
+2. Создать feature branch для archive foundation от fresh exact main.
+3. Зафиксировать archive schema/identity contract:
+   - DatabaseRole.Archive;
+   - filename `archive_######[_####].db` ↔ identity base/split;
+   - mandatory coverage start/end;
+   - coverage validity and whole-day ownership;
+   - ApplicationIdentity + ClipboardHistory referential compatibility;
+   - ReadOnly validator/open boundary.
+4. Реализовать archive create/validate tests, включая wrong key/storage/role/version/filename/coverage/schema corruption/cancellation.
+5. Затем отдельным tranche реализовать resumable Current→Archive transfer с write/verify/purge ordering.
+6. Затем Catalog archive metadata/rebuild/query composition.
+7. Только после archive cleanup foundation — policy mutation + Current/Archive cleanup + Trash last-reference handling.
+8. Выполнить manual WinUI/real clipboard smoke перед заявлениями о product readiness.
+
+## Resume rule
+
+При новом чате сначала:
+
+1. прочитать этот handoff и `AGENTS.md`;
+2. fresh fetch `main`;
+3. проверить open PR/issues и последние Actions по exact main SHA;
+4. считать GitHub state authoritative над любым SHA/status из этого файла;
+5. не повторять completed custom-policy/delivery/worker работу;
+6. продолжать с archive foundation, если mutable state не показывает более новый superseding tranche.
