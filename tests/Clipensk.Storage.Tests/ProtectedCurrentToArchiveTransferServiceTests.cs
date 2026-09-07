@@ -204,6 +204,28 @@ public sealed class ProtectedCurrentToArchiveTransferServiceTests
         Assert.Equal(0, ArchiveScalar(environment, archiveFileName, "SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
     }
 
+    [Fact]
+    public async Task TransferAsync_RejectsOverlappingArchiveCoverageBeforeMutation()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        DateOnly day = ClosedDay(9);
+        var range = new JournalDateRange(day, day);
+        var target = new ArchiveFileName(37, ArchiveFileName.NoSplit);
+        var overlapping = new ArchiveFileName(38, ArchiveFileName.NoSplit);
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        await archiveService.CreateAsync(target, range);
+        await archiveService.CreateAsync(overlapping, range);
+        SeedCurrentEvent(environment, day, Guid.NewGuid(), null, includeExternalPayload: false);
+
+        var service = new ProtectedCurrentToArchiveTransferService(environment.Session, environment.Factory);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.TransferAsync(target, range));
+
+        Assert.Equal(1, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+        Assert.Equal(0, ArchiveScalar(environment, target, "SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+        Assert.Equal(0, ArchiveScalar(environment, overlapping, "SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
     private static DateOnly ClosedDay(int daysAgo) =>
         DateOnly.FromDateTime(DateTime.Now).AddDays(-daysAgo);
 
