@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/external-payload-catalog-rebuild ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
