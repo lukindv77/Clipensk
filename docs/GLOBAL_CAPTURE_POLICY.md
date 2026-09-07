@@ -1,20 +1,14 @@
 # Глобальная capture policy — введена в Current v5
 
-Latest Current schema — **v6**. Global capture policy остаётся тем же storage-scoped контрактом, введённым в v5; v6 добавляет отдельно custom-binary file-extension configuration и не меняет семантику policy.
+Latest Current schema — **v6**. Global capture policy остаётся storage-scoped контрактом, введённым в v5; v6 добавляет exact custom-binary file-extension configuration. Первичный product setup теперь сохраняет policy и относящиеся к ней custom mappings атомарно.
 
 ## Принятый контракт
 
-Глобальная policy принадлежит выбранному хранилищу и сохраняется в зашифрованной
-`Current/current.db`. Она не является общей настройкой процесса в JSON и не хранится
-только в rebuildable Catalog. Индивидуальные overrides остаются привязаны к `ApplicationId`.
+Глобальная policy принадлежит выбранному хранилищу и сохраняется в зашифрованной `Current/current.db`. Она не является общей настройкой процесса в JSON и не хранится только в rebuildable Catalog. Индивидуальные overrides остаются привязаны к `ApplicationId`.
 
-При создании или миграции хранилища policy **не настроена**: обе policy-таблицы пусты.
-Отсутствие policy не превращается в `Allow`, `Deny`, пустую разрешающую policy или значения
-форматов/лимитов по умолчанию. Пользователь должен явно выполнить первичную настройку.
-До этого чтение истории после unlock допустимо, но обработка новых clipboard payload
-не должна запускаться. Само сохранение policy не запускает worker напрямую: post-COMMIT
-уведомление инициирует повторную composition, и runtime стартует только если persisted policy
-успешно прочитана обратно через composition boundary.
+При создании или миграции хранилища policy **не настроена**: policy tables пусты. `CustomBinaryFormatConfiguration` в новом/migrated v6 также изначально пуста. Отсутствие policy не превращается в `Allow`, `Deny`, пустую разрешающую policy или format/size defaults. Пользователь должен явно выполнить первичную настройку.
+
+До настройки чтение существующей истории после unlock допустимо, но обработка новых clipboard payload не запускается. После successful initial COMMIT JournalWindow отправляет App post-COMMIT notification; App пересобирает protected composition и запускает resident runtime только если persisted policy читается как non-null для той же active session.
 
 ## Schema
 
@@ -25,114 +19,115 @@ Current v5 добавила:
 | `GlobalCapturePolicy` | `SingletonId INTEGER NOT NULL PRIMARY KEY CHECK (=1)`; `CaptureRule TEXT NOT NULL`, только exact `Allow` / `Deny` |
 | `GlobalFormatCapturePolicy` | `SingletonId INTEGER NOT NULL CHECK (=1)`; `FormatName TEXT NOT NULL`; `CaptureRule TEXT NOT NULL`; nullable положительный `MaxBytes`; PK `(SingletonId, FormatName)`; FK к global header с `ON DELETE CASCADE` |
 
-Global rules не имеют родительской policy: `Inherit` и неизвестные enum значения не
-принимаются при первичной настройке. Для индивидуальных overrides `Inherit` сохраняет
-существующую семантику. Имена форматов сравниваются ordinal/BINARY, без нормализации.
-Repository дополнительно отклоняет пустые/whitespace имена и нецелые размеры.
-`MaxBytes = null` сохраняет отсутствие заданного лимита; численные лимиты не выбираются.
-Размер измеряется по `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`.
+Current v6 отдельно добавила `CustomBinaryFormatConfiguration(FormatName, FileExtension)`. Этот mapping не является частью merge semantics policy, но product initial setup может писать его в той же Current transaction, что global policy.
 
-В таблицы попадают только переданные caller rules. Для неуказанного формата repository
-ничего не добавляет. Selector читает формат только при итоговых `Capture = Allow` и явном
-`Formats[name].Capture = Allow` после merge. Global `Deny` является базовым правилом
-наследования; application override может заменить его. Это не безусловный kill switch.
+Global rules не имеют родительской policy: `Inherit` и неизвестные enum значения не принимаются при первичной настройке. Для индивидуальных overrides `Inherit` сохраняет существующую семантику. Имена форматов сравниваются ordinal/BINARY, без нормализации. Пустые/whitespace имена отклоняются.
 
-## Repository и границы операций
+`MaxBytes = null` означает explicit unlimited только для разрешённого формата после соответствующего user choice. Численный `MaxBytes` обязан быть положительным Int64. Для Deny численный limit не сохраняется. Exact size semantics определены в `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`.
 
-`IGlobalClipboardCapturePolicyRepository` реализован в
-`SqliteGlobalClipboardCapturePolicyRepository`:
+В policy tables попадают только переданные caller rules. Selector читает формат только при итоговом `Capture = Allow` и явном `Formats[name].Capture = Allow` после merge. Global `Deny` является наследуемой базой; application override может заменить его. Это не безусловный kill switch.
+
+## Individual repository
+
+`IGlobalClipboardCapturePolicyRepository` реализован в `SqliteGlobalClipboardCapturePolicyRepository`:
 
 - `ReadAsync(token)` возвращает immutable policy либо `null` для не настроенного хранилища;
-- `InitializeAsync(policy, token)` атомарно сохраняет **первую** policy;
-- любая повторная инициализация, в том числе тем же значением, завершается ошибкой;
-- update/delete API отсутствуют: отключение форматов требует отдельного policy cleanup
-  согласно REQUIREMENTS §18, его нельзя заменить простой перезаписью rules.
+- `InitializeAsync(policy, token)` атомарно сохраняет **первую** policy как отдельную low-level operation;
+- любая повторная инициализация, включая тем же значением, завершается ошибкой;
+- update/delete API отсутствуют: изменение требует отдельного cleanup workflow согласно REQUIREMENTS §18.
 
-Constructor не открывает БД. Read использует ReadOnly и один SELECT/snapshot для header
-и всех formats, включая проверку orphan rows. Запись использует ReadWrite, immediate
-transaction, проверку отсутствия policy и INSERT header + formats без upsert.
-Конкурирующие первичные записи сериализуются SQLite; перезаписи победившей policy нет.
+Constructor не открывает БД. Read использует ReadOnly и единый snapshot для header + formats, включая orphan-row validation. Individual initialize использует ReadWrite, immediate transaction, проверку отсутствия policy и INSERT header + formats без upsert.
 
-Операции привязаны к `ProtectedStorageSessionLease`, связывают caller/session cancellation,
-проверяют отмену до/после открытия, при чтении rows и перед COMMIT. Ошибка или отмена до
-COMMIT откатывает всю запись. После успешного COMMIT нет late-cancellation проверки,
-превращающей сохранённую policy в ошибку отмены. Connections/readers освобождаются.
-SQLite calls синхронны; preemptive interruption отдельного SQL-вызова не обещается.
+Операции привязаны к `ProtectedStorageSessionLease`, связывают caller/session cancellation и проверяют отмену до COMMIT. Ошибка/отмена до COMMIT откатывает write. После successful COMMIT late cancellation не превращает durable success в cancellation failure.
 
-Repository принимает Current **v5 и более позднюю совместимую схему**. Проверяются
-storage identity/Current role, `user_version`, table/PK/FK shape и persisted rules.
-Некорректная policy не трактуется как отсутствие настройки. Repository не создаёт и не
-мигрирует schema. Возвращённые policy snapshots принадлежат caller; repository их не
-кэширует и не продлевает session.
+Repository принимает Current **v5+**, проверяет storage identity/Current role, `user_version`, table/PK/FK shape и persisted rules. Ошибка schema/data не отображается как `null`/Allow/Deny.
 
-## Миграция и latest schema
+## Атомарная product initial setup
 
-`ProtectedStorageDatabaseService` теперь создаёт новую пару как **Current v6 / Catalog v2**.
-Global-policy tables по-прежнему появляются отдельным durable шагом `Current v4 → v5`.
-После него отдельный `v5 → v6` создаёт пустую `CustomBinaryFormatConfiguration`, не
-переписывая global policy. Подробности v6 — в `CUSTOM_BINARY_FORMAT_CONFIGURATION.md` и
-`CURRENT_DATABASE_SCHEMA.md`.
+JournalWindow больше не выполняет global policy и custom-binary mappings отдельными durable writes. Product first-run policy path использует `SqliteInitialClipboardCaptureConfigurationService` на той же active `ProtectedStorageSessionLease`.
 
-Для существующей пары обе БД полностью проверяются до mutation Current. Не используются
-`IF NOT EXISTS`, seed или перенос rules из JSON. History, application identity,
-индивидуальные policies и persisted external addresses не переписываются.
-Ошибка/отмена шага v4→v5 сохраняет полноценный v4; ошибка/отмена v5→v6 сохраняет
-полноценный v5. Повторное открытие может безопасно продолжить migration.
+Aggregate service принимает полностью валидированную `ClipboardCapturePolicy` и zero-or-more explicit `InitialCustomBinaryFormatConfiguration`. Он требует Current v6, валидирует обе schema families и начинает immediate transaction. Перед INSERT service проверяет, что initial-configuration tables ещё не содержат durable rows:
 
-## Проверки
+- `GlobalCapturePolicy`;
+- `GlobalFormatCapturePolicy`;
+- `CustomBinaryFormatConfiguration`.
 
-Тесты global policy покрывают отсутствие defaults, exact round-trip через новую session,
-изоляцию хранилищ, explicit Deny, повторную настройку, неверные rules/schema/data, orphan
-rows, отмену/lock/dispose, освобождение connection, rollback записи и повтор после сбоя.
-Migration tests дополнительно подтверждают сохранность policy при продвижении Current до v6.
+После этого в одной transaction записываются global header, format rules и custom mappings. Если mapping invalid, prohibited, не относится к explicit Allow, конфликтует с existing partial setup, insert падает или token отменяется до COMMIT — policy и новые mappings не остаются в split state.
+
+Это особенно важно из-за first-write-only контрактов: UI не может сначала навсегда записать policy, а потом обнаружить failure extension mapping. Partial state, созданный другим low-level/manual path, не «исправляется» aggregate service автоматически; требуется будущий cleanup contract.
 
 ## Первичная настройка в JournalWindow
 
-Раздел «Приложения и правила сбора» содержит первичную настройку и read-only сводку
-сохранённых правил. После создания active protected session выполняется чтение policy,
-которое различает отсутствие настройки, сохранённые правила и ошибку чтения. Отсутствие
-настройки не блокирует доступ к журналу, но capture listener и worker остаются выключенными.
+Раздел «Приложения и правила сбора» содержит initial editor и read-only summary. После создания active protected session policy читается off UI thread с session cancellation и generation guards. Отсутствие policy отображается как unconfigured; ошибка чтения не трактуется как absence.
 
-UI предлагает только поддерживаемые стандартные formats через exact Windows
-`StandardDataFormats`: Text, Html, Rtf, Bitmap, WebLink, ApplicationLink, StorageItems.
-Набор элементов редактора не является defaults: общий и все format selectors первоначально
-не выбраны. Каждый формат требует явного Allow/Deny, в том числе при global Deny.
-Для разрешённого формата обязательно выбрать положительный Int64 limit в байтах либо явно
-«Без лимита». Для запрещённого формата `MaxBytes` не задаётся.
+### Standard formats
 
-Custom-format UI всё ещё отсутствует. При этом durable extension contract для custom binary
-уже существует в Current v6: exact `FormatName → FileExtension` хранится в
-`CustomBinaryFormatConfiguration`, а `RepositoryClipboardCustomBinaryFileExtensionProvider`
-предоставляет fail-closed production provider. UI первичной global policy этот mapping пока
-не создаёт и не добавляет custom formats автоматически.
+UI всегда показывает exact Windows `StandardDataFormats`:
 
-SQLite read/write выполняются вне UI thread с session cancellation и generation checks.
-Lock/close инвалидирует stale results и очищает protected UI state.
+- Text;
+- Html;
+- Rtf;
+- Bitmap;
+- WebLink;
+- ApplicationLink;
+- StorageItems.
 
-## Composition и worker status
+Эти строки не являются defaults: global selector и каждый format selector первоначально не выбраны. Каждый standard format требует явного Allow/Deny. Для Allow пользователь обязан выбрать positive Int64 limit либо explicit unlimited. Для Deny `MaxBytes` не задаётся.
 
-Persisted policy подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`: boundary
-собирает capture/history services и protected delivery через явную factory, а для отсутствующей
-policy возвращает `null`. Контракты: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md` и
-`CLIPBOARD_WORKER_LIFECYCLE.md`.
+### Custom binary formats
 
-App вызывает composition после появления active protected session. Вызов выполняется вне UI
-thread; результат принимается только при совпадающей generation, lifecycle/window/host references
-и той же active session.
+UI теперь позволяет **явно добавить** zero-or-more custom binary rows. Никакие discovered/private formats не добавляются, не выбираются и не включаются автоматически.
 
-Если policy отсутствует на unlock, App получает `null`: listener остаётся выключенным, worker не
-создаётся и clipboard updates до настройки не попадают в capture queue. После первого успешного
-`InitializeAsync` JournalWindow уведомляет App только **после COMMIT**; App повторно compose-ит
-runtime. Ошибка уведомления не превращает committed policy в ошибку сохранения.
+Каждая custom row требует exact `FormatName` и explicit Allow/Deny. `WaveAudio`, `RiffAudio` и `FileContents` запрещены capture guard. Exact duplicate имени — включая collision со standard row — отклоняется.
 
-Для non-null composition App планирует single-reader `ClipboardAcceptedCaptureWorker` на exact
-session и только затем запускает Windows listener. Lock сначала останавливает monitoring и
-инвалидирует capture epoch, затем invalidates worker/composition; session cancellation завершает
-blocked или active worker. Worker новой session ждёт завершения предыдущего task перед dequeue.
+Для custom `Allow` обязательны:
 
-После CI этот lifecycle делает automatic clipboard capture runtime связанным от listener до
-history sink. Ручной WinUI/real-clipboard smoke всё ещё требует отдельной проверки и не считается
-подтверждённым unit/CI тестами.
+- explicit size limit или explicit unlimited;
+- canonicalizable physical file extension.
 
-Policy cleanup для последующего изменения остаётся отдельным этапом. Конкретные format/size
-defaults по-прежнему не назначены.
+Extension нормализуется через `ExternalPayloadAddressFactory.NormalizeCustomBinaryExtension` и сохраняется агрегатно вместе с initial policy. Для custom `Deny` mapping не создаётся.
+
+Read-only summary для non-standard Allow дополнительно читает exact extension mapping. Если policy была создана старым/ручным путём без mapping, UI показывает missing mapping как fail-closed состояние; fallback extension не подставляется.
+
+Clipboard format discovery UI пока отсутствует. Product не предлагает эвристические format names и не включает неизвестные formats автоматически.
+
+## Composition и worker lifecycle
+
+Persisted policy подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`. Boundary возвращает `null` только при действительно отсутствующей global policy; storage/schema errors остаются errors.
+
+App выполняет composition после active protected session и публикует результат только при совпадающих generation/window/host/lifecycle/session guards. Если policy отсутствует, listener остаётся выключенным и worker не создаётся.
+
+После successful aggregate initial COMMIT JournalWindow вызывает existing post-COMMIT notification. App повторно compose-ит runtime. Notification failure не демотирует уже committed configuration.
+
+Для non-null composition App создаёт exact-session single-reader `ClipboardAcceptedCaptureWorker`. Новый worker ждёт завершения previous generation; Windows listener запускается только после ready-reader gate. Lock останавливает listener, инвалидирует capture epoch, worker generation и composition; linked App/session cancellation завершает blocked/active worker.
+
+Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md` и `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
+
+## Migration и latest schema
+
+`ProtectedStorageDatabaseService` создаёт новую pair как **Current v6 / Catalog v2**.
+
+Migration sequence сохраняет отдельные durable steps:
+
+- v4 → v5: global-policy tables, без seed/defaults;
+- v5 → v6: пустая `CustomBinaryFormatConfiguration`, без переписывания policy.
+
+До mutation валидируется Current/Catalog pair. Ошибка/отмена v4→v5 оставляет полноценный v4; ошибка/отмена v5→v6 оставляет полноценный v5. Повторное открытие может безопасно продолжить migration.
+
+## Проверки
+
+Existing global policy tests покрывают absence/defaults, exact round-trip через новую session, explicit Deny, repeated initialization rejection, malformed rules/schema/data, orphan rows, lock/dispose/cancellation, connection cleanup и rollback.
+
+Aggregate initial-configuration tests дополнительно покрывают:
+
+- единый COMMIT policy + normalized custom extension;
+- rollback policy + mappings при injected custom insert failure;
+- отказ поверх partial existing mapping без записи policy;
+- prohibited format validation до DB open;
+- требование, чтобы mapping относился к explicit allowed format.
+
+Windows feature Build должен подтвердить App UI wiring на exact feature SHA. После продвижения final tree required official main Build и Native SQLCipher evidence проверяются на exact main SHA, поскольку tranche меняет `src/Clipensk.Storage/**`.
+
+**Manual WinUI/real-clipboard smoke остаётся UNVERIFIED.** Unit/CI tests не эмулируют настоящий foreground application, `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView` и пользовательскую работу dynamic custom rows.
+
+Policy cleanup/update для последующего изменения остаётся отдельным этапом. Format/size defaults по-прежнему не назначены.
