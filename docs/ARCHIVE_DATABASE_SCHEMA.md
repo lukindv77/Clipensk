@@ -1,10 +1,10 @@
 # Archive database schema v1
 
-Этот документ фиксирует первый durable contract для `Archive/archive_*.db`. Archive schema version независима от Current v6 и Catalog v2.
+Этот документ фиксирует durable contract для `Archive/archive_*.db`. Archive schema version независима от Current v6 и Catalog v2.
 
 ## Scope
 
-Archive v1 — foundation для будущих Current→Archive transfer, unified history query, policy cleanup и catalog rebuild. Текущий tranche создаёт и валидирует self-contained archive database, но **не** переносит туда события, не удаляет Current rows, не объявляет segment sealed и не обновляет Catalog.
+Archive v1 — foundation для Current→Archive transfer, unified history query, policy cleanup и catalog rebuild. База self-contained и сохраняет referential history contract. Segment sealing, Catalog archive metadata, unified query и policy cleanup остаются отдельными слоями.
 
 ## File naming
 
@@ -50,7 +50,7 @@ Global/application capture policy overlays, `GlobalCapturePolicy`, `CustomBinary
 
 Application identity tables присутствуют потому, что history event `SourceApplicationId` сохраняет существующий FK contract. Archive schema не ослабляет referential integrity ради удобства transfer.
 
-Будущий transfer coordinator должен копировать только те identity rows, которые необходимы архивируемой истории. Наличие таблиц не означает автоматическое копирование всех mutable Current aliases/overlays.
+Transfer копирует только `ApplicationIdentity` rows, на которые реально ссылаются переносимые events. `ApplicationIdentityAlias` schema остаётся доступной для self-contained compatibility, но mutable Current aliases и policy overlays автоматически не переносятся.
 
 ## Coverage ownership
 
@@ -102,23 +102,62 @@ Existing final archive не перезаписывается. Если cancellat
 
 Corruption/mismatch завершается fail-closed; validator не ремонтирует archive и не меняет его metadata.
 
+## Current → Archive transfer boundary
+
+`ProtectedCurrentToArchiveTransferService.TransferAsync` — explicit maintenance boundary поверх существующего Archive v1. Новую archive schema version он не вводит.
+
+Preconditions:
+
+- target archive уже создан и проходит `ProtectedArchiveDatabaseService.ValidateAsync`;
+- transfer range целиком лежит внутри assigned archive coverage;
+- переносить можно только завершённые календарные дни: сегодняшний и будущие `CalendarDate` отклоняются;
+- active protected session остаётся действующей всю операцию.
+
+Операция переносит **весь явный календарный range**, а не произвольное число rows внутри дня. Это сохраняет whole-day ownership contract.
+
+Порядок durable фаз:
+
+1. Current открывается ReadOnly, проверяются Current v6 identity/schema/foreign keys, и exact rows выбранного range материализуются;
+2. необходимые source `ApplicationIdentity` rows и history event/payload rows записываются в Archive одной transaction;
+3. существующий Archive event с тем же `EventId` принимается только если envelope и все ordered payload rows exact совпадают; конфликт завершается fail-closed;
+4. cancellation проверяется до Archive COMMIT;
+5. после Archive COMMIT target archive заново проходит полный ReadOnly validator;
+6. Current открывается ReadWrite только для purge phase;
+7. внутри Current transaction тот же range перечитывается и exact сравнивается с ранее скопированным batch;
+8. если Current изменился между copy и purge, purge transaction откатывается и caller должен повторить transfer;
+9. только exact verified batch удаляется из Current; payload rows удаляются существующим `ON DELETE CASCADE`;
+10. cancellation проверяется непосредственно перед Current COMMIT;
+11. после successful Current COMMIT late cancellation не превращает уже завершённый durable transfer в reported failure.
+
+Crash/cancellation resumability обеспечивается idempotent durable replay, а не отдельной operation-log table. Если Archive COMMIT уже состоялся, но Current ещё не purged, повторный вызов сравнит существующие Archive rows exact и продолжит verify→purge. Временное состояние `Current=yes, Archive=yes` допустимо. Состояние `Current=no, Archive=no` этот порядок не создаёт.
+
+External payload bytes не копируются и не перемещаются: history rows сохраняют те же `ExternalSha256`, `ExternalRelativePath` и `ExternalSizeBytes`. Catalog/Files остаются отдельным content-address layer.
+
+Этот transfer boundary пока не:
+
+- помечает segment sealed;
+- изменяет archive coverage;
+- обновляет Catalog archive metadata;
+- удаляет orphan ApplicationIdentity rows;
+- выполняет unified Current+Archive query;
+- выполняет policy cleanup или Trash GC.
+
 ## Lifecycle and access mode
 
 Archive service использует MasterKey только через `ProtectedStorageSessionLease`. Password/MasterKey не получают нового persistence path.
 
 - lock/dispose session отменяет archive operation;
 - ordinary validation — ReadOnly;
-- Archive ReadWrite будет разрешён только будущим maintenance/transfer boundary;
-- current foundation не предоставляет generic mutable archive repository.
+- Archive ReadWrite разрешён только explicit maintenance/transfer boundary;
+- generic mutable archive repository не предоставляется.
 
 ## Not implemented yet
 
-После Archive v1 foundation остаются отдельными tranches:
+После Archive v1 + Current→Archive transfer остаются отдельными tranches:
 
-1. resumable Current→Archive transfer: write → verify → purge Current;
-2. persisted/derived segment sealing and catalog metadata;
-3. archive history read + unified Current/Archive query;
-4. Catalog rebuild from Current + Archive;
-5. external reference cleanup/Trash last-reference handling;
-6. policy mutation with required Current/Archive cleanup;
-7. archive split/repair/migration maintenance operations.
+1. persisted/derived segment sealing and Catalog archive metadata;
+2. archive history read + unified Current/Archive query;
+3. Catalog rebuild from Current + Archive;
+4. external reference cleanup/Trash last-reference handling;
+5. policy mutation with required Current/Archive cleanup;
+6. archive split/repair/migration maintenance operations.
