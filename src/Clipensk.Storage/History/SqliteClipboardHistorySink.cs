@@ -38,6 +38,8 @@ public sealed class SqliteClipboardHistorySink : IClipboardAcceptedCaptureSink
     {
         ArgumentNullException.ThrowIfNull(capture);
 
+        using ProtectedStorageMutationLease mutationLease =
+            await _session.AcquireMutationLeaseAsync(cancellationToken).ConfigureAwait(false);
         using CancellationTokenSource linkedCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 _session.CancellationToken,
