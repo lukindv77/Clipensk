@@ -12,4 +12,10 @@ public interface IGlobalClipboardCapturePolicyRepository
     ValueTask InitializeAsync(
         ClipboardCapturePolicy policy,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically removes the current explicit policy without replacing it. Returns true when a
+    /// configured policy was removed and false when the storage was already unconfigured.
+    /// </summary>
+    ValueTask<bool> CleanupAsync(CancellationToken cancellationToken = default);
 }
