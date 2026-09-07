@@ -35,13 +35,29 @@ Persisted repository повторно проверяет, что прочита�
 `ICustomBinaryFormatConfigurationRepository` предоставляет:
 
 - `ReadFileExtensionAsync(formatName, token)` — nullable exact lookup;
-- `InitializeAsync(formatName, fileExtension, token)` — атомарное первое назначение.
+- `InitializeAsync(formatName, fileExtension, token)` — атомарное первое назначение отдельного mapping.
 
 `SqliteCustomBinaryFormatConfigurationRepository` работает только через активную `ProtectedStorageSessionLease`, проверяет StorageId, роль Current, schema/user version и table shape. Read использует ReadOnly; initialization — ReadWrite + immediate transaction.
 
 Повторное `InitializeAsync` для уже существующего exact `FormatName` запрещено, даже если передано то же расширение. Rebind/update требует отдельного cleanup contract, потому что существующая история и external payload addresses уже могут ссылаться на прежнее расширение.
 
 Caller cancellation и session cancellation объединяются. Отмена/ошибка до COMMIT откатывает initialization. После успешного COMMIT нет late cancellation, превращающего состоявшуюся durable запись в ошибку.
+
+## Атомарная первичная настройка policy + mappings
+
+JournalWindow не выполняет первичную global policy и custom mappings отдельными durable writes. Для UI используется `SqliteInitialClipboardCaptureConfigurationService`, который принимает:
+
+- полностью валидированную initial `ClipboardCapturePolicy`;
+- список explicit `InitialCustomBinaryFormatConfiguration` для разрешённых custom formats;
+- ту же active `ProtectedStorageSessionLease` и cancellation boundary.
+
+Service открывает Current v6 один раз, валидирует identity/user_version и обе schema families, начинает immediate transaction и требует, чтобы `GlobalCapturePolicy`, `GlobalFormatCapturePolicy` и `CustomBinaryFormatConfiguration` ещё не содержали durable initial-configuration rows. Затем в **одной transaction** записываются global header, format rules и custom extension mappings.
+
+Если mapping невалиден, уже существует partial initial configuration, SQL insert завершается ошибкой либо cancellation приходит до COMMIT, global policy и новые mappings не остаются частично сохранёнными. После успешного COMMIT операция остаётся успешной при late cancellation.
+
+Custom mapping разрешён aggregate service только для exact format, который присутствует в переданной policy с explicit `Allow`. `WaveAudio`, `RiffAudio` и `FileContents` блокируются до открытия БД. Duplicate exact format names/mappings отклоняются; silent normalization самого `FormatName` нет.
+
+Individual repository остаётся доступным как низкоуровневый first-write boundary, но product initial-setup UI использует aggregate service, чтобы не создавать невосстановимый split state между first-write-only policy и extension configuration.
 
 ## Extension provider
 
@@ -56,9 +72,28 @@ Caller cancellation и session cancellation объединяются. Отмен
 5. hidden `.bin` fallback отсутствует в production resolver и в low-level `ForCustomBinary` / `StoreCustomBinaryAsync` API: extension является обязательным параметром;
 6. canonical extension участвует в создании первого relative path и затем фиксируется Catalog address.
 
-Этот contract не включает custom-format UI. Текущий первичный global-policy editor по-прежнему показывает только standard formats. Будущий discovered-format/application-policy UI должен сначала иметь явное extension решение до включения custom binary capture.
+## Initial custom-format UI
 
-App-level composition теперь создаёт `SqliteCustomBinaryFormatConfigurationRepository` и `RepositoryClipboardCustomBinaryFileExtensionProvider` из той же active protected session и передаёт provider в `ProtectedClipboardDeliveryServices.TryCreateAsync`. Это только inert graph composition; worker и `ProcessNextAsync` пока не запускаются.
+Первичный global-policy editor теперь позволяет пользователю **явно** добавлять custom binary rows. Никакие discovered/private formats не добавляются и не включаются автоматически.
+
+Для каждой добавленной строки пользователь задаёт exact `FormatName` и explicit `Allow`/`Deny`. Для `Allow` обязательны:
+
+- canonicalizable file extension;
+- explicit positive `MaxBytes` либо explicit unlimited.
+
+Для `Deny` extension mapping не создаётся и `MaxBytes` не задаётся. Имена custom formats участвуют в том же ordinal uniqueness contract, что и standard format rows; попытка повторить standard/custom exact name отклоняется до durable write.
+
+После reload read-only summary показывает extension для каждого non-standard allowed format. Если policy была создана старым/ручным путём без mapping, UI показывает отсутствие mapping как fail-closed состояние; оно не заменяется `.bin` или эвристикой.
+
+UI всё ещё не выполняет clipboard-format discovery и не предлагает automatic enable. Cleanup/rebind/update после initial setup остаётся отдельным будущим contract.
+
+## App composition и runtime
+
+Production App создаёт `SqliteCustomBinaryFormatConfigurationRepository` и `RepositoryClipboardCustomBinaryFileExtensionProvider` из той же active protected session и передаёт provider в `ProtectedClipboardDeliveryServices.TryCreateAsync`.
+
+После non-null composition App запускает exact-session single-reader worker, а Windows clipboard listener включается только после ready-reader gate. Поэтому custom extension lookup остаётся lazy до фактического нового custom-binary payload, но mapping уже durable до запуска runtime после initial setup.
+
+После успешного aggregate setup JournalWindow отправляет App post-COMMIT notification; App пересобирает protected composition для той же active session. Ошибка callback не демотирует committed initial configuration.
 
 ## Migration
 
@@ -87,10 +122,16 @@ Storage tests покрывают:
 - invalid/missing extensions;
 - caller/lock/dispose cancellation;
 - connection cleanup;
-- rollback при отмене внутри initialization и последующий retry;
+- rollback при отмене внутри individual initialization и последующий retry;
 - malformed persisted extension;
 - v5→v6 migration, сохранность global policy и пустую новую table;
 - invalid Catalog before mutation;
-- migration SQL failure/cancellation rollback и retry.
+- migration SQL failure/cancellation rollback и retry;
+- aggregate initial setup policy + mapping;
+- rollback всей aggregate transaction при injected custom-mapping insert failure;
+- отказ от aggregate setup поверх partial existing mapping без записи policy;
+- validation prohibited/custom-not-allowed mappings до открытия БД.
 
-Windows feature Build #139 подтвердил x64 scope, Restore, Build и Test после app-composition и low-level fallback hardening. Official main Build и Native SQLCipher должны подтверждаться заново после продвижения final tree в `main`.
+Windows feature Build должен заново подтвердить App UI wiring и aggregate storage service на exact feature SHA. После продвижения final tree official main Build и, поскольку изменяется `src/Clipensk.Storage/**`, Native SQLCipher должны быть подтверждены на exact новом main SHA.
+
+Manual WinUI/real-clipboard smoke остаётся отдельным UNVERIFIED evidence.
