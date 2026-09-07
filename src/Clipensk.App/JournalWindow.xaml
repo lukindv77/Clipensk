@@ -88,6 +88,8 @@
                         </StackPanel>
                     </ContentControl>
                     <TextBlock x:Name="GlobalPolicySummary" TextWrapping="Wrap" Visibility="Collapsed" />
+                    <Button x:Name="ResetGlobalPolicyButton" HorizontalAlignment="Left" Visibility="Collapsed"
+                            Click="OnResetGlobalPolicyClicked" />
                     <Button x:Name="ReloadGlobalPolicyButton" HorizontalAlignment="Left" Click="OnReloadGlobalPolicyClicked" />
                 </StackPanel>
             </ScrollViewer>
