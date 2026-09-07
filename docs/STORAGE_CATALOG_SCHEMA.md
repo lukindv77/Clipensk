@@ -86,7 +86,7 @@ IsSealed = Coverage.EndDate < currentCalendarDate
 
 ## Read boundary
 
-`ReadAsync`:
+`ProtectedArchiveSegmentCatalog.ReadAsync`:
 
 - открывает Catalog ReadOnly;
 - проверяет active storage identity, Catalog schema/user version, v2 external-payload contract и v3 archive-segment contract;
@@ -94,6 +94,23 @@ IsSealed = Coverage.EndDate < currentCalendarDate
 - повторно reject-ит overlap fail-closed.
 
 Catalog row с malformed GUID, filename, date range или sealing value не принимается.
+
+## Unified history read consumer
+
+`ProtectedUnifiedClipboardHistoryRepository` использует Catalog v3 projection как **discovery/read-planning accelerator**, а не как замену Archive validation.
+
+Перед physical history reads:
+
+1. Catalog v3 materializes полный descriptor set;
+2. top-level canonical `Archive/archive_*.db` filename set перечисляется без открытия самих Archive DB;
+3. physical filename set обязан exact совпадать с Catalog projection; новый/unindexed, missing или иначе stale archive layout завершается fail-closed и требует rebuild;
+4. `StorageQueryPlanner` выбирает только segments, coverage которых пересекает requested period;
+5. только выбранные Archive databases открываются для history rows;
+6. каждый выбранный Archive до и после чтения authoritative-валидируется через `ProtectedArchiveDatabaseService.ValidateAsync`, включая exact planned DatabaseId/coverage.
+
+После logical merge Catalog projection и physical filename set проверяются повторно. Изменение descriptor metadata или filename layout во время unified query не возвращает silently incomplete page: caller получает failure/retry boundary.
+
+Таким образом Catalog ускоряет selection и позволяет не открывать все Archive для каждого journal page, но critical identity/coverage выбранного файла по-прежнему подтверждаются самой Archive DB. Поддерживаемые сегодня maintenance operations не изменяют assigned coverage существующего Archive in-place; будущие repair/split/coverage-mutation операции обязаны определить coordinator/rebuild ordering до использования unified reader.
 
 ## Initialization and migration
 
