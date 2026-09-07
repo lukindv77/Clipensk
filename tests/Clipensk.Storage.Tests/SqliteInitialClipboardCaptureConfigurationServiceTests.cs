@@ -126,6 +126,28 @@ public sealed class SqliteInitialClipboardCaptureConfigurationServiceTests
         Assert.Empty(environment.Factory.Modes);
     }
 
+    [Fact]
+    public async Task InitializeAsync_CallerCancellationBeforeOpen_WritesNothing()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.Factory.Modes.Clear();
+        var service = new SqliteInitialClipboardCaptureConfigurationService(
+            environment.Session,
+            environment.Factory);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.InitializeAsync(
+            CreatePolicy(),
+            [new InitialCustomBinaryFormatConfiguration("Vendor.Binary", ".bin")],
+            cancellation.Token).AsTask());
+
+        Assert.Empty(environment.Factory.Modes);
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM GlobalCapturePolicy;"));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM GlobalFormatCapturePolicy;"));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM CustomBinaryFormatConfiguration;"));
+    }
+
     private static ClipboardCapturePolicy CreatePolicy() => new(
         ClipboardCapturePolicyRule.Deny,
         new Dictionary<string, ClipboardFormatCapturePolicy>(StringComparer.Ordinal)
