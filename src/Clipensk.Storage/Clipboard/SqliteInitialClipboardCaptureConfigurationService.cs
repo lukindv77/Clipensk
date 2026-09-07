@@ -58,7 +58,7 @@ public sealed class SqliteInitialClipboardCaptureConfigurationService
                     nameof(customBinaryFormats));
             }
 
-            if (!policy.Formats.TryGetValue(configuration.FormatName, out ClipboardFormatCapturePolicy? formatPolicy) ||
+            if (!policy.Formats.TryGetValue(configuration.FormatName, out ClipboardFormatCapturePolicy formatPolicy) ||
                 formatPolicy.Capture != ClipboardCapturePolicyRule.Allow)
             {
                 throw new ArgumentException(
