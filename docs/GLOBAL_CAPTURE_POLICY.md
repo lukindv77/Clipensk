@@ -114,11 +114,20 @@ Persisted policy подключена к `ProtectedClipboardDeliveryServices.Try
 собирает capture/history services и protected delivery через явную factory, а для отсутствующей
 policy возвращает `null`. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
 
-Источник custom-binary extensions больше не является открытым архитектурным вопросом:
-Current v6 repository/provider реализованы. **App-level вызов composition и worker lifecycle
-по-прежнему не подключены.** App должен после unlock/initial setup создать provider из той же
-active session и передать его в composition boundary; запуск/остановка worker остаются отдельным
-lifecycle tranche.
+Источник custom-binary extensions реализован через Current v6 repository/provider, и App теперь
+вызывает composition после появления active protected session. Вызов выполняется вне UI thread;
+результат принимается только при совпадающей generation, lifecycle/window/host references и той же
+active session. При lock/close retained composition invalidated.
+
+Если policy отсутствует на unlock, App получает `null` и не создаёт runtime worker. После первого
+успешного `InitializeAsync` JournalWindow уведомляет App только **после COMMIT**, и App выполняет
+повторный composition request. Ошибка этого уведомления не превращает уже committed policy в
+ошибку сохранения.
+
+**Worker lifecycle всё ещё не реализован.** Retained delivery graph не вызывает `ProcessNextAsync`,
+queue не потребляется и end-to-end clipboard capture пока NOT READY. Отдельный следующий tranche
+должен определить start/stop, cancellation, lock/unlock, stale-session, close и worker failure
+semantics.
 
 Policy cleanup для последующего изменения остаётся отдельным этапом. Конкретные format/size
 defaults по-прежнему не назначены.
