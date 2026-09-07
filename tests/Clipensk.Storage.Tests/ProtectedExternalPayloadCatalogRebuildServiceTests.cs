@@ -173,7 +173,6 @@ public sealed class ProtectedExternalPayloadCatalogRebuildServiceTests
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         byte[] bytes = [1, 2, 3, 4];
-        DateOnly day = new(2026, 9, 6);
         string sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var expected = new ExternalPayloadAddress(
             sha,
@@ -196,6 +195,7 @@ public sealed class ProtectedExternalPayloadCatalogRebuildServiceTests
         await storeTask;
         using ProtectedStorageMutationLease acquired =
             await competingLease.WaitAsync(TimeSpan.FromSeconds(2));
+        acquired.Dispose();
 
         var service = new ProtectedExternalPayloadCatalogRebuildService(
             environment.Session,
