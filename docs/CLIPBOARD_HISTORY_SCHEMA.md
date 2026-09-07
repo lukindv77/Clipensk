@@ -1,6 +1,6 @@
 # Clipboard history schema contract
 
-Этот документ фиксирует durable representation clipboard history, добавленное в Current schema v4 и сохраняемое без изменения в текущем production Current schema v6. Он описывает history storage/read contract; worker lifecycle, archive transfer и UI behavior имеют отдельные контракты.
+Этот документ фиксирует durable representation clipboard history, добавленное в Current schema v4 и сохраняемое без изменения в production Current v6 и Archive v1. Он описывает history storage/read contract; worker lifecycle, archive transfer и UI behavior имеют отдельные контракты.
 
 ## Event envelope
 
@@ -51,7 +51,7 @@ External row хранит SHA-256, relative path и size. Бинарные bytes
 
 Переданный resolver-у `eventCalendarDate` является candidate date только для впервые сохраняемого content object. Для уже известного content-address resolver обязан вернуть ранее persisted address/relative path и сохранить исходную first-stored date.
 
-`CatalogClipboardExternalPayloadAddressResolver` использует Catalog v2 `IExternalPayloadAddressIndex` как race-safe SHA→address reservation и затем `ExternalPayloadStore.EnsureStoredAtAddressAsync` для записи или восстановления exact persisted file. Повторный SHA всегда использует первый зарезервированный path.
+`CatalogClipboardExternalPayloadAddressResolver` использует существующий в Catalog v3 индекс `ExternalPayloadAddressIndex`, введённый в Catalog v2, как race-safe SHA→address reservation и затем `ExternalPayloadStore.EnsureStoredAtAddressAsync` для записи или восстановления exact persisted file. Повторный SHA всегда использует первый зарезервированный path.
 
 Для PNG physical extension фиксирован `.png`. Для нового custom binary extension обязан предоставить `IClipboardCustomBinaryFileExtensionProvider`; пустой результат запрещён и не получает скрытого `.bin` fallback. Если custom SHA уже присутствует в Catalog, старый persisted address используется без вызова extension provider.
 
@@ -90,9 +90,9 @@ Current evolution:
 - v5 — persisted global capture policy;
 - v6 — custom binary format configuration.
 
-History table contract введён в v4 и остаётся совместимым в Current v5/v6. DDL/validation реализован `ClipboardHistorySqlSchema`; production bootstrap/migration принадлежит `ProtectedStorageDatabaseService`. History sink требует Current schema v4 или новее и сам schema не создаёт.
+History table contract введён в v4 и остаётся совместимым в Current v5/v6 и Archive v1. DDL/validation реализован `ClipboardHistorySqlSchema`; production bootstrap/migration принадлежит `ProtectedStorageDatabaseService`. History sink требует Current schema v4 или новее и сам schema не создаёт.
 
-Текущая production pair: **Current v6 / Catalog v2**.
+Текущая production pair: **Current v6 / Catalog v3**, Archive schema остаётся **v1**.
 
 ## Current history read contract
 
@@ -113,26 +113,95 @@ History table contract введён в v4 и остаётся совместим
 - Caller cancellation и session cancellation объединяются; проверка выполняется до/после открытия, между строками и перед возвратом.
 - Repository не кэширует результаты и не продлевает session lifecycle.
 
-Это bounded Current read boundary. Archive reads, unified Current+Archive query, FTS и source filters остаются отдельными этапами. `limit` не ограничивает суммарный payload volume выбранных событий.
+`limit` не ограничивает суммарный payload volume выбранных событий.
 
-Microsoft.Data.Sqlite операции здесь синхронные; repository сам не запускает background worker и не обещает preemptive interruption внутри отдельного SQLite вызова. App-level clipboard worker — другой lifecycle boundary, описанный в `CLIPBOARD_WORKER_LIFECYCLE.md`.
+Microsoft.Data.Sqlite операции здесь синхронные; protected composition не выполняет такие reads на UI thread. Clipboard worker является отдельным lifecycle boundary.
 
-### Keyset continuation для Current
+### Keyset continuation
 
 После первой страницы вызывающая сторона создаёт `ClipboardHistoryCursor.FromEntry(period, lastEntry)` и вызывает `ReadBeforeAsync(period, limit, cursor, cancellationToken)`.
 
-- Курсор содержит только исходный period, UTC timestamp и непустой EventId; lease/connection/payload он не удерживает.
+- Курсор содержит только исходный period, UTC timestamp и непустой EventId; lease/connection/location/payload он не удерживает.
 - Не-UTC timestamp и смена периода отклоняются; при смене периода чтение начинается заново через `ReadAsync`.
 - Продолжение эксклюзивно: `EventUtc < cursor.UtcTimestamp` либо равное время и `EventId COLLATE BINARY < cursor.EventId`.
-- GUID сериализуется в lowercase D; нек canonical persisted spelling отклоняется, чтобы BINARY ordering не менялся при round-trip.
+- GUID сериализуется в lowercase D; non-canonical persisted spelling отклоняется, чтобы BINARY ordering не менялся при round-trip.
 - LIMIT применяется к событиям до JOIN; payload одного события не разрываются между страницами.
-- Каждая страница — отдельный snapshot. Удаление anchor event и вставка более нового события не сдвигают continuation; backdated insert ниже курсора может появиться на следующей странице.
-- Stable snapshot всей view session, archive transfer concurrency и полнота при mutation старых событий этим API не обещаются.
+- Каждая физическая страница — отдельный SQLite snapshot.
 
-## Protected composition и текущий App wiring
+Этот cursor теперь является логической позицией общего Current+Archive порядка и не содержит database-specific state.
 
-`ProtectedClipboardHistoryServices.Create` создаёт `HistoryRepository` вместе с index/resolver/sink для одной активной `ProtectedStorageSessionLease` и той же connection factory. Creation не открывает БД и не вызывает extension provider; caller обязан передать period/limit при фактическом чтении.
+## Unified Current + Archive read contract
 
-Для capture path App уже создаёт protected delivery после появления активной protected storage session и persisted global policy, использует storage-backed custom-binary extension provider и управляет `ClipboardAcceptedCaptureWorker` по lifecycle rules. Lock/dispose/reopen инвалидируют прежний protected graph; при отсутствии initial global policy worker не запускается.
+`IUnifiedClipboardHistoryRepository` и `ProtectedUnifiedClipboardHistoryRepository` предоставляют read-only logical history поверх Current и Archive v1 без изменения durable history schema.
 
-Это не означает готовность unified journal UI: Current+Archive query composition, archive storage и manual real-clipboard WinUI smoke остаются отдельными работами.
+Read planning:
+
+1. читается Catalog v3 `ArchiveSegmentIndex` через `ProtectedArchiveSegmentCatalog.ReadAsync`;
+2. набор canonical `Archive/archive_*.db` filenames сверяется с Catalog projection; missing/unindexed physical archive или stale filename set завершается fail-closed до открытия unindexed Archive DB;
+3. Current ReadOnly aggregate `MIN/MAX(CalendarDate)` формирует `CurrentStoreDescriptor`;
+4. `StorageQueryPlanner` выбирает Current и только те Archive segments, coverage которых пересекает requested period;
+5. не выбранные Archive databases не открываются для history read.
+
+Catalog остаётся accelerator, а не authoritative Archive identity. Каждый выбранный Archive перед и после чтения полностью валидируется ReadOnly через `ProtectedArchiveDatabaseService.ValidateAsync`; planned `DatabaseId`, canonical filename и coverage обязаны совпадать с Archive identity.
+
+### Physical read ordering and transfer safety
+
+Unified reader намеренно наблюдает Current **до** выбранных Archive.
+
+Current→Archive transfer имеет durable order `Archive COMMIT -> Archive verify -> Current purge`. Поэтому такой read order не создаёт логический пропуск при конкурентном transfer:
+
+- если Current ещё не purged, событие видно в Current;
+- если Current уже purged, Archive COMMIT уже состоялся и событие видно в Archive;
+- crash-window `Current=yes, Archive=yes` может вернуть два physical copies, которые затем объединяются в одну logical entry.
+
+Это не является глобальным SQLite snapshot всех DB. Каждый physical database read имеет собственный ReadOnly snapshot. Без глобального maintenance coordinator API не обещает point-in-time snapshot всей storage pair; correctness обеспечивается durable transfer order, exact duplicate verification и layout stability checks.
+
+### Logical merge and physical locations
+
+Глобальный порядок один для всех physical readers:
+
+```text
+EventUtc DESC, canonical EventId BINARY DESC
+```
+
+Каждый selected source применяет тот же `period`, `limit` и optional `ClipboardHistoryCursor`; затем страницы merge-ятся и global `limit` применяется к logical events.
+
+`UnifiedClipboardHistoryEntry` содержит:
+
+- одну detached `ClipboardHistoryEntry`;
+- один или несколько `ClipboardHistoryPhysicalLocation`.
+
+Location для Current не содержит archive identity. Archive location содержит exact `DatabaseId + FileName` выбранного segment.
+
+Одинаковый `EventId` из нескольких physical DB схлопывается только при exact logical equality:
+
+- EventId;
+- UTC timestamp;
+- persisted offset;
+- exact `WindowsTimeZoneId`;
+- durable SourceApplicationId;
+- runtime source snapshot;
+- количество и exact ordered payload records, включая inline/search/external reference metadata.
+
+Одинаковый UTC instant с другим persisted offset или zone ID **не** считается exact duplicate. Любое расхождение одного EventId между physical databases завершается `InvalidDataException`, а не выбирает одну копию silently.
+
+### Layout stability and cancellation
+
+После merge Catalog projection и physical archive filename set читаются повторно. Изменение `DatabaseId/filename/coverage/IsSealed`, добавление/удаление archive file либо другое расхождение layout во время запроса требует retry и не возвращает silently incomplete page.
+
+Caller cancellation и protected-session cancellation связаны. Revoked access не возвращает partial page. Repository creation не открывает ни Current, ни Catalog, ни Archive.
+
+## Protected composition and App wiring
+
+`ProtectedClipboardHistoryServices.Create` создаёт для одной active `ProtectedStorageSessionLease`:
+
+- external address index/resolver;
+- capture `HistorySink`;
+- существующий Current-only `HistoryRepository`;
+- новый `UnifiedHistoryRepository`.
+
+Creation инертно: не открывает БД, не вызывает custom extension provider и не запускает background work. Capture/write path не переключён на unified repository и его lifecycle semantics не изменены.
+
+App capture composition/worker уже привязаны к exact protected session и persisted global policy. Unified repository доступен read-side composition, но отдельное JournalWindow UI подключение unified pages в этом tranche не утверждается.
+
+Manual real-clipboard/WinUI smoke остаётся отдельным неполученным evidence. FTS/source filters и stable point-in-time snapshot всей multi-DB view остаются отдельными возможностями.
