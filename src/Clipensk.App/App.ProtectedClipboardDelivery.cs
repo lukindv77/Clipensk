@@ -71,13 +71,7 @@ public partial class App
         }
 
         if (generation != Volatile.Read(ref _clipboardCompositionGeneration) ||
-            !ReferenceEquals(_window, window) ||
-            !ReferenceEquals(_residentWindowsHost, host) ||
-            !ReferenceEquals(_lifecycle, lifecycle) ||
-            !lifecycle.CanAccessProtectedData ||
-            !session.IsActive ||
-            !window.TryGetActiveProtectedStorageSession(out ProtectedStorageSessionLease? currentSession) ||
-            !ReferenceEquals(currentSession, session))
+            !IsCurrentClipboardRuntimeSession(host, window, lifecycle, session))
         {
             return;
         }
@@ -96,7 +90,11 @@ public partial class App
             lifecycle,
             session,
             services);
-        TrySetClipboardMonitoring(host, start: true);
+        TryStartClipboardMonitoringForSession(
+            host,
+            window,
+            lifecycle,
+            session);
     }
 
     private void InvalidateClipboardDeliveryComposition()
