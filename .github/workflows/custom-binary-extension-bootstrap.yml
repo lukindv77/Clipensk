@@ -26,9 +26,26 @@ jobs:
         shell: pwsh
         run: |
           $patchPath = 'eng/custom-binary-extension-config.patch'
-          $patch = Get-Content -LiteralPath $patchPath -Raw
-          $patch = $patch.Replace('@@ -21,14 +21,19 @@ public static class ExternalPayloadAddressFactory', '@@ -21,14 +21,18 @@ public static class ExternalPayloadAddressFactory')
-          Set-Content -LiteralPath $patchPath -Value $patch -Encoding utf8NoBOM -NoNewline
+          $lines = @(Get-Content -LiteralPath $patchPath)
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^@@ -(?<oldStart>\d+)(?:,(?<oldCount>\d+))? \+(?<newStart>\d+)(?:,(?<newCount>\d+))? @@(?<suffix>.*)$') {
+              $oldStart = [int]$Matches.oldStart
+              $newStart = [int]$Matches.newStart
+              $suffix = $Matches.suffix
+              $oldCount = 0
+              $newCount = 0
+              $j = $i + 1
+              while ($j -lt $lines.Count -and
+                     -not $lines[$j].StartsWith('@@ ') -and
+                     -not $lines[$j].StartsWith('diff --git ')) {
+                if ($lines[$j].StartsWith(' ') -or $lines[$j].StartsWith('-')) { $oldCount++ }
+                if ($lines[$j].StartsWith(' ') -or $lines[$j].StartsWith('+')) { $newCount++ }
+                $j++
+              }
+              $lines[$i] = "@@ -$oldStart,$oldCount +$newStart,$newCount @@$suffix"
+            }
+          }
+          Set-Content -LiteralPath $patchPath -Value $lines -Encoding utf8NoBOM
           git apply --check $patchPath
           if ($LASTEXITCODE -ne 0) { throw 'git apply --check failed.' }
           git apply $patchPath
