@@ -12,8 +12,8 @@ custom-binary extension configuration; production App использует её 
 `RepositoryClipboardCustomBinaryFileExtensionProvider`.
 
 Composition строит **inert graph**. Само создание не читает clipboard payload, не потребляет
-capture queue, не вызывает `ProcessNextAsync` и не запускает worker. Запуск resident processing
-принадлежит отдельному App lifecycle, описанному в `CLIPBOARD_WORKER_LIFECYCLE.md`.
+capture queue и не вызывает `ProcessNextAsync`. Resident processing принадлежит App worker
+lifecycle, описанному в `CLIPBOARD_WORKER_LIFECYCLE.md`.
 
 ## Явные зависимости
 
@@ -45,13 +45,13 @@ MIME/registry associations или hidden `.bin` default.
 Ошибка policy/schema/storage не превращается в `null`, Allow или Deny. `null` означает только
 отсутствующую global policy.
 
-При создании открывается только Current ReadOnly для global policy. Catalog, external files,
+При composition открывается только Current ReadOnly для global policy. Catalog, external files,
 application-policy operations и custom-binary extension lookup остаются lazy до фактического
 `ProcessNextAsync`.
 
 ## App-level composition и запуск runtime
 
-После `ProtectedDataAccessChanged(true)` событие приходит до того, как `JournalWindow` успевает
+После `ProtectedDataAccessChanged(true)` событие может прийти до того, как `JournalWindow` успеет
 создать `ProtectedStorageSessionLease`. Поэтому App использует deferred-dispatcher шаг и после
 возврата unlock-handler повторно проверяет host/lifecycle и наличие active session.
 
@@ -64,21 +64,26 @@ boundary возвращает `null`; App оставляет monitoring выкл
 composition также не включает fallback capture path.
 
 Если services non-null, App создаёт exact-session worker generation. Новый worker сначала ждёт
-предыдущий worker task, затем повторно проходит generation/session checks и только после этого
+previous worker task, затем повторно проходит generation/session checks и только после этого
 становится единственным queue reader. Listener запускается через window dispatcher **после** этого
-ready-reader boundary. Поэтому request не может попасть в новую epoch, пока reader ещё заблокирован
-ожиданием старой session; source-application resolution не откладывается за этот handoff.
+ready-reader boundary.
 
-После первого успешного `GlobalCapturePolicy.InitializeAsync` JournalWindow отправляет внутреннее
-уведомление App **после COMMIT**. Ошибка подписчика не может превратить already committed policy в
-UI failure. App выполняет новый composition request, и non-null graph проходит тот же worker/readiness
-lifecycle.
+## Post-COMMIT initial setup handoff
 
-При lock App останавливает listener, инвалидирует worker generation и composition generation.
-Каждая worker generation имеет App-owned CTS, linked с session token; lock/close/replacement явно
-отменяют App CTS, а revoke/dispose session независимо отменяет linked session token. Новая session
-становится reader только после завершения task предыдущего worker, сохраняя single-reader contract
-`ClipboardCaptureQueue`.
+Product initial setup теперь сохраняет global policy и explicit custom-binary extension mappings
+через `SqliteInitialClipboardCaptureConfigurationService` в одной Current v6 transaction.
+
+После successful aggregate COMMIT JournalWindow отправляет внутреннее notification App. Callback
+не является частью durable transaction: его exception не может превратить committed policy/mappings
+в UI save failure и не откатывает storage.
+
+App после notification выполняет новый composition request для той же active session. Non-null graph
+проходит обычный worker/readiness lifecycle; если session уже revoked/replaced, generation/session
+guards отбрасывают stale result.
+
+Low-level `SqliteGlobalClipboardCapturePolicyRepository.InitializeAsync` и
+`SqliteCustomBinaryFormatConfigurationRepository.InitializeAsync` остаются first-write operations,
+но product initial UI не цепляет их последовательно, чтобы не создавать split durable state.
 
 ## Custom-binary extension semantics
 
@@ -92,24 +97,32 @@ lifecycle.
 6. first persisted Catalog address остаётся неизменным для duplicate SHA.
 
 Низкоуровневые `ExternalPayloadAddressFactory.ForCustomBinary` и
-`ExternalPayloadStore.StoreCustomBinaryAsync` требуют explicit extension параметр; optional `.bin`
+`ExternalPayloadStore.StoreCustomBinaryAsync` требуют explicit extension parameter; optional `.bin`
 fallback отсутствует структурно.
 
-Полный storage contract — `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
+Initial policy UI позволяет explicit custom rows, но не выполняет clipboard-format discovery и не
+добавляет неизвестные formats автоматически. Allowed custom row требует extension до aggregate
+COMMIT. Полный contract — `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
 
-## Отмена и владение
+## Worker cancellation и владение
 
 Creation token не является lifetime token возвращённого graph. После создания processing lifetime
 ограничен исходной `ProtectedStorageSessionLease` и App-owned worker generation cancellation.
 
 Lock/dispose/reopen не передаёт новый доступ старому graph: repositories, sink, provider и delivery
-остаются привязаны к старой session. Composition/worker generation guards дополнительно запрещают
-публикацию или запуск stale result.
+остаются привязаны к старой session. Composition/worker generation guards запрещают публикацию или
+запуск stale result.
+
+При lock App останавливает listener, инвалидирует worker generation и composition generation.
+Каждая worker generation имеет App-owned CTS, linked с session token; lock/close/replacement явно
+отменяют App CTS, а revoke/dispose session независимо отменяет linked session token. Новая session
+становится reader только после завершения previous worker task, сохраняя single-reader contract
+`ClipboardCaptureQueue`.
 
 Worker не меняет history COMMIT semantics: successful COMMIT не демотируется late cancellation.
 Non-cancellation failure одного production capture fail-closed для этого request и не прекращает
-последующие resident captures; protected wrapper до inner pipeline выполняет только cancellation
-gates, а production queue request dequeued до downstream source/policy/read/persist processing.
+последующие resident captures; production queue request dequeued до downstream
+source/policy/read/persist processing.
 
 ## Проверки и оставшийся evidence
 
@@ -118,9 +131,14 @@ individual overrides, cancellation/lock/dispose, malformed policy, mandatory ext
 operation-token lifetime и committed accepted-text path. Current v6 tests отдельно покрывают
 extension repository/provider и migration.
 
-Core worker tests покрывают blocked cancellation, продолжение после item failure и serial
-`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle wiring.
+Aggregate initial-configuration tests покрывают единый policy+mapping COMMIT, rollback при custom
+insert failure, rejection partial existing setup и pre-open validation prohibited/not-allowed custom
+mappings.
 
-После успешного CI этот tranche делает автоматический capture runtime архитектурно связанным end-to-end.
+Core worker tests покрывают blocked cancellation, продолжение после item failure и serial
+`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle и dynamic initial-policy UI wiring.
+
+После successful CI automatic capture runtime остаётся архитектурно связанным end-to-end.
 Однако **manual WinUI/real-clipboard smoke остаётся UNVERIFIED**: unit/CI tests не эмулируют настоящий
-foreground source application, Windows `WM_CLIPBOARDUPDATE` и WinRT `DataPackageView`.
+foreground source application, Windows `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView` и пользовательскую
+работу custom-format editor.
