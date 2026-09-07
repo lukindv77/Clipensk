@@ -68,6 +68,7 @@ public partial class App : Application
             _credentialService,
             _databaseService,
             credentialState);
+        _window.GlobalCapturePolicyInitialized += OnGlobalCapturePolicyInitialized;
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;
 
@@ -103,6 +104,7 @@ public partial class App : Application
 
         if (!canAccessProtectedData)
         {
+            InvalidateClipboardDeliveryComposition();
             TrySetClipboardMonitoring(host, start: false);
             return;
         }
@@ -115,8 +117,8 @@ public partial class App : Application
         }
 
         // CompleteUnlock raises ProtectedDataAccessChanged before JournalWindow finishes
-        // establishing ProtectedStorageSessionLease. Defer listener startup until the
-        // current unlock handler returns, then re-check lifecycle, host, and session readiness.
+        // establishing ProtectedStorageSessionLease. Defer listener startup and composition
+        // until the current unlock handler returns, then re-check lifecycle, host, and session readiness.
         window.DispatcherQueue.TryEnqueue(() =>
         {
             if (!ReferenceEquals(_residentWindowsHost, host) ||
@@ -128,6 +130,7 @@ public partial class App : Application
             }
 
             TrySetClipboardMonitoring(host, start: true);
+            RequestClipboardDeliveryComposition(window, host);
         });
     }
 
@@ -156,6 +159,13 @@ public partial class App : Application
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
+        InvalidateClipboardDeliveryComposition();
+
+        if (_window is not null)
+        {
+            _window.GlobalCapturePolicyInitialized -= OnGlobalCapturePolicyInitialized;
+        }
+
         if (_hotKeyService is not null)
         {
             _hotKeyService.Pressed -= OnJournalHotKeyPressed;
@@ -173,5 +183,6 @@ public partial class App : Application
         _credentialService = null;
         _lifecycle = null;
         _journalInvocationApplication = null;
+        _window = null;
     }
 }
