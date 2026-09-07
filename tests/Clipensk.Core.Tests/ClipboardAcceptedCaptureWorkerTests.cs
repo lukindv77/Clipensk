@@ -8,10 +8,11 @@ public sealed class ClipboardAcceptedCaptureWorkerTests
     [Fact]
     public async Task RunAsync_CancellationStopsBlockedDelivery()
     {
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var delivery = new DelegateDelivery(async cancellationToken =>
         {
-            entered.TrySetResult();
+            entered.TrySetResult(true);
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return true;
         });
@@ -30,6 +31,7 @@ public sealed class ClipboardAcceptedCaptureWorkerTests
     public async Task RunAsync_FailedCaptureDoesNotStopLaterCapture()
     {
         using var cancellation = new CancellationTokenSource();
+        int deliveryCallCount = 0;
         var delivery = new DelegateDelivery(cancellationToken =>
         {
             if (deliveryCallCount == 0)
@@ -47,8 +49,6 @@ public sealed class ClipboardAcceptedCaptureWorkerTests
         await worker.RunAsync(cancellation.Token).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(2, deliveryCallCount);
-
-        int deliveryCallCount = 0;
     }
 
     [Fact]
