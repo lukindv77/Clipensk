@@ -25,7 +25,10 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
         $lines[$i] = "@@ -$oldStart,$oldCount +$newStart,$newCount @@$suffix"
     }
 }
-Set-Content -LiteralPath $patchPath -Value $lines -Encoding utf8NoBOM
+[System.IO.File]::WriteAllText(
+    $patchPath,
+    (($lines -join "`n") + "`n"),
+    [System.Text.UTF8Encoding]::new($false))
 
 $excludeArgs = @($excluded | ForEach-Object { "--exclude=$_" })
 & git apply --check @excludeArgs $patchPath
@@ -40,15 +43,20 @@ function Replace-Required {
         [Parameter(Mandatory)][string]$New
     )
 
-    $text = Get-Content -LiteralPath $Path -Raw
-    if (-not $text.Contains($Old)) {
+    $text = (Get-Content -LiteralPath $Path -Raw).Replace("`r`n", "`n")
+    $oldNormalized = $Old.Replace("`r`n", "`n")
+    $newNormalized = $New.Replace("`r`n", "`n")
+    if (-not $text.Contains($oldNormalized)) {
         throw "Required context not found in $Path"
     }
-    $updated = $text.Replace($Old, $New)
+    $updated = $text.Replace($oldNormalized, $newNormalized)
     if ($updated -eq $text) {
         throw "Required replacement made no change in $Path"
     }
-    Set-Content -LiteralPath $Path -Value $updated -Encoding utf8NoBOM -NoNewline
+    [System.IO.File]::WriteAllText(
+        $Path,
+        $updated,
+        [System.Text.UTF8Encoding]::new($false))
 }
 
 $database = 'src/Clipensk.Storage/Databases/ProtectedStorageDatabaseService.cs'
