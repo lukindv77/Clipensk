@@ -32,7 +32,7 @@ public sealed class ProtectedArchiveDatabaseServiceTests
         Assert.Equal(coverage.EndDate, identity.CoverageEndDate);
         Assert.True(File.Exists(ArchivePath(environment, fileName)));
         Assert.Equal(
-            [SqliteOpenMode.ReadWriteCreate, SqliteOpenMode.ReadOnly],
+            new[] { SqliteOpenMode.ReadWriteCreate, SqliteOpenMode.ReadOnly },
             environment.Factory.Modes);
 
         using SqliteConnection connection = environment.Factory.Open(
@@ -77,7 +77,7 @@ public sealed class ProtectedArchiveDatabaseServiceTests
         DatabaseIdentity validated = await service.ValidateAsync(fileName);
 
         Assert.Equal(created, validated);
-        Assert.Equal([SqliteOpenMode.ReadOnly], environment.Factory.Modes);
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
     }
 
     [Fact]
@@ -91,6 +91,51 @@ public sealed class ProtectedArchiveDatabaseServiceTests
         File.Copy(ArchivePath(environment, original), ArchivePath(environment, renamed));
 
         await Assert.ThrowsAsync<InvalidDataException>(() => service.ValidateAsync(renamed));
+    }
+
+    [Fact]
+    public async Task ValidateAsync_RejectsStorageIdentityMismatch()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var service = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        var fileName = new ArchiveFileName(2, ArchiveFileName.NoSplit);
+        await service.CreateAsync(fileName, Range(2026, 8, 1, 2026, 8, 31));
+        ExecuteArchive(
+            environment,
+            fileName,
+            $"UPDATE DatabaseIdentity SET StorageId = '{Guid.NewGuid():D}';");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.ValidateAsync(fileName));
+    }
+
+    [Fact]
+    public async Task ValidateAsync_RejectsDatabaseIdentityShapeCorruption()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var service = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        var fileName = new ArchiveFileName(6, ArchiveFileName.NoSplit);
+        await service.CreateAsync(fileName, Range(2026, 8, 1, 2026, 8, 31));
+
+        ExecuteArchive(environment, fileName, """
+            ALTER TABLE DatabaseIdentity RENAME TO DatabaseIdentityOld;
+            CREATE TABLE DatabaseIdentity (
+                SingletonId INTEGER NOT NULL PRIMARY KEY,
+                StorageId TEXT NOT NULL,
+                DatabaseId TEXT NOT NULL,
+                DatabaseRole TEXT NOT NULL,
+                SchemaVersion INTEGER NOT NULL,
+                EncryptionVersion INTEGER NOT NULL,
+                CreatedAtUtc TEXT NOT NULL,
+                ArchiveBaseNumber TEXT NULL,
+                ArchiveSplitSequence INTEGER NULL,
+                CoverageStartDate TEXT NULL,
+                CoverageEndDate TEXT NULL
+            );
+            INSERT INTO DatabaseIdentity SELECT * FROM DatabaseIdentityOld;
+            DROP TABLE DatabaseIdentityOld;
+            """);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.ValidateAsync(fileName));
     }
 
     [Fact]
@@ -237,11 +282,9 @@ public sealed class ProtectedArchiveDatabaseServiceTests
     }
 
     [Fact]
-    public void CreateAsync_RejectsNonCanonicalArchiveFileNameValueBeforeSchedulingWork()
+    public async Task CreateAsync_RejectsNonCanonicalArchiveFileNameValueBeforeSchedulingWork()
     {
-        using GlobalPolicyTestEnvironment environment = GlobalPolicyTestEnvironment.CreateAsync()
-            .GetAwaiter()
-            .GetResult();
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         var service = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
