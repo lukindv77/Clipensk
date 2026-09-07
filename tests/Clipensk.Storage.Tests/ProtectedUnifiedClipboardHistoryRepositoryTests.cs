@@ -62,7 +62,8 @@ public sealed class ProtectedUnifiedClipboardHistoryRepositoryTests
             entry.Locations,
             item => item.Kind == ClipboardHistoryPhysicalLocationKind.Current);
         ClipboardHistoryPhysicalLocation archiveLocation = Assert.Single(
-            entry.Locations.Where(item => item.Kind == ClipboardHistoryPhysicalLocationKind.Archive));
+            entry.Locations,
+            item => item.Kind == ClipboardHistoryPhysicalLocationKind.Archive);
         Assert.Equal(archiveIdentity.DatabaseId, archiveLocation.DatabaseId);
         Assert.Equal(archiveFileName.FileName, archiveLocation.FileName);
     }
@@ -228,6 +229,33 @@ public sealed class ProtectedUnifiedClipboardHistoryRepositoryTests
     }
 
     [Fact]
+    public async Task ReadAsync_SameUtcInstantWithDifferentPersistedOffsetFailsClosed()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        DateOnly day = ClosedDay(9);
+        var range = new JournalDateRange(day, day);
+        var archiveFileName = new ArchiveFileName(107, ArchiveFileName.NoSplit);
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        await archiveService.CreateAsync(archiveFileName, range);
+        Guid eventId = Guid.NewGuid();
+        SeedCurrentEvent(environment, day, eventId, "offset");
+        await CopyToArchiveWithoutPurgingCurrentAsync(environment, archiveFileName, range);
+        ArchiveExecute(environment, archiveFileName, $"""
+            UPDATE ClipboardHistoryEvent
+            SET LocalOffsetMinutes = 60
+            WHERE EventId = '{eventId:D}';
+            """);
+        var catalog = new ProtectedArchiveSegmentCatalog(environment.Session, environment.Factory);
+        await catalog.RebuildAsync(DateOnly.FromDateTime(DateTime.Now));
+
+        var repository = new ProtectedUnifiedClipboardHistoryRepository(
+            environment.Session,
+            environment.Factory);
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await repository.ReadAsync(range, 10));
+    }
+
+    [Fact]
     public async Task ReadAsync_CallerCancellationBeforeWorkReturnsNoPartialPage()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
@@ -295,6 +323,9 @@ public sealed class ProtectedUnifiedClipboardHistoryRepositoryTests
         string text)
     {
         long byteCount = System.Text.Encoding.UTF8.GetByteCount(text);
+        DateTime eventUtc = DateTime.SpecifyKind(
+            day.ToDateTime(new TimeOnly(12, 0)),
+            DateTimeKind.Utc);
         using SqliteConnection connection = environment.Factory.Open(
             environment.CurrentPath,
             environment.Key,
@@ -314,7 +345,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepositoryTests
             insertEvent.Parameters.AddWithValue("$eventId", eventId.ToString("D"));
             insertEvent.Parameters.AddWithValue(
                 "$eventUtc",
-                $"{day:yyyy-MM-dd}T12:00:00.0000000+00:00");
+                eventUtc.ToString("O", CultureInfo.InvariantCulture));
             insertEvent.Parameters.AddWithValue(
                 "$calendarDate",
                 day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
