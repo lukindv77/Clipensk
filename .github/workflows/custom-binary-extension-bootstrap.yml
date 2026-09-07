@@ -26,6 +26,10 @@ jobs:
         shell: pwsh
         run: |
           $patchPath = 'eng/custom-binary-extension-config.patch'
+          $excluded = @(
+            'src/Clipensk.Storage/Databases/ProtectedStorageDatabaseService.cs',
+            'tests/Clipensk.Storage.Tests/GlobalPolicyTestEnvironment.cs'
+          )
           $lines = @(Get-Content -LiteralPath $patchPath)
           for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -match '^@@ -(?<oldStart>\d+)(?:,(?<oldCount>\d+))? \+(?<newStart>\d+)(?:,(?<newCount>\d+))? @@(?<suffix>.*)$') {
@@ -46,10 +50,196 @@ jobs:
             }
           }
           Set-Content -LiteralPath $patchPath -Value $lines -Encoding utf8NoBOM
-          git apply --check $patchPath
+          $excludeArgs = @($excluded | ForEach-Object { "--exclude=$_" })
+          & git apply --check @excludeArgs $patchPath
           if ($LASTEXITCODE -ne 0) { throw 'git apply --check failed.' }
-          git apply $patchPath
+          & git apply @excludeArgs $patchPath
           if ($LASTEXITCODE -ne 0) { throw 'git apply failed.' }
+
+          function Replace-Required([string]$Path, [string]$Old, [string]$New) {
+            $text = Get-Content -LiteralPath $Path -Raw
+            if (-not $text.Contains($Old)) { throw "Required context not found in $Path" }
+            $updated = $text.Replace($Old, $New)
+            if ($updated -eq $text) { throw "Required replacement made no change in $Path" }
+            Set-Content -LiteralPath $Path -Value $updated -Encoding utf8NoBOM -NoNewline
+          }
+
+          $database = 'src/Clipensk.Storage/Databases/ProtectedStorageDatabaseService.cs'
+          Replace-Required $database @'
+    private const int HistoryCurrentSchemaVersion = 4;
+    private const int LegacyCatalogSchemaVersion = 1;
+
+    public const int CurrentSchemaVersion = 5;
+'@ @'
+    private const int HistoryCurrentSchemaVersion = 4;
+    private const int GlobalCapturePolicyCurrentSchemaVersion = 5;
+    private const int LegacyCatalogSchemaVersion = 1;
+
+    public const int CurrentSchemaVersion = 6;
+'@
+          Replace-Required $database @'
+                    ApplicationPolicyCurrentSchemaVersion,
+                    HistoryCurrentSchemaVersion,
+                    CurrentSchemaVersion);
+'@ @'
+                    ApplicationPolicyCurrentSchemaVersion,
+                    HistoryCurrentSchemaVersion,
+                    GlobalCapturePolicyCurrentSchemaVersion,
+                    CurrentSchemaVersion);
+'@
+          Replace-Required $database @'
+                if (currentSchemaVersion == HistoryCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV4ToV5(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                }
+
+                if (catalogSchemaVersion == LegacyCatalogSchemaVersion)
+'@ @'
+                if (currentSchemaVersion == HistoryCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV4ToV5(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = GlobalCapturePolicyCurrentSchemaVersion;
+                }
+
+                if (currentSchemaVersion == GlobalCapturePolicyCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV5ToV6(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = CurrentSchemaVersion;
+                }
+
+                if (catalogSchemaVersion == LegacyCatalogSchemaVersion)
+'@
+          Replace-Required $database @'
+            ClipboardHistorySqlSchema.CreateTables(connection, transaction);
+            GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
+'@ @'
+            ClipboardHistorySqlSchema.CreateTables(connection, transaction);
+            GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
+            CustomBinaryFormatConfigurationSqlSchema.CreateTable(connection, transaction);
+'@
+          Replace-Required $database @'
+        GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
+        UpdateCurrentSchemaVersion(
+            connection, transaction, expectedStorageId,
+            HistoryCurrentSchemaVersion, CurrentSchemaVersion);
+        SetUserVersion(connection, transaction, CurrentSchemaVersion);
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private void MigrateCatalogFromV1ToV2(
+'@ @'
+        GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
+        UpdateCurrentSchemaVersion(
+            connection, transaction, expectedStorageId,
+            HistoryCurrentSchemaVersion, GlobalCapturePolicyCurrentSchemaVersion);
+        SetUserVersion(connection, transaction, GlobalCapturePolicyCurrentSchemaVersion);
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private void MigrateCurrentFromV5ToV6(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath, masterKey, SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ApplicationIdentitySqlSchema.ValidateTables(connection);
+        ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+        ClipboardHistorySqlSchema.ValidateTables(connection);
+        GlobalCapturePolicySqlSchema.ValidateTables(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        CustomBinaryFormatConfigurationSqlSchema.CreateTable(connection, transaction);
+        UpdateCurrentSchemaVersion(
+            connection, transaction, expectedStorageId,
+            GlobalCapturePolicyCurrentSchemaVersion, CurrentSchemaVersion);
+        SetUserVersion(connection, transaction, CurrentSchemaVersion);
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private void MigrateCatalogFromV1ToV2(
+'@
+          Replace-Required $database @'
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= CurrentSchemaVersion)
+        {
+            GlobalCapturePolicySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.StorageCatalog &&
+'@ @'
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= GlobalCapturePolicyCurrentSchemaVersion)
+        {
+            GlobalCapturePolicySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= CurrentSchemaVersion)
+        {
+            CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
+        }
+
+        if (expectedRole == DatabaseRole.StorageCatalog &&
+'@
+
+          $environment = 'tests/Clipensk.Storage.Tests/GlobalPolicyTestEnvironment.cs'
+          Replace-Required $environment @'
+    public SqliteGlobalClipboardCapturePolicyRepository Repository => new(Session, Factory);
+
+    public static async Task<GlobalPolicyTestEnvironment> CreateAsync()
+'@ @'
+    public SqliteGlobalClipboardCapturePolicyRepository Repository => new(Session, Factory);
+    public SqliteCustomBinaryFormatConfigurationRepository CustomBinaryConfigurations =>
+        new(Session, Factory);
+
+    public static async Task<GlobalPolicyTestEnvironment> CreateAsync()
+'@
+          Replace-Required $environment @'
+    public void DowngradeToV4() => Execute("""
+        DROP TABLE GlobalFormatCapturePolicy;
+        DROP TABLE GlobalCapturePolicy;
+        UPDATE DatabaseIdentity SET SchemaVersion = 4;
+        PRAGMA user_version = 4;
+        """);
+
+    public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>
+'@ @'
+    public void DowngradeToV4() => Execute("""
+        DROP TABLE CustomBinaryFormatConfiguration;
+        DROP TABLE GlobalFormatCapturePolicy;
+        DROP TABLE GlobalCapturePolicy;
+        UPDATE DatabaseIdentity SET SchemaVersion = 4;
+        PRAGMA user_version = 4;
+        """);
+
+    public void DowngradeToV5() => Execute("""
+        DROP TABLE CustomBinaryFormatConfiguration;
+        UPDATE DatabaseIdentity SET SchemaVersion = 5;
+        PRAGMA user_version = 5;
+        """);
+
+    public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>
+'@
+
           git diff --check
           if ($LASTEXITCODE -ne 0) { throw 'git diff --check failed.' }
 
