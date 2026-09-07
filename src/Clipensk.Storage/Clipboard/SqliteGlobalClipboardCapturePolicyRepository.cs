@@ -85,6 +85,39 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepository : IGlobalClipbo
         return ValueTask.CompletedTask;
     }
 
+    public ValueTask<bool> CleanupAsync(CancellationToken cancellationToken = default)
+    {
+        using CancellationTokenSource linked = CreateLinkedCancellation(cancellationToken);
+        CancellationToken token = linked.Token;
+        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
+        // Immediate transaction linearizes cleanup against first-time initialization and validates
+        // the complete persisted policy before deleting any row.
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
+        ClipboardCapturePolicy? existing = ReadPolicy(connection, transaction, token);
+        if (existing is null)
+        {
+            token.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return ValueTask.FromResult(false);
+        }
+
+        using (SqliteCommand command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "DELETE FROM GlobalCapturePolicy WHERE SingletonId = 1;";
+            if (command.ExecuteNonQuery() != 1)
+            {
+                throw new InvalidDataException("Global capture policy cleanup did not remove the expected singleton row.");
+            }
+        }
+
+        token.ThrowIfCancellationRequested();
+        transaction.Commit();
+        // GlobalFormatCapturePolicy rows are removed by the validated ON DELETE CASCADE foreign key.
+        // Do not demote a committed cleanup when cancellation arrives after COMMIT.
+        return ValueTask.FromResult(true);
+    }
+
     private CancellationTokenSource CreateLinkedCancellation(CancellationToken callerToken) =>
         CancellationTokenSource.CreateLinkedTokenSource(_session.CancellationToken, callerToken);
 
