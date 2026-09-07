@@ -6,208 +6,199 @@ Checkpoint prepared: 2026-09-07.
 
 ## A. Project identity
 
-Clipensk — Open Source резидентный Windows clipboard-history manager.
+Clipensk — Open Source resident Windows clipboard-history manager.
 
 - repository: `lukindv77/Clipensk`;
 - canonical branch: `main`;
 - platform: Windows x64/AMD64 only; ARM64 не поддерживается;
 - stack: C# / .NET 10 / WinUI 3 / Windows App SDK;
 - protected storage: SQLCipher, один MasterKey на storage;
-- production schemas: Current v6 / Catalog v2 / Archive v1.
+- target production schemas after active feature: **Current v6 / Catalog v3 / Archive v1**.
 
 Ключевые документы: `AGENTS.md`, `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/CURRENT_DATABASE_SCHEMA.md`, `docs/CLIPBOARD_HISTORY_SCHEMA.md`, `docs/STORAGE_CATALOG_SCHEMA.md`, `docs/ARCHIVE_DATABASE_SCHEMA.md`, `docs/GLOBAL_CAPTURE_POLICY.md`, `docs/CUSTOM_BINARY_FORMAT_CONFIGURATION.md`, `docs/PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `docs/CLIPBOARD_WORKER_LIFECYCLE.md`, `docs/OPEN_QUESTIONS.md`.
 
-## B. User intent and workflow
+## B. Workflow rules
 
-Пользователь просит продолжать разработку без повторения уже завершённых этапов.
+- GitHub `main` + exact Actions evidence — source of truth.
+- Code changes идут через feature branch.
+- Перед `main` update: fresh main + feature, compare, `behind=0`, merge-base=current main; только fast-forward `force:false`.
+- PASS только после exact-SHA official GitHub Actions evidence на `main`.
+- Failure-driven fixes only.
+- x64 only.
+- Whole storage pair validation before migration mutation.
+- Cancellation before COMMIT; committed success не превращать в late cancellation failure.
+- Policy mutation нельзя делать без cleanup semantics.
+- Manual WinUI/real clipboard smoke остаётся UNVERIFIED без evidence.
 
-Обязательные правила:
+## C. Canonical main before Catalog v3 promotion
 
-- GitHub `main` + exact Actions evidence — source of truth;
-- feature branches для code changes;
-- перед `main` update: fresh main, compare, `behind=0`, merge-base=current main, затем только fast-forward `force:false`;
-- PASS только после exact-SHA GitHub Actions evidence;
-- failure-driven fixes only;
-- x64 only;
-- не ослаблять fail-closed/cancellation/transaction invariants;
-- policy mutation нельзя реализовывать без cleanup semantics;
-- manual WinUI/real-clipboard smoke не считать выполненным без evidence.
+Fresh main at the start of the active Catalog v3 tranche:
 
-## C. Last verified canonical main before active feature
+`02f3807e97169173f124360475258397118bc6da`
 
-Fresh canonical main at start of the active transfer tranche:
+Это main уже содержит Archive v1 + resumable Current→Archive transfer и восстановленный canonical main-only Build trigger.
 
-`7ba70876ef854b99c2b6365b1c0dececaa35e38f`
+Exact Actions on this SHA:
 
-Этот main уже содержит Archive v1 foundation и docs sync.
-
-Exact Actions on that SHA:
-
-- Build #162 — SUCCESS;
-- Native SQLCipher #41 — SUCCESS.
-
-Open PRs and open issues were both 0 when checked.
-
-Before that, custom-binary initial setup functional baseline `797d736bf1ae22d329f46a4b293a6aa76b00f3ed` also had exact Build #158 + Native SQLCipher #40 SUCCESS.
+- Build #170 / run `34126866491` — SUCCESS;
+- Native SQLCipher #42 / run `34126866567` — SUCCESS.
 
 ## D. Active feature
 
 Branch:
 
-`feat/current-to-archive-transfer`
+`feat/catalog-v3-archive-segments`
 
 Base:
 
-`7ba70876ef854b99c2b6365b1c0dececaa35e38f`
+`02f3807e97169173f124360475258397118bc6da`
 
-Current owner: resumable Current→Archive transfer.
+Runtime/test implementation commit:
 
-A temporary Build workflow trigger for this exact feature branch exists only to obtain Windows CI evidence and MUST be restored to canonical `branches: [ main ]` before final compare/main promotion.
+`d30460a1824437b27fb77aea2131b5b4a86f4972`
 
-Latest runtime/test SHA with green feature evidence before this docs checkpoint:
+Message: `feat: index archive segments in catalog v3`.
 
-`82e46ccf75881278fed17333924d9a54a301d73f`
+Feature CI evidence before cleanup/docs:
 
-Build #167 / run `34123652746` — SUCCESS:
-- Verify x64-only implementation scope — SUCCESS;
+Catalog v3 Feature #3 / run `34131323668` — SUCCESS:
+
+- bootstrap implementation apply — SUCCESS;
+- stale Catalog expectation compatibility fix — SUCCESS;
+- x64-only scope — SUCCESS;
 - Restore — SUCCESS;
-- Build — SUCCESS;
-- Test — SUCCESS.
+- Release Build — SUCCESS;
+- Test — SUCCESS;
+- validated `src/tests` commit — SUCCESS.
 
-A prior Build #166 failed only on CS0136 in the new test helper due to duplicate pattern-variable name; runtime projects compiled. The minimal variable rename fixed it. Do not treat #166 as a runtime regression.
+The first feature run compiled successfully and failed only because two pre-existing tests still hardcoded latest Catalog version `2`; 372/374 tests passed. Updating those stale expectations to the production `CatalogSchemaVersion` made the full run green. Do not classify that first failure as a runtime regression.
 
-This handoff/docs commit is after the green runtime SHA, so final docs-inclusive feature SHA needs its own fresh feature Build before promotion.
+After `d30460a…`, temporary feature workflow/bootstrap scripts were removed and schema/handoff docs synchronized. Those cleanup/docs commits do not change validated `src/tests`, but they do move the feature head; final docs-inclusive evidence must therefore come from official workflows on the promoted exact main SHA.
 
 ## E. Completed product foundations
 
-Already completed and not to be repeated:
+Already completed; do not repeat:
 
-- clipboard signal/enqueue resident capture pipeline;
-- standard WinRT readers and exact MaxBytes semantics;
+- resident clipboard signal/enqueue pipeline;
+- WinRT readers and exact MaxBytes semantics;
 - prohibited Wave/Riff/virtual-file-content guards;
-- Clipensk-owned durable ApplicationId with conflict fail-closed;
+- durable Clipensk-owned ApplicationId;
 - Current history write/read/keyset continuation;
 - Catalog v2 external content-address index;
-- Current v6 global capture policy;
-- storage-scoped custom binary FormatName→FileExtension configuration/provider;
-- atomic initial global policy + custom extension setup;
-- WinUI initial custom-binary policy setup;
-- protected delivery composition;
-- app clipboard worker lifecycle tied to active protected session;
-- Archive v1 create/validate foundation.
+- Current v6 global policy + custom-binary extension configuration;
+- atomic initial policy/config setup and WinUI setup surface;
+- protected delivery composition and app worker lifecycle;
+- Archive v1 create/validate;
+- resumable Current→Archive whole-calendar-day transfer.
 
-Manual WinUI/real clipboard smoke remains UNVERIFIED.
+## F. Catalog v3 implementation
 
-## F. Archive v1 foundation
+`ProtectedStorageDatabaseService.CatalogSchemaVersion = 3`.
 
-`ProtectedArchiveDatabaseService` already exists on canonical main.
+New storage pair creates:
 
-Archive v1:
-- canonical `archive_######.db` / `archive_###### _####.db` family naming (actual filenames have no spaces);
-- exact filename ↔ identity base/split validation;
-- DatabaseRole.Archive;
-- mandatory inclusive coverage dates;
-- SQLCipher / active protected session;
-- self-contained ApplicationIdentity + ClipboardHistory schema;
-- ReadOnly validation with quick_check, schema shape, FK check, coverage checks;
-- staging create + cancellation before final atomic move;
-- no late cancellation demotion after successful final move.
+- Current v6;
+- Catalog v3 with existing `ExternalPayloadAddressIndex` plus new `ArchiveSegmentIndex`.
 
-Normal Archive access remains ReadOnly; writes are explicit maintenance boundaries only.
+Migration is resumable and independent:
 
-## G. Current→Archive transfer implemented on active feature
+- Catalog v1 → v2 creates external-payload index;
+- Catalog v2 → v3 validates the v2 contract, then creates archive-segment table/indexes and advances schema/user version in its own transaction;
+- v1 does not skip directly to v3;
+- whole Current/Catalog pair validation still precedes mutation.
 
-`ProtectedCurrentToArchiveTransferService.TransferAsync` implements an explicit maintenance transfer without changing Archive schema version.
+`ArchiveSegmentIndex` projection stores:
 
-Preflight:
-- canonical target ArchiveFileName;
-- only completed calendar days; today/future rejected;
-- all canonical `Archive/archive_*.db` are ReadOnly validated;
-- `StorageQueryPlanner.ValidateArchiveCoverage` rejects any cross-archive coverage overlap before mutation;
-- target must exist;
-- transfer range must be fully inside target assigned coverage.
+- Archive `DatabaseId`;
+- canonical `FileName`;
+- assigned inclusive coverage;
+- derived `IsSealed`.
 
-Durable ordering:
+Catalog remains rebuildable and is not authoritative for Archive identity/coverage.
 
-1. Current v6 is opened ReadOnly, validated and exact selected-range event/payload/application rows are materialized.
-2. Referenced ApplicationIdentity rows plus exact history rows are written to Archive in one transaction.
-3. Existing Archive EventId is reusable only when envelope + ordered payload rows exact-match; conflicts fail closed.
-4. Cancellation before Archive COMMIT.
-5. After Archive COMMIT, target is fully revalidated ReadOnly.
-6. Current opens ReadWrite only for purge.
-7. Inside Current purge transaction the same range is reread and exact-compared with the copied batch.
-8. If Current changed, purge rolls back and retry is required.
-9. Only exact verified events are deleted; payloads cascade.
-10. Cancellation immediately before Current COMMIT.
-11. No cancellation demotion after successful Current COMMIT.
+## G. Archive inventory/rebuild boundary
 
-Resumability is idempotent durable replay, not a new operation-log schema. Crash/cancel after Archive COMMIT but before Current purge leaves the safe temporary duplicate state. Retry exact-compares already copied rows and continues verify→purge.
+`ProtectedArchiveSegmentCatalog` is active-session bound and exposes `ReadAsync` / `RebuildAsync`.
 
-External payload bytes are not copied or moved; existing SHA/RelativePath/Size references are preserved.
+Rebuild preflight before Catalog mutation:
 
-Only referenced ApplicationIdentity rows are copied; mutable ApplicationIdentityAlias rows and policy overlays are not automatically copied.
+1. enumerate top-level `Archive/archive_*.db`;
+2. require canonical exact filenames;
+3. fully validate each Archive v1 ReadOnly;
+4. reject duplicate DatabaseId;
+5. require assigned coverage;
+6. reject any cross-archive coverage overlap.
 
-## H. Transfer regression coverage
+Only after successful discovery/preflight does it read Current and replace Catalog projection in one Catalog transaction.
 
-New tests cover:
+Derived sealing rule:
 
-- normal copy → verify → purge for a closed day;
-- text + external PNG metadata preservation;
-- referenced ApplicationIdentity copy without aliases;
-- cancellation after Archive COMMIT leaves Current intact and retry succeeds;
-- concurrent Current change before purge prevents deletion; retry copies full changed range and succeeds;
-- conflicting pre-existing Archive event fails without Current purge;
-- today/future date rejection before storage open;
-- transfer range outside target coverage rejection;
-- overlapping archive coverage rejection before mutation.
+```text
+IsSealed = Coverage.EndDate < currentCalendarDate
+           AND Current contains no ClipboardHistoryEvent inside coverage
+```
 
-## I. Important invariants
+This deliberately keeps the normal transfer crash window unsealed: after Archive COMMIT but before Current purge, Current still has rows. After purge a later rebuild may derive sealed=true.
+
+`IsSealed` is not stored in Archive v1 and is not an authoritative mutable sealing bit.
+
+Read boundary validates Catalog identity/schema/user version, v2 external index, v3 archive table/index shape and row values; malformed rows or overlap fail closed.
+
+## H. Regression coverage added
+
+Tests cover at least:
+
+- new storage creates latest Catalog v3;
+- Catalog v2→v3 migration preserves external payload index rows;
+- Catalog v1 resumes through v2→v3;
+- malformed v2 prevents mutation;
+- archive rebuild discovers validated segments;
+- sealing true only for past coverage with no Current rows;
+- pending Current rows keep segment unsealed;
+- overlapping archive coverage fails before Catalog replacement;
+- cancellation prevents replacement/commit;
+- Catalog read materializes persisted projection.
+
+## I. Invariants to preserve
 
 - `WM_CLIPBOARDUPDATE` remains signal/enqueue only.
-- Capture only under active unlocked protected access.
+- Capture requires active unlocked protected access.
 - Password never persisted.
 - Current/Catalog/Archive share one MasterKey.
-- one clipboard snapshot through capture readers.
-- no silent identity merge.
-- no invented custom extension/format/size defaults.
+- no silent identity merge or invented custom extension/size defaults.
 - external payload addresses resolved before history transaction.
-- Catalog first stored path wins per exact SHA.
-- archive ownership is whole calendar days; assigned archive coverages may not overlap.
-- Current→Archive order is Archive write → Archive verify → Current purge; never delete Current first.
-- temporary duplicate is allowed; missing both copies is forbidden.
-- Archive coverage does not shrink merely because rows are cleaned.
-- committed success is not converted into late cancellation failure.
+- Catalog first stored path wins for exact SHA.
+- archive ownership is whole calendar days; assigned coverages may not overlap.
+- Current→Archive ordering is Archive write → verify → Current purge.
+- temporary duplicate is safe; missing both copies is forbidden.
+- Catalog archive projection is rebuildable from Archive + Current state.
+- Archive v1 coverage does not shrink merely because rows are cleaned.
+- committed success is not demoted by late cancellation.
 
-## J. Known remaining risks / unimplemented work
+## J. Immediate resume steps
 
-Current transfer feature does NOT yet provide:
+1. Fresh fetch feature head and `main` after this handoff commit.
+2. Compare `main`→feature and inspect exact files.
+3. Require `behind=0` and merge-base exact current main.
+4. Confirm no temporary Catalog-v3 CI/bootstrap files remain in final diff.
+5. Fast-forward `main` with `force:false` only.
+6. Fetch official Build and Native SQLCipher runs for the exact promoted main SHA.
+7. Declare Catalog v3 tranche PASS only after required steps in both workflows are SUCCESS.
+8. Next code tranche: Archive history read + unified Current/Archive journal query path. Do not combine policy cleanup or Trash GC into that tranche.
 
-- persisted/derived segment sealing;
-- Catalog archive metadata;
-- global maintenance coordinator/lock across independent maintenance operations;
-- archive history read/unified Current+Archive query;
-- Catalog rebuild from Current+Archives;
+## K. Remaining major work
+
+- unified Current + Archive history query/read planning;
+- full external SHA Catalog rebuild from Current + Archive history;
 - external reference last-reference cleanup / Trash GC;
 - policy mutation with required Current/Archive cleanup;
 - archive split/repair/migration;
+- global maintenance coordination where required;
 - FTS/unified search completion;
 - manual real clipboard/WinUI smoke;
-- final installer/packaging decision;
+- installer/packaging decision;
 - final Open Source license selection.
-
-Preflight validates all archives before transfer but no global MaintenanceCoordinator exists yet. Do not claim that concurrent independent archive create/maintenance is globally serialized.
-
-## K. Immediate resume steps
-
-1. Fresh fetch active feature head and latest feature Build after this docs checkpoint.
-2. Require x64/Restore/Build/Test all SUCCESS on the final docs-inclusive feature SHA.
-3. Restore `.github/workflows/build.yml` exactly to canonical main-only trigger.
-4. Fresh fetch `main` immediately before promotion.
-5. Compare current main→feature and require `behind=0`, merge-base=current main, and no `.github/workflows/build.yml` diff.
-6. Fast-forward `main` with `force:false` only.
-7. Verify official managed Build and Native SQLCipher on the exact new main SHA before declaring transfer PASS.
-8. Next code tranche after transfer PASS: segment sealing + Catalog archive metadata. Then archive read/unified query, Catalog rebuild, external-reference cleanup/Trash, and only then policy mutation cleanup.
 
 ## Resume rule
 
-Mutable GitHub state supersedes this file. Never repeat completed archive foundation or transfer work if main already contains a newer verified tranche.
+Mutable GitHub state supersedes this file. Never repeat completed Archive foundation, Current→Archive transfer, or Catalog v3 inventory work if canonical main already contains a newer verified tranche.
