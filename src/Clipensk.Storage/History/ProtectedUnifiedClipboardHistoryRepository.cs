@@ -379,7 +379,12 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
         ClipboardHistoryEntry second)
     {
         if (first.EventId != second.EventId ||
-            first.EventTime != second.EventTime ||
+            first.EventTime.UtcTimestamp != second.EventTime.UtcTimestamp ||
+            first.EventTime.Offset != second.EventTime.Offset ||
+            !string.Equals(
+                first.EventTime.WindowsTimeZoneId,
+                second.EventTime.WindowsTimeZoneId,
+                StringComparison.Ordinal) ||
             !Equals(first.SourceApplicationId, second.SourceApplicationId) ||
             first.SourceApplication != second.SourceApplication ||
             first.Payloads.Count != second.Payloads.Count)
