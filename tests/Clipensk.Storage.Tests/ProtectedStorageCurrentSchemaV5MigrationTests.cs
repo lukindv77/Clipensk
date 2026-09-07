@@ -8,12 +8,12 @@ namespace Clipensk.Storage.Tests;
 public sealed class ProtectedStorageCurrentSchemaV5MigrationTests
 {
     [Fact]
-    public async Task NewStorage_CreatesLatestCurrentAndCatalogV2WithoutPolicyDefaults()
+    public async Task NewStorage_CreatesLatestCurrentAndCatalogV3WithoutPolicyDefaults()
     {
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
         Assert.Equal(ProtectedStorageDatabaseService.CurrentSchemaVersion, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
         Assert.Equal(ProtectedStorageDatabaseService.CurrentSchemaVersion, environment.Scalar("PRAGMA user_version;"));
-        Assert.Equal(2, environment.Scalar("PRAGMA user_version;", catalog: true));
+        Assert.Equal(ProtectedStorageDatabaseService.CatalogSchemaVersion, environment.Scalar("PRAGMA user_version;", catalog: true));
         Assert.Null(await environment.Repository.ReadAsync());
         Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'GlobalCapturePolicy';", catalog: true));
     }

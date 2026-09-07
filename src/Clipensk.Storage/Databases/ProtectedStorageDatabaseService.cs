@@ -17,9 +17,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     private const int HistoryCurrentSchemaVersion = 4;
     private const int GlobalCapturePolicyCurrentSchemaVersion = 5;
     private const int LegacyCatalogSchemaVersion = 1;
+    private const int ExternalPayloadCatalogSchemaVersion = 2;
 
     public const int CurrentSchemaVersion = 6;
-    public const int CatalogSchemaVersion = 2;
+    public const int CatalogSchemaVersion = 3;
     public const int CurrentEncryptionVersion = 1;
 
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
@@ -111,6 +112,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     masterKey,
                     cancellationToken,
                     LegacyCatalogSchemaVersion,
+                    ExternalPayloadCatalogSchemaVersion,
                     CatalogSchemaVersion);
 
                 if (currentSchemaVersion == LegacyCurrentSchemaVersion)
@@ -170,6 +172,17 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                         storageId,
                         masterKey,
                         cancellationToken);
+                    catalogSchemaVersion = ExternalPayloadCatalogSchemaVersion;
+                }
+
+                if (catalogSchemaVersion == ExternalPayloadCatalogSchemaVersion)
+                {
+                    MigrateCatalogFromV2ToV3(
+                        catalogDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    catalogSchemaVersion = CatalogSchemaVersion;
                 }
 
                 ValidateDatabase(
@@ -389,6 +402,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         else if (role == DatabaseRole.StorageCatalog)
         {
             ExternalPayloadCatalogSqlSchema.CreateTables(connection, transaction);
+            ArchiveSegmentCatalogSqlSchema.CreateTable(connection, transaction);
         }
 
         using (SqliteCommand userVersion = connection.CreateCommand())
@@ -562,6 +576,36 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             transaction,
             expectedStorageId,
             LegacyCatalogSchemaVersion,
+            ExternalPayloadCatalogSchemaVersion);
+        SetUserVersion(connection, transaction, ExternalPayloadCatalogSchemaVersion);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    private void MigrateCatalogFromV2ToV3(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath,
+            masterKey,
+            SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ExternalPayloadCatalogSqlSchema.ValidateTables(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ArchiveSegmentCatalogSqlSchema.CreateTable(connection, transaction);
+
+        UpdateCatalogSchemaVersion(
+            connection,
+            transaction,
+            expectedStorageId,
+            ExternalPayloadCatalogSchemaVersion,
             CatalogSchemaVersion);
         SetUserVersion(connection, transaction, CatalogSchemaVersion);
 
@@ -766,9 +810,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         }
 
         if (expectedRole == DatabaseRole.StorageCatalog &&
-            schemaVersion >= CatalogSchemaVersion)
+            schemaVersion >= ExternalPayloadCatalogSchemaVersion)
         {
             ExternalPayloadCatalogSqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.StorageCatalog &&
+            schemaVersion >= CatalogSchemaVersion)
+        {
+            ArchiveSegmentCatalogSqlSchema.ValidateTable(connection);
         }
 
         cancellationToken.ThrowIfCancellationRequested();

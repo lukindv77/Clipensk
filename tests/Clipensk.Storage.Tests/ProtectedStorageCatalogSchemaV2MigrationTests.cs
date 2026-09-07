@@ -11,7 +11,7 @@ namespace Clipensk.Storage.Tests;
 public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
 {
     [Fact]
-    public async Task Validate_MigratesCatalogV1ToV2AndPreservesCurrentHistory()
+    public async Task Validate_MigratesCatalogV1ToLatestAndPreservesCurrentHistory()
     {
         using TestEnvironment environment = await TestEnvironment.CreateAsync();
         environment.InsertCurrentHistoryMarker();
@@ -25,8 +25,9 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
 
         Assert.True(result.IsSuccess);
         Assert.False(result.WasInitialized);
-        Assert.Equal(2, environment.ReadSchemaVersion(environment.CatalogPath));
+        Assert.Equal(3, environment.ReadSchemaVersion(environment.CatalogPath));
         Assert.True(environment.HasTable(environment.CatalogPath, "ExternalPayloadAddressIndex"));
+        Assert.True(environment.HasTable(environment.CatalogPath, "ArchiveSegmentIndex"));
         Assert.Equal(1, environment.CountRows(environment.CurrentPath, "ClipboardHistoryEvent"));
     }
 
@@ -44,7 +45,7 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
             allowInitialize: false);
 
         Assert.Equal(ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity, result.Status);
-        Assert.Equal(2, environment.ReadSchemaVersion(environment.CatalogPath));
+        Assert.Equal(3, environment.ReadSchemaVersion(environment.CatalogPath));
         Assert.Equal(1, environment.CountRows(environment.CurrentPath, "ClipboardHistoryEvent"));
     }
 
@@ -111,7 +112,7 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
                 allowInitialize: true);
             Assert.True(result.IsSuccess);
             Assert.Equal(
-                2,
+                3,
                 ProtectedStorageCatalogSchemaV2MigrationTests.ReadSchemaVersion(
                     factory,
                     CatalogPathFor(root),
@@ -158,6 +159,13 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
         {
             using SqliteConnection connection = Factory.Open(CatalogPath, Key, SqliteOpenMode.ReadWrite);
             using SqliteTransaction transaction = connection.BeginTransaction();
+
+            using (SqliteCommand dropArchiveSegments = connection.CreateCommand())
+            {
+                dropArchiveSegments.Transaction = transaction;
+                dropArchiveSegments.CommandText = "DROP TABLE ArchiveSegmentIndex;";
+                dropArchiveSegments.ExecuteNonQuery();
+            }
 
             using (SqliteCommand drop = connection.CreateCommand())
             {
