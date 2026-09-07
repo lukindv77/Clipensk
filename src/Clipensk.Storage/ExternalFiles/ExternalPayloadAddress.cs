@@ -23,10 +23,14 @@ public static class ExternalPayloadAddressFactory
         {
             extension = ".bin";
         }
-        else
-        {
-            extension = extension.Trim();
-        }
+
+        return Create(firstStoredDate, bytes, NormalizeCustomBinaryExtension(extension));
+    }
+
+    public static string NormalizeCustomBinaryExtension(string extension)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
+        extension = extension.Trim();
 
         if (!extension.StartsWith(".", StringComparison.Ordinal))
         {
@@ -43,7 +47,7 @@ public static class ExternalPayloadAddressFactory
                 nameof(extension));
         }
 
-        return Create(firstStoredDate, bytes, extension.ToLowerInvariant());
+        return extension.ToLowerInvariant();
     }
 
     private static ExternalPayloadAddress Create(DateOnly firstStoredDate, ReadOnlySpan<byte> bytes, string extension)

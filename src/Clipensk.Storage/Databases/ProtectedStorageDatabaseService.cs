@@ -15,9 +15,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     private const int ApplicationIdentityCurrentSchemaVersion = 2;
     private const int ApplicationPolicyCurrentSchemaVersion = 3;
     private const int HistoryCurrentSchemaVersion = 4;
+    private const int GlobalCapturePolicyCurrentSchemaVersion = 5;
     private const int LegacyCatalogSchemaVersion = 1;
 
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
     public const int CatalogSchemaVersion = 2;
     public const int CurrentEncryptionVersion = 1;
 
@@ -99,6 +100,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     ApplicationIdentityCurrentSchemaVersion,
                     ApplicationPolicyCurrentSchemaVersion,
                     HistoryCurrentSchemaVersion,
+                    GlobalCapturePolicyCurrentSchemaVersion,
                     CurrentSchemaVersion);
 
                 // Critical rule: validate the whole protected pair before mutating either database.
@@ -148,6 +150,17 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                         storageId,
                         masterKey,
                         cancellationToken);
+                    currentSchemaVersion = GlobalCapturePolicyCurrentSchemaVersion;
+                }
+
+                if (currentSchemaVersion == GlobalCapturePolicyCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV5ToV6(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = CurrentSchemaVersion;
                 }
 
                 if (catalogSchemaVersion == LegacyCatalogSchemaVersion)
@@ -371,6 +384,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
             ClipboardHistorySqlSchema.CreateTables(connection, transaction);
             GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
+            CustomBinaryFormatConfigurationSqlSchema.CreateTable(connection, transaction);
         }
         else if (role == DatabaseRole.StorageCatalog)
         {
@@ -496,12 +510,36 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         GlobalCapturePolicySqlSchema.CreateTables(connection, transaction);
         UpdateCurrentSchemaVersion(
             connection, transaction, expectedStorageId,
-            HistoryCurrentSchemaVersion, CurrentSchemaVersion);
-        SetUserVersion(connection, transaction, CurrentSchemaVersion);
+            HistoryCurrentSchemaVersion, GlobalCapturePolicyCurrentSchemaVersion);
+        SetUserVersion(connection, transaction, GlobalCapturePolicyCurrentSchemaVersion);
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
     }
 
+    private void MigrateCurrentFromV5ToV6(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath, masterKey, SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ApplicationIdentitySqlSchema.ValidateTables(connection);
+        ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+        ClipboardHistorySqlSchema.ValidateTables(connection);
+        GlobalCapturePolicySqlSchema.ValidateTables(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        CustomBinaryFormatConfigurationSqlSchema.CreateTable(connection, transaction);
+        UpdateCurrentSchemaVersion(
+            connection, transaction, expectedStorageId,
+            GlobalCapturePolicyCurrentSchemaVersion, CurrentSchemaVersion);
+        SetUserVersion(connection, transaction, CurrentSchemaVersion);
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
     private void MigrateCatalogFromV1ToV2(
         string databasePath,
         Guid expectedStorageId,
@@ -716,9 +754,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ClipboardHistorySqlSchema.ValidateTables(connection);
         }
 
-        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= GlobalCapturePolicyCurrentSchemaVersion)
         {
             GlobalCapturePolicySqlSchema.ValidateTables(connection);
+        }
+
+        if (expectedRole == DatabaseRole.Current && schemaVersion >= CurrentSchemaVersion)
+        {
+            CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
         }
 
         if (expectedRole == DatabaseRole.StorageCatalog &&
