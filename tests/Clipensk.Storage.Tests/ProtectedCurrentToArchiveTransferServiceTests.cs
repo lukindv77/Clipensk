@@ -280,7 +280,7 @@ public sealed class ProtectedCurrentToArchiveTransferServiceTests
             insertEvent.Parameters.AddWithValue("$calendarDate", day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
             insertEvent.Parameters.AddWithValue(
                 "$sourceApplicationId",
-                applicationId is Guid appId ? appId.ToString("D") : DBNull.Value);
+                applicationId is Guid sourceAppId ? sourceAppId.ToString("D") : DBNull.Value);
             insertEvent.ExecuteNonQuery();
         }
 
