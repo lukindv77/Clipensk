@@ -22,9 +22,9 @@ Worker не создаёт собственную storage session и не вла
 
 Clipboard listener **не запускается при одном только unlock**. Сначала выполняется composition. Если global policy отсутствует или composition завершается ошибкой, listener остаётся выключенным и worker отсутствует.
 
-После первой успешной инициализации global policy JournalWindow отправляет App post-COMMIT notification. App повторяет composition. Non-null result только планирует exact-session worker; listener включается позже, когда эта generation уже дождалась предыдущего worker и стала единственным queue reader.
+После успешной durable policy mutation, которая требует пересборки runtime, JournalWindow отправляет App отдельный refresh request после того, как durable операция уже достигла результата. Для `InitializeAsync` это происходит после COMMIT. Non-null composition только планирует exact-session worker; listener включается позже, когда эта generation уже дождалась предыдущего worker и стала единственным queue reader.
 
-Так request, возникший до первичной настройки policy или пока новый worker ещё ждёт старого reader, не может остаться в queue и позже получить source-application metadata слишком поздно.
+Так request, возникший до настройки policy, во время policy reset либо пока новый worker ещё ждёт старого reader, не может остаться в queue и позже получить source-application metadata слишком поздно.
 
 ## Worker loop
 
@@ -37,19 +37,19 @@ Clipboard listener **не запускается при одном только 
 
 Продолжение после item failure допустимо для production graph, потому что protected wrapper до inner pipeline выполняет только cancellation gates, а сам pipeline сначала удаляет request из `ClipboardCaptureQueue` в `ClipboardCaptureSourceStage.ResolveNextAsync` и только затем выполняет source resolution, identity/policy, format read и persistence. Повтор poisoned request в hot loop не происходит.
 
-## Один reader между сессиями
+## Один reader между сессиями и runtime generations
 
 `ClipboardCaptureQueue` создан как single-reader channel. App поэтому сериализует worker generations:
 
 - retained App state содержит предыдущий worker `Task`;
-- worker новой protected session сначала ждёт завершения предыдущего task;
+- worker новой protected session или новой runtime generation сначала ждёт завершения предыдущего task;
 - только после этого повторно проверяет generation и exact session identity и становится новым reader;
-- stale generation после lock/reopen не начинает dequeue.
+- stale generation после lock/reopen/policy replacement не начинает dequeue.
 
 Для каждой worker generation App создаёт отдельный `CancellationTokenSource`, linked с `ProtectedStorageSessionLease.CancellationToken`. Поэтому worker прекращается при любом из двух событий:
 
 - revoke/dispose protected session;
-- явный `InvalidateClipboardWorker()` при runtime replacement, lock или close.
+- явный `InvalidateClipboardWorker()` при runtime replacement, policy cleanup, lock или close.
 
 При replacement App сначала публикует новую generation/state, затем best-effort отменяет previous CTS. Новый worker всё равно ждёт previous task, поэтому одновременно два queue reader не появляются. CTS принадлежит своему worker task и освобождается в его `finally`; race между completion и App cancellation допускается и обрабатывается без нарушения lock/close path.
 
@@ -72,6 +72,30 @@ Listener запускается на window dispatcher только **после
 
 Если dispatcher больше не принимает callback, listener остаётся выключенным; worker затем завершается по App/session cancellation. Это fail-closed, а не fallback capture path.
 
+## Policy cleanup и runtime replacement
+
+Configured global policy нельзя перезаписать in-place. Для последующего изменения UI выполняет отдельный cleanup, возвращающий storage в состояние `unconfigured`.
+
+Cleanup имеет pre-mutation runtime gate:
+
+1. после явного пользовательского confirmation JournalWindow синхронно посылает `GlobalCapturePolicyMutationStarting`;
+2. App останавливает listener, тем самым инвалидируя текущий capture epoch;
+3. App invalidates worker generation и явно отменяет App-owned worker CTS;
+4. App invalidates retained composition, чтобы stale graph не мог быть опубликован повторно;
+5. только после этого JournalWindow запускает `SqliteGlobalClipboardCapturePolicyRepository.CleanupAsync` вне UI thread.
+
+`CleanupAsync` использует Current ReadWrite + immediate transaction, валидирует полную persisted policy до удаления и удаляет singleton header; format rows исчезают через проверенный `ON DELETE CASCADE`. Ошибка либо cancellation до COMMIT оставляет старую policy целиком. После успешного COMMIT policy отсутствует и старые значения не превращаются в defaults для нового setup.
+
+После любого результата cleanup JournalWindow best-effort отправляет `GlobalCapturePolicyRefreshRequested`. App заново compose-ит **фактически persisted** state:
+
+- committed cleanup → `TryCreateAsync` возвращает `null`; listener/worker остаются выключенными до нового explicit `InitializeAsync`;
+- rollback/ошибка cleanup → прежняя policy остаётся в Current и может снова создать non-null graph;
+- ошибка post-operation refresh не меняет durable результат cleanup и оставляет runtime fail-closed до следующего composition trigger.
+
+In-flight capture не получает специального исключения из общих persistence semantics. Pre-mutation cancellation старается остановить его до следующего cancellation gate; если history COMMIT уже завершился, запись остаётся успешной. Cleanup policy не удаляет существующую history.
+
+Если lock/reopen выигрывает race, UI generation/session guards запрещают stale confirmation/result изменять новую session. Новый worker по-прежнему ждёт завершения previous task перед dequeue.
+
 ## Close и reopen
 
 При закрытии JournalWindow его protected session освобождается, что отменяет session token и отзывает MasterKey. App дополнительно останавливает monitoring, explicitly отменяет worker generation, invalidates composition и освобождает Windows host.
@@ -88,6 +112,8 @@ Worker не меняет существующие durable semantics:
 - ошибка одного capture не создаёт journal record для отклонённого/неполного payload;
 - новый custom-binary SHA без exact Current v6 extension mapping fail-closed.
 
+Policy cleanup следует тому же правилу COMMIT: cancellation до cleanup COMMIT откатывает удаление, а уже committed cleanup не демотируется поздней отменой.
+
 ## Проверки
 
 Core worker tests покрывают:
@@ -96,4 +122,4 @@ Core worker tests покрывают:
 - продолжение после non-cancellation item failure;
 - отсутствие параллельных `ProcessNextAsync` вызовов.
 
-Windows Build компилирует App lifecycle wiring. Полный manual WinUI/real-clipboard smoke остаётся отдельным evidence: автоматический unit test не эмулирует настоящий foreground application, `WM_CLIPBOARDUPDATE` и WinRT `DataPackageView`.
+Storage policy tests отдельно покрывают cleanup success/no-op, cascade, malformed state, cancellation и rollback. Windows Build компилирует App lifecycle wiring и reset UI. Полный manual WinUI/real-clipboard smoke остаётся отдельным evidence: автоматический unit test не эмулирует настоящий foreground application, `WM_CLIPBOARDUPDATE` и WinRT `DataPackageView`.
