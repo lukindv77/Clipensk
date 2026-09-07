@@ -22,6 +22,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Repair exact bootstrap anchor
+        shell: pwsh
+        run: ./eng/fix-custom-binary-bootstrap-anchor.ps1
+
       - name: Apply implementation patch
         shell: pwsh
         run: ./eng/apply-custom-binary-extension-bootstrap.ps1
