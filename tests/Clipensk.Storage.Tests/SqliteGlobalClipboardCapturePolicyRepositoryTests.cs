@@ -157,7 +157,10 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
         environment.Factory.Modes.Clear();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await repository.ReadAsync(cancellation.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await repository.InitializeAsync(ExplicitPolicy(), cancellation.Token));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await repository.CleanupAsync(cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await repository.CleanupAsync(cancellation.Token);
+        });
         Assert.Empty(environment.Factory.Modes);
     }
 
@@ -185,7 +188,9 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
         environment.Factory.OnOpen = (_, _) => cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await environment.Repository.CleanupAsync(cancellation.Token));
+        {
+            await environment.Repository.CleanupAsync(cancellation.Token);
+        });
 
         Assert.Equal(ConnectionState.Closed, environment.Factory.LastConnection!.State);
     }
@@ -216,7 +221,10 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
             BEGIN SELECT RAISE(ABORT, 'test cleanup failure'); END;
             """);
 
-        await Assert.ThrowsAsync<SqliteException>(async () => await environment.Repository.CleanupAsync());
+        await Assert.ThrowsAsync<SqliteException>(async () =>
+        {
+            await environment.Repository.CleanupAsync();
+        });
         ClipboardCapturePolicy? stored = await environment.Repository.ReadAsync();
         Assert.NotNull(stored);
         Assert.Equal(4, stored.Formats.Count);
@@ -263,7 +271,9 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
         });
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await environment.Repository.CleanupAsync(cancellation.Token));
+        {
+            await environment.Repository.CleanupAsync(cancellation.Token);
+        });
 
         environment.Factory.OnOpen = null;
         ClipboardCapturePolicy? stored = await environment.Repository.ReadAsync();
@@ -283,7 +293,10 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
         environment.Execute(corruption);
         await Assert.ThrowsAsync<InvalidDataException>(async () => await environment.Repository.ReadAsync());
         await Assert.ThrowsAsync<InvalidDataException>(async () => await environment.Repository.InitializeAsync(ExplicitPolicy()));
-        await Assert.ThrowsAsync<InvalidDataException>(async () => await environment.Repository.CleanupAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+        {
+            await environment.Repository.CleanupAsync();
+        });
     }
 
     [Theory]
@@ -298,6 +311,9 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
         environment.Execute(corruption);
         await Assert.ThrowsAsync<InvalidDataException>(async () => await environment.Repository.ReadAsync());
         await Assert.ThrowsAsync<InvalidDataException>(async () => await environment.Repository.InitializeAsync(ExplicitPolicy()));
-        await Assert.ThrowsAsync<InvalidDataException>(async () => await environment.Repository.CleanupAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+        {
+            await environment.Repository.CleanupAsync();
+        });
     }
 }
