@@ -183,7 +183,7 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
     [InlineData("UPDATE DatabaseIdentity SET StorageId = '00000000-0000-0000-0000-000000000001';")]
     [InlineData("UPDATE DatabaseIdentity SET DatabaseRole = 'StorageCatalog';")]
     [InlineData("UPDATE DatabaseIdentity SET SchemaVersion = 4; PRAGMA user_version = 4;")]
-    [InlineData("PRAGMA user_version = 6;")]
+    [InlineData("PRAGMA user_version = 7;")]
     [InlineData("ALTER TABLE GlobalCapturePolicy ADD COLUMN Unexpected TEXT;")]
     public async Task InvalidIdentityOrSchema_FailsReadAndWrite(string corruption)
     {

@@ -1,5 +1,6 @@
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
+using Clipensk.Storage.Databases;
 using Xunit;
 
 namespace Clipensk.Storage.Tests;
@@ -7,11 +8,11 @@ namespace Clipensk.Storage.Tests;
 public sealed class ProtectedStorageCurrentSchemaV5MigrationTests
 {
     [Fact]
-    public async Task NewStorage_CreatesV5AndCatalogV2WithoutPolicyDefaults()
+    public async Task NewStorage_CreatesLatestCurrentAndCatalogV2WithoutPolicyDefaults()
     {
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
-        Assert.Equal(5, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
-        Assert.Equal(5, environment.Scalar("PRAGMA user_version;"));
+        Assert.Equal(ProtectedStorageDatabaseService.CurrentSchemaVersion, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
+        Assert.Equal(ProtectedStorageDatabaseService.CurrentSchemaVersion, environment.Scalar("PRAGMA user_version;"));
         Assert.Equal(2, environment.Scalar("PRAGMA user_version;", catalog: true));
         Assert.Null(await environment.Repository.ReadAsync());
         Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'GlobalCapturePolicy';", catalog: true));
@@ -32,7 +33,7 @@ public sealed class ProtectedStorageCurrentSchemaV5MigrationTests
             VALUES ('00000000-0000-0000-0000-000000000002', 0, 'Text', 'Text', 6, 'marker');
             """);
         Assert.True((await environment.ValidateAsync()).IsSuccess);
-        Assert.Equal(5, environment.Scalar("PRAGMA user_version;"));
+        Assert.Equal(ProtectedStorageDatabaseService.CurrentSchemaVersion, environment.Scalar("PRAGMA user_version;"));
         Assert.Null(await environment.Repository.ReadAsync());
         Assert.Equal(1, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryPayload WHERE InlineCanonicalText = 'marker';"));
         Assert.Equal(1, environment.Scalar("SELECT COUNT(*) FROM ApplicationFormatCapturePolicy WHERE MaxBytes = 1024;"));

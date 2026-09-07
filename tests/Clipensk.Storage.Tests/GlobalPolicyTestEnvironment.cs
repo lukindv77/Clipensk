@@ -30,6 +30,8 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     public string CurrentPath => Path.Combine(Root, "Current", "current.db");
     public string CatalogPath => Path.Combine(Root, "Current", "storage-catalog.db");
     public SqliteGlobalClipboardCapturePolicyRepository Repository => new(Session, Factory);
+    public SqliteCustomBinaryFormatConfigurationRepository CustomBinaryConfigurations =>
+        new(Session, Factory);
 
     public static async Task<GlobalPolicyTestEnvironment> CreateAsync()
     {
@@ -73,10 +75,17 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     }
 
     public void DowngradeToV4() => Execute("""
+        DROP TABLE CustomBinaryFormatConfiguration;
         DROP TABLE GlobalFormatCapturePolicy;
         DROP TABLE GlobalCapturePolicy;
         UPDATE DatabaseIdentity SET SchemaVersion = 4;
         PRAGMA user_version = 4;
+        """);
+
+    public void DowngradeToV5() => Execute("""
+        DROP TABLE CustomBinaryFormatConfiguration;
+        UPDATE DatabaseIdentity SET SchemaVersion = 5;
+        PRAGMA user_version = 5;
         """);
 
     public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>

@@ -132,9 +132,9 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepository : IGlobalClipbo
                 throw new InvalidDataException("Global capture policy requires the expected Current identity.");
             }
             version = reader.GetInt32(3);
-            if (version != GlobalCapturePolicySqlSchema.MinimumCurrentSchemaVersion || reader.Read())
+            if (version < GlobalCapturePolicySqlSchema.MinimumCurrentSchemaVersion || reader.Read())
             {
-                throw new InvalidDataException("Global capture policy requires Current schema v5.");
+                throw new InvalidDataException("Global capture policy requires Current schema v5 or later.");
             }
         }
         using SqliteCommand userVersion = connection.CreateCommand();
