@@ -63,17 +63,22 @@ Clipboard listener **не запускается просто после unlock*
 boundary возвращает `null`; App оставляет monitoring выключенным и worker не создаёт. Ошибка
 composition также не включает fallback capture path.
 
-Если services non-null, App сначала планирует exact-session `ClipboardAcceptedCaptureWorker`, а
-затем включает `ClipboardUpdateMonitor`. Поэтому requests до первичной настройки policy не могут
-попасть в queue и быть обработаны позже после настройки.
+Если services non-null, App создаёт exact-session worker generation. Новый worker сначала ждёт
+предыдущий worker task, затем повторно проходит generation/session checks и только после этого
+становится единственным queue reader. Listener запускается через window dispatcher **после** этого
+ready-reader boundary. Поэтому request не может попасть в новую epoch, пока reader ещё заблокирован
+ожиданием старой session; source-application resolution не откладывается за этот handoff.
 
 После первого успешного `GlobalCapturePolicy.InitializeAsync` JournalWindow отправляет внутреннее
 уведомление App **после COMMIT**. Ошибка подписчика не может превратить already committed policy в
-UI failure. App выполняет новый composition request, и non-null graph запускает worker/listener.
+UI failure. App выполняет новый composition request, и non-null graph проходит тот же worker/readiness
+lifecycle.
 
 При lock App останавливает listener, инвалидирует worker generation и composition generation.
-Session cancellation завершает blocked/active worker. Новая session становится reader только после
-завершения task предыдущего worker, сохраняя single-reader contract `ClipboardCaptureQueue`.
+Каждая worker generation имеет App-owned CTS, linked с session token; lock/close/replacement явно
+отменяют App CTS, а revoke/dispose session независимо отменяет linked session token. Новая session
+становится reader только после завершения task предыдущего worker, сохраняя single-reader contract
+`ClipboardCaptureQueue`.
 
 ## Custom-binary extension semantics
 
@@ -95,15 +100,16 @@ fallback отсутствует структурно.
 ## Отмена и владение
 
 Creation token не является lifetime token возвращённого graph. После создания processing lifetime
-ограничен исходной `ProtectedStorageSessionLease.CancellationToken`.
+ограничен исходной `ProtectedStorageSessionLease` и App-owned worker generation cancellation.
 
 Lock/dispose/reopen не передаёт новый доступ старому graph: repositories, sink, provider и delivery
 остаются привязаны к старой session. Composition/worker generation guards дополнительно запрещают
 публикацию или запуск stale result.
 
 Worker не меняет history COMMIT semantics: successful COMMIT не демотируется late cancellation.
-Non-cancellation failure одного capture fail-closed для этого request и не прекращает последующие
-resident captures; production queue request уже dequeued до downstream processing.
+Non-cancellation failure одного production capture fail-closed для этого request и не прекращает
+последующие resident captures; protected wrapper до inner pipeline выполняет только cancellation
+gates, а production queue request dequeued до downstream source/policy/read/persist processing.
 
 ## Проверки и оставшийся evidence
 
