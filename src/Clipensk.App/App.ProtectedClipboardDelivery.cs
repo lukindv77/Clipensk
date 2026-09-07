@@ -1,3 +1,4 @@
+using Clipensk.Core.Application;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Clipboard;
 using Clipensk.Storage.History;
