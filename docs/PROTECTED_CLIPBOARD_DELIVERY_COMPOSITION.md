@@ -69,10 +69,18 @@ composition также не включает fallback capture path.
 ready-reader boundary. Поэтому request не может попасть в новую epoch, пока reader ещё заблокирован
 ожиданием старой session; source-application resolution не откладывается за этот handoff.
 
-После первого успешного `GlobalCapturePolicy.InitializeAsync` JournalWindow отправляет внутреннее
-уведомление App **после COMMIT**. Ошибка подписчика не может превратить already committed policy в
+После успешного `GlobalCapturePolicy.InitializeAsync` JournalWindow отправляет внутренний runtime
+refresh App **после COMMIT**. Ошибка подписчика не может превратить already committed policy в
 UI failure. App выполняет новый composition request, и non-null graph проходит тот же worker/readiness
 lifecycle.
+
+Configured policy не перезаписывается in-place. Перед `CleanupAsync` JournalWindow сначала
+синхронно посылает pre-mutation notification. App останавливает listener, инвалидирует capture epoch,
+worker generation и retained composition **до** открытия cleanup write transaction. После любого
+результата cleanup JournalWindow best-effort запрашивает новый composition из persisted state:
+committed cleanup даёт `null` graph и оставляет runtime выключенным; rollback/ошибка оставляет старую
+policy, которую composition может снова прочитать и запустить через обычный ready-reader gate.
+Durable cleanup result не зависит от успешности post-operation runtime refresh.
 
 При lock App останавливает listener, инвалидирует worker generation и composition generation.
 Каждая worker generation имеет App-owned CTS, linked с session token; lock/close/replacement явно
@@ -102,11 +110,15 @@ fallback отсутствует структурно.
 Creation token не является lifetime token возвращённого graph. После создания processing lifetime
 ограничен исходной `ProtectedStorageSessionLease` и App-owned worker generation cancellation.
 
-Lock/dispose/reopen не передаёт новый доступ старому graph: repositories, sink, provider и delivery
-остаются привязаны к старой session. Composition/worker generation guards дополнительно запрещают
-публикацию или запуск stale result.
+Lock/dispose/reopen или policy cleanup не передаёт новый доступ старому graph: repositories, sink,
+provider и delivery остаются привязаны к старой runtime generation/session. Composition/worker
+generation guards дополнительно запрещают публикацию или запуск stale result.
 
 Worker не меняет history COMMIT semantics: successful COMMIT не демотируется late cancellation.
+Pre-cleanup cancellation может остановить active capture только на существующих cancellation gates;
+если history COMMIT уже завершился, эта запись остаётся успешной. Cleanup policy не удаляет
+существующую history.
+
 Non-cancellation failure одного production capture fail-closed для этого request и не прекращает
 последующие resident captures; protected wrapper до inner pipeline выполняет только cancellation
 gates, а production queue request dequeued до downstream source/policy/read/persist processing.
@@ -116,11 +128,13 @@ gates, а production queue request dequeued до downstream source/policy/read/p
 Storage composition tests покрывают unconfigured policy, Allow/Deny, durable identity,
 individual overrides, cancellation/lock/dispose, malformed policy, mandatory extension provider,
 operation-token lifetime и committed accepted-text path. Current v6 tests отдельно покрывают
-extension repository/provider и migration.
+extension repository/provider и migration. Global policy repository tests покрывают cleanup
+success/no-op, cascade, malformed persisted state, cancellation и rollback.
 
 Core worker tests покрывают blocked cancellation, продолжение после item failure и serial
-`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle wiring.
+`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle wiring и reset UI.
 
-После успешного CI этот tranche делает автоматический capture runtime архитектурно связанным end-to-end.
-Однако **manual WinUI/real-clipboard smoke остаётся UNVERIFIED**: unit/CI tests не эмулируют настоящий
-foreground source application, Windows `WM_CLIPBOARDUPDATE` и WinRT `DataPackageView`.
+После успешного CI automatic capture runtime архитектурно связан end-to-end, включая explicit
+policy reset-to-unconfigured lifecycle. Однако **manual WinUI/real-clipboard smoke остаётся
+UNVERIFIED**: unit/CI tests не эмулируют настоящий foreground source application, Windows
+`WM_CLIPBOARDUPDATE` и WinRT `DataPackageView`.
