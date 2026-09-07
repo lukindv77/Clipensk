@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/global-policy-cleanup ]
   workflow_dispatch:
 
 permissions:
