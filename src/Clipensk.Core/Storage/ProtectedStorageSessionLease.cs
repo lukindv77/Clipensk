@@ -6,6 +6,7 @@ namespace Clipensk.Core.Storage;
 public sealed class ProtectedStorageSessionLease : IDisposable
 {
     private readonly object _gate = new();
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly ProtectedDataAccessLease _accessLease;
     private readonly CancellationToken _cancellationToken;
     private readonly CancellationTokenRegistration _accessRevokedRegistration;
@@ -88,6 +89,34 @@ public sealed class ProtectedStorageSessionLease : IDisposable
         {
             accessLease?.Dispose();
             masterKeyLease.Dispose();
+            throw;
+        }
+    }
+
+    public async ValueTask<ProtectedStorageMutationLease> AcquireMutationLeaseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using CancellationTokenSource linkedCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                _cancellationToken,
+                cancellationToken);
+        CancellationToken token = linkedCancellation.Token;
+        token.ThrowIfCancellationRequested();
+
+        await _mutationGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            if (!IsActive)
+            {
+                throw new OperationCanceledException(_cancellationToken);
+            }
+
+            return new ProtectedStorageMutationLease(_mutationGate);
+        }
+        catch
+        {
+            _mutationGate.Release();
             throw;
         }
     }
