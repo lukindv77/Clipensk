@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/app-protected-delivery-composition ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
