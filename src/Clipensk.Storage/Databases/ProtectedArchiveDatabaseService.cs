@@ -319,7 +319,8 @@ public sealed class ProtectedArchiveDatabaseService
                 reader.GetString(5),
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.RoundtripKind,
-                out DateTimeOffset createdAtUtc))
+                out DateTimeOffset createdAtUtc) ||
+            createdAtUtc.Offset != TimeSpan.Zero)
         {
             throw new InvalidDataException("Archive DatabaseIdentity does not match the active storage.");
         }
@@ -381,19 +382,19 @@ public sealed class ProtectedArchiveDatabaseService
 
     private static void ValidateDatabaseIdentityColumns(SqliteConnection connection)
     {
-        string[] expected =
+        ExpectedIdentityColumn[] expected =
         [
-            "SingletonId",
-            "StorageId",
-            "DatabaseId",
-            "DatabaseRole",
-            "SchemaVersion",
-            "EncryptionVersion",
-            "CreatedAtUtc",
-            "ArchiveBaseNumber",
-            "ArchiveSplitSequence",
-            "CoverageStartDate",
-            "CoverageEndDate",
+            new("SingletonId", "INTEGER", NotNull: true, PrimaryKeyOrder: 1),
+            new("StorageId", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
+            new("DatabaseId", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
+            new("DatabaseRole", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
+            new("SchemaVersion", "INTEGER", NotNull: true, PrimaryKeyOrder: 0),
+            new("EncryptionVersion", "INTEGER", NotNull: true, PrimaryKeyOrder: 0),
+            new("CreatedAtUtc", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
+            new("ArchiveBaseNumber", "INTEGER", NotNull: false, PrimaryKeyOrder: 0),
+            new("ArchiveSplitSequence", "INTEGER", NotNull: false, PrimaryKeyOrder: 0),
+            new("CoverageStartDate", "TEXT", NotNull: false, PrimaryKeyOrder: 0),
+            new("CoverageEndDate", "TEXT", NotNull: false, PrimaryKeyOrder: 0),
         ];
 
         using SqliteCommand command = connection.CreateCommand();
@@ -403,12 +404,19 @@ public sealed class ProtectedArchiveDatabaseService
         int index = 0;
         while (reader.Read())
         {
-            if (index >= expected.Length ||
-                !string.Equals(reader.GetString(1), expected[index], StringComparison.Ordinal))
+            if (index >= expected.Length)
+            {
+                throw new InvalidDataException("Archive DatabaseIdentity contains unexpected columns.");
+            }
+
+            ExpectedIdentityColumn column = expected[index++];
+            if (!string.Equals(reader.GetString(1), column.Name, StringComparison.Ordinal) ||
+                !string.Equals(reader.GetString(2), column.Type, StringComparison.OrdinalIgnoreCase) ||
+                reader.GetInt32(3) != (column.NotNull ? 1 : 0) ||
+                reader.GetInt32(5) != column.PrimaryKeyOrder)
             {
                 throw new InvalidDataException("Archive DatabaseIdentity column contract is invalid.");
             }
-            index++;
         }
 
         if (index != expected.Length)
@@ -483,4 +491,10 @@ public sealed class ProtectedArchiveDatabaseService
         command.CommandText = "PRAGMA foreign_keys = ON;";
         command.ExecuteNonQuery();
     }
+
+    private sealed record ExpectedIdentityColumn(
+        string Name,
+        string Type,
+        bool NotNull,
+        int PrimaryKeyOrder);
 }
