@@ -17,13 +17,8 @@ public static class ExternalPayloadAddressFactory
     public static ExternalPayloadAddress ForCustomBinary(
         DateOnly firstStoredDate,
         ReadOnlySpan<byte> bytes,
-        string extension = ".bin")
+        string extension)
     {
-        if (string.IsNullOrWhiteSpace(extension))
-        {
-            extension = ".bin";
-        }
-
         return Create(firstStoredDate, bytes, NormalizeCustomBinaryExtension(extension));
     }
 
