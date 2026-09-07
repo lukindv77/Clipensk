@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/unified-current-archive-history ]
   workflow_dispatch:
 
 permissions:
