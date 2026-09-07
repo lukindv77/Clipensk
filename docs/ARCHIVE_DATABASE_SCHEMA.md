@@ -18,7 +18,7 @@ archive_000025_0001.db
 ```
 
 - `ArchiveBaseNumber` — positive six-digit family number;
-- unsplit base file имеет `ArchiveSplitSequence = NULL`;
+- unsplit base file имеет `ArchiveSplitSequence = NULL` в `DatabaseIdentity`;
 - split file имеет positive sequence, совпадающий с four-digit suffix;
 - nested split names не используются;
 - filename и persisted base/split обязаны совпадать exact; mismatch fail-closed.
@@ -153,22 +153,52 @@ External payload bytes не копируются и не перемещаютс�
 
 После transfer Catalog v3 не изменяется автоматически внутри transfer transaction. Projection rebuild является отдельной maintenance boundary; это избегает превращения rebuildable Catalog в часть authoritative durability ordering.
 
+## Archive history read boundary
+
+`SqliteArchiveClipboardHistoryRepository` является internal ReadOnly reader выбранного `ArchiveSegmentDescriptor` и используется unified read-side.
+
+Для каждого выбранного segment reader:
+
+1. требует canonical exact `ArchiveFileName` и непустой planned `DatabaseId`;
+2. выполняет полный `ProtectedArchiveDatabaseService.ValidateAsync` перед чтением;
+3. требует exact соответствия planned `DatabaseId + coverage` authoritative Archive identity;
+4. открывает только выбранную Archive DB в `ReadOnly`;
+5. читает complete events с тем же keyset/order contract, что Current: `EventUtc DESC, EventId BINARY DESC`, payload order ASC;
+6. валидирует persisted event-time/source/payload/external-reference metadata при materialization;
+7. выполняет полный Archive validator повторно после page read и снова сверяет identity/coverage;
+8. проверяет linked caller/session cancellation перед возвратом.
+
+Reader не читает external file bytes и не mutates Archive/Catalog. Он не является generic archive repository.
+
+## Unified Current + Archive query
+
+`ProtectedUnifiedClipboardHistoryRepository` использует Catalog v3 только для discovery/planning и затем authoritative-валидирует каждый реально выбранный Archive.
+
+- physical Archive filename set должен совпадать с Catalog v3 projection; stale/missing projection fail-closed;
+- `StorageQueryPlanner` открывает только segments, coverage которых пересекает requested period;
+- Current читается до Archive, что совместимо с durable transfer order `Archive COMMIT -> Current purge` и не допускает логический пропуск во время transfer;
+- временный exact duplicate Current+Archive возвращается одной logical записью с обеими physical locations;
+- duplicate EventId с любым расхождением envelope/event-time/source/payload metadata завершается fail-closed;
+- после merge Catalog projection и archive filename set проверяются повторно на стабильность.
+
+Отдельные DB читаются отдельными SQLite snapshots; без global maintenance coordinator unified API не обещает один point-in-time snapshot всех файлов. Durable transfer ordering и fail-closed layout/duplicate checks обеспечивают отсутствие silent loss в поддерживаемом Current→Archive lifecycle.
+
 ## Lifecycle and access mode
 
 Archive service использует MasterKey только через `ProtectedStorageSessionLease`.
 
 - lock/dispose session отменяет operation;
-- ordinary validation — ReadOnly;
+- ordinary validation/history read — ReadOnly;
 - Archive ReadWrite разрешён только explicit maintenance/transfer boundary;
 - generic mutable archive repository не предоставляется.
 
 ## Remaining work
 
-После Archive v1 + Current→Archive transfer + Catalog v3 archive projection остаются отдельными tranches:
+После Archive v1 + Current→Archive transfer + Catalog v3 archive projection + unified read остаются отдельными tranches:
 
-1. archive history read + unified Current/Archive query;
-2. full Catalog external-address rebuild from Current + Archive history;
-3. external reference cleanup / Trash last-reference handling;
-4. policy mutation with required Current/Archive cleanup;
-5. archive split/repair/migration maintenance operations;
-6. global maintenance coordination/serialization where required.
+1. full Catalog external-address rebuild from Current + Archive history;
+2. external reference cleanup / Trash last-reference handling;
+3. policy mutation with required Current/Archive cleanup;
+4. archive split/repair/migration maintenance operations;
+5. global maintenance coordination/serialization where required;
+6. unified journal UI/search/FTS layers поверх read-side contract.
