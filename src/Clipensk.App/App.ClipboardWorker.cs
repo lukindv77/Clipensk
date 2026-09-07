@@ -30,6 +30,7 @@ public partial class App
         Task previousTask;
         CancellationTokenSource? previousCancellation;
         CancellationTokenSource cancellation;
+        CancellationToken workerToken;
         long generation;
 
         lock (_clipboardWorkerGate)
@@ -46,6 +47,7 @@ public partial class App
             previousCancellation = _clipboardWorkerCancellation;
             cancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 session.CancellationToken);
+            workerToken = cancellation.Token;
 
             _clipboardWorkerSession = session;
             _clipboardWorkerServices = services;
@@ -59,6 +61,7 @@ public partial class App
                     session,
                     services,
                     cancellation,
+                    workerToken,
                     generation),
                 CancellationToken.None);
         }
@@ -74,6 +77,7 @@ public partial class App
         ProtectedStorageSessionLease session,
         ProtectedClipboardDeliveryServices services,
         CancellationTokenSource cancellation,
+        CancellationToken workerToken,
         long generation)
     {
         try
@@ -95,13 +99,37 @@ public partial class App
                     session,
                     services,
                     cancellation,
+                    workerToken,
                     generation))
             {
                 return;
             }
 
+            // The new generation is now the only queue reader. Start the Win32 listener on
+            // the window dispatcher only after this point so no new request can wait behind
+            // a previous session and later resolve source application metadata too late.
+            window.DispatcherQueue.TryEnqueue(() =>
+            {
+                if (IsCurrentClipboardWorker(
+                        window,
+                        host,
+                        lifecycle,
+                        session,
+                        services,
+                        cancellation,
+                        workerToken,
+                        generation))
+                {
+                    TryStartClipboardMonitoringForSession(
+                        host,
+                        window,
+                        lifecycle,
+                        session);
+                }
+            });
+
             var worker = new ClipboardAcceptedCaptureWorker(services.Delivery);
-            await worker.RunAsync(cancellation.Token).ConfigureAwait(false);
+            await worker.RunAsync(workerToken).ConfigureAwait(false);
         }
         finally
         {
@@ -124,6 +152,7 @@ public partial class App
         ProtectedStorageSessionLease session,
         ProtectedClipboardDeliveryServices services,
         CancellationTokenSource cancellation,
+        CancellationToken workerToken,
         long generation)
     {
         if (generation != Volatile.Read(ref _clipboardWorkerGeneration) ||
@@ -132,7 +161,7 @@ public partial class App
             !ReferenceEquals(_lifecycle, lifecycle) ||
             !lifecycle.CanAccessProtectedData ||
             !session.IsActive ||
-            cancellation.IsCancellationRequested ||
+            workerToken.IsCancellationRequested ||
             !window.TryGetActiveProtectedStorageSession(out ProtectedStorageSessionLease? currentSession) ||
             !ReferenceEquals(currentSession, session))
         {
