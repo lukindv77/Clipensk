@@ -70,6 +70,72 @@ public sealed class ProtectedStorageSessionLeaseTests
     }
 
     [Fact]
+    public async Task MutationLease_SerializesHolders()
+    {
+        var lifecycle = CreateUnlockedLifecycle();
+        using var session = ProtectedStorageSessionLease.Create(
+            lifecycle,
+            @"C:\ClipenskData",
+            Guid.NewGuid(),
+            new MasterKeyLease([1, 2, 3, 4]));
+
+        ProtectedStorageMutationLease first = await session.AcquireMutationLeaseAsync();
+        Task<ProtectedStorageMutationLease> secondTask =
+            session.AcquireMutationLeaseAsync().AsTask();
+
+        Assert.False(secondTask.IsCompleted);
+
+        first.Dispose();
+        using ProtectedStorageMutationLease second =
+            await secondTask.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task MutationLease_CallerCancellationCancelsWaiter()
+    {
+        var lifecycle = CreateUnlockedLifecycle();
+        using var session = ProtectedStorageSessionLease.Create(
+            lifecycle,
+            @"C:\ClipenskData",
+            Guid.NewGuid(),
+            new MasterKeyLease([1, 2, 3, 4]));
+        using ProtectedStorageMutationLease first = await session.AcquireMutationLeaseAsync();
+        using var cancellation = new CancellationTokenSource();
+
+        Task<ProtectedStorageMutationLease> waiter =
+            session.AcquireMutationLeaseAsync(cancellation.Token).AsTask();
+        Assert.False(waiter.IsCompleted);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
+    }
+
+    [Fact]
+    public async Task MutationLease_BeginLockCancelsWaiterAndHeldLeaseCanStillRelease()
+    {
+        var lifecycle = CreateUnlockedLifecycle();
+        byte[] key = [1, 2, 3, 4];
+        using var session = ProtectedStorageSessionLease.Create(
+            lifecycle,
+            @"C:\ClipenskData",
+            Guid.NewGuid(),
+            new MasterKeyLease(key));
+        ProtectedStorageMutationLease first = await session.AcquireMutationLeaseAsync();
+        Task<ProtectedStorageMutationLease> waiter =
+            session.AcquireMutationLeaseAsync().AsTask();
+
+        Assert.False(waiter.IsCompleted);
+        Assert.True(lifecycle.TryBeginLock());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiter);
+        first.Dispose();
+        first.Dispose();
+        Assert.False(session.IsActive);
+        Assert.All(key, value => Assert.Equal((byte)0, value));
+    }
+
+    [Fact]
     public void Dispose_ZeroesOwnedMasterKeyAndKeepsCancelledSessionTokenObservable()
     {
         var lifecycle = CreateUnlockedLifecycle();
