@@ -63,7 +63,7 @@ Validator проверяет distinct persisted calendar dates против `Dat
 
 Coverage является assigned ownership metadata и не должна автоматически сужаться, если maintenance позднее удалит часть rows.
 
-Cross-archive non-overlap проверяется более высоким storage/catalog/query layer через `StorageQueryPlanner`; один Archive file сам по себе не может доказать отсутствие overlap с соседями.
+Один Archive file сам по себе не может доказать отсутствие overlap с соседями. Перед Current→Archive mutation transfer boundary ReadOnly-валидирует все canonical `archive_*.db`, строит `ArchiveSegmentDescriptor` для каждого и вызывает `StorageQueryPlanner.ValidateArchiveCoverage`; любое пересечение coverage завершается fail-closed до чтения/записи Current. Будущий Catalog metadata layer может ускорять этот preflight, но не заменяет durable validation самих archive DB.
 
 ## Create boundary
 
@@ -109,6 +109,7 @@ Corruption/mismatch завершается fail-closed; validator не ремо�
 Preconditions:
 
 - target archive уже создан и проходит `ProtectedArchiveDatabaseService.ValidateAsync`;
+- все canonical archive DB проходят ReadOnly validation, и их assigned coverage не пересекаются;
 - transfer range целиком лежит внутри assigned archive coverage;
 - переносить можно только завершённые календарные дни: сегодняшний и будущие `CalendarDate` отклоняются;
 - active protected session остаётся действующей всю операцию.
