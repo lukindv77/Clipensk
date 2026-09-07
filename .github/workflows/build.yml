@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/archive-storage-foundation ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
