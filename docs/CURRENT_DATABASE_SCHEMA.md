@@ -2,139 +2,145 @@
 
 ## Version ownership
 
-Schema versions принадлежат конкретной роли БД, а не всему storage pair как одному числу.
+Schema versions принадлежат конкретной роли БД, а не всей storage pair как одному числу.
 
-Текущее состояние после этого migration tranche:
+Текущее состояние:
 
-- `current.db`: schema version **5**;
+- `current.db`: schema version **6**;
 - `storage-catalog.db`: schema version **2**.
 
-`storage-catalog.db` остаётся rebuildable accelerator и не является source of truth для application identity, индивидуальных capture policies или clipboard history.
+`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history или custom-binary extension configuration.
 
 ## Current v2 — durable application identity
 
-Current schema v2 добавила durable application identity registry:
+Current v2 добавила Clipensk-owned durable application identity:
 
-- `ApplicationIdentity`
-  - `ApplicationId` — Clipensk-owned GUID, primary key;
-  - `CreatedAtUtc`;
-- `ApplicationIdentityAlias`
-  - `AliasType`: `Aumid` или `ExecutablePath`;
-  - `AliasValue`;
-  - `ApplicationId`;
-  - `CreatedAtUtc`;
-  - primary key `(AliasType, AliasValue)` обеспечивает exact-alias uniqueness;
-  - FK на `ApplicationIdentity` с `ON DELETE CASCADE`;
-  - index по `ApplicationId`.
+- `ApplicationIdentity(ApplicationId, CreatedAtUtc)`;
+- `ApplicationIdentityAlias(AliasType, AliasValue, ApplicationId, CreatedAtUtc)`;
+- exact alias uniqueness и FK `ON DELETE CASCADE`.
 
-SQLite default `BINARY` comparison соответствует текущему fail-closed identity contract: executable path alias сравнивается как exact observed string. Более широкая path canonicalization не вводится migration.
+`ApplicationId`, а не PID/HWND/path/AUMID, является durable FK для policy/history boundaries. AUMID и executable path остаются resolution aliases/evidence.
 
 ## Current v3 — per-application capture policies
 
-Current schema v3 добавила индивидуальные policy overrides, привязанные к durable `ApplicationId`:
+Current v3 добавила:
 
-- `ApplicationCapturePolicy`
-  - `ApplicationId` — primary key и FK на `ApplicationIdentity(ApplicationId)`;
-  - `CaptureRule` — exact enum string `Inherit`, `Allow` или `Deny`;
-  - удаление `ApplicationIdentity` каскадно удаляет policy;
-- `ApplicationFormatCapturePolicy`
-  - `ApplicationId`;
-  - `FormatName` — непустое точное имя clipboard format;
-  - `CaptureRule` — `Inherit`, `Allow` или `Deny`;
-  - `MaxBytes` — nullable, но при наличии строго больше нуля;
-  - primary key `(ApplicationId, FormatName)`;
-  - FK на `ApplicationCapturePolicy(ApplicationId)` с `ON DELETE CASCADE`.
+- `ApplicationCapturePolicy` с exact `Inherit` / `Allow` / `Deny`;
+- `ApplicationFormatCapturePolicy` с exact `FormatName`, rule и nullable положительным `MaxBytes`;
+- PK/FK привязку к durable `ApplicationId`.
 
-Global capture policy **не** seed-ится схемой и не получает скрытого значения по умолчанию. `SqliteClipboardCapturePolicyRepository` принимает global policy явной constructor dependency и читает из Current только per-application overrides.
+Global policy не seed-ится этой схемой и не получает hidden defaults.
 
-`ApplicationId`, а не PID, HWND, executable path или AUMID, является durable FK для policy data.
+## Current v4 — clipboard history
 
-## Current v4 — clipboard history storage contract
+Current v4 добавила durable history contract из `CLIPBOARD_HISTORY_SCHEMA.md`:
 
-Current schema v4 добавляет durable event/payload representation, определённую в `CLIPBOARD_HISTORY_SCHEMA.md`:
+- `ClipboardHistoryEvent` — event-time envelope и source snapshot;
+- `ClipboardHistoryPayload` — ordered canonical payload rows;
+- inline text/link/storage-items representation либо external content address;
+- Event → Payload `ON DELETE CASCADE`;
+- ApplicationIdentity → Event `ON DELETE SET NULL`;
+- индексы по persisted calendar/time/source/format keys.
 
-- `ClipboardHistoryEvent` — event-time envelope, nullable durable source `ApplicationId` и runtime source snapshot metadata;
-- `ClipboardHistoryPayload` — ordered payload rows с canonical byte count, inline canonical representation либо external content address;
-- FK Event → Payload использует `ON DELETE CASCADE`;
-- FK ApplicationIdentity → Event использует `ON DELETE SET NULL`, чтобы удаление identity не удаляло историю;
-- индексы по calendar date/time, source application/time и format name.
-
-Schema v4 **не** запускает capture worker и сама не определяет external payload `firstStoredDate`/dedup lifecycle. Это остаётся responsibility будущего persistence sink/index contract.
+Schema v4 сама не запускает worker и не определяет lifecycle внешних файлов.
 
 ## Current v5 — storage-scoped global capture policy
 
-Добавляет `GlobalCapturePolicy` и `GlobalFormatCapturePolicy`, описанные в
-`GLOBAL_CAPTURE_POLICY.md`. Таблицы создаются пустыми: отсутствие настройки отдельно от
-явного Deny. Repository выполняет nullable read и атомарную первичную инициализацию;
-перезапись/удаление policy требуют отдельного cleanup lifecycle.
+Current v5 добавила `GlobalCapturePolicy` и `GlobalFormatCapturePolicy`, описанные в `GLOBAL_CAPTURE_POLICY.md`.
+
+Таблицы создаются пустыми. Отсутствующая policy отличается от explicit Deny. Repository поддерживает nullable read и атомарную первичную initialization; update/delete требуют отдельного cleanup lifecycle.
+
+## Current v6 — custom-binary file-extension configuration
+
+Current v6 добавляет `CustomBinaryFormatConfiguration`, описанную в `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`:
+
+- `FormatName TEXT NOT NULL PRIMARY KEY` — exact registered/private clipboard format name;
+- `FileExtension TEXT NOT NULL` — canonical physical extension для нового custom-binary content address.
+
+Mapping storage-scoped и хранится только в зашифрованном Current. Catalog сохраняет уже назначенный SHA → relative path, но не является источником configuration.
+
+Repository выполняет exact/BINARY lookup и атомарное первое назначение. Повторный initialize/rebind запрещён без отдельного cleanup contract. Missing mapping для нового custom-binary SHA является fail-closed; скрытый `.bin` не используется production resolver-ом.
 
 ## New storage initialization
 
-Новый storage создаётся staging-парой:
+Новая storage pair создаётся staging-операцией:
 
-1. `current.db` создаётся сразу как v5 вместе с identity, application-policy, clipboard-history и global-policy tables;
-2. `storage-catalog.db` создаётся как v2 с ExternalPayloadAddressIndex;
+1. `current.db` создаётся сразу как v6 с identity, application-policy, history, global-policy и custom-binary configuration tables;
+2. `storage-catalog.db` создаётся как v2 с `ExternalPayloadAddressIndex`;
 3. обе БД полностью валидируются;
-4. только после этого staging `Current` перемещается на финальный путь.
+4. только затем staging `Current` перемещается на final path.
+
+Policy и custom-binary mappings не seed-ятся defaults.
 
 ## Resumable legacy migration
 
-Проверка всей пары выполняется до mutation Current: Catalog v1/v2 должен быть успешно открыт и подтверждён до начала schema changes.
+Вся Current/Catalog pair проверяется **до** mutation Current. Catalog v1/v2 должен успешно открыться и подтвердить identity/schema contract перед migration.
 
-Migration разбита на отдельные транзакционные шаги.
+Каждый шаг имеет отдельную transaction и durable version boundary.
 
 ### Current v1 → v2
 
-1. создать `ApplicationIdentity` и `ApplicationIdentityAlias`;
-2. обновить `DatabaseIdentity.SchemaVersion` с 1 до 2;
-3. выставить `PRAGMA user_version = 2`;
-4. commit.
+1. создать identity tables;
+2. `DatabaseIdentity.SchemaVersion: 1 → 2`;
+3. `PRAGMA user_version = 2`;
+4. COMMIT.
 
-Если transaction не commit-ится, Current остаётся v1.
+Ошибка/отмена до COMMIT оставляет полноценный v1.
 
 ### Current v2 → v3
 
-1. строго валидировать существующую identity schema v2;
-2. создать `ApplicationCapturePolicy` и `ApplicationFormatCapturePolicy`;
-3. обновить `DatabaseIdentity.SchemaVersion` с 2 до 3;
-4. выставить `PRAGMA user_version = 3`;
-5. commit.
-
-Если шаг migration не commit-ится, Current остаётся полноценным v2.
+1. валидировать identity v2;
+2. создать application-policy tables;
+3. version `2 → 3` и `user_version = 3`;
+4. COMMIT.
 
 ### Current v3 → v4
 
-1. строго валидировать identity schema и application-policy schema v3;
-2. создать `ClipboardHistoryEvent` и `ClipboardHistoryPayload` вместе с требуемыми FK/index constraints;
-3. обновить `DatabaseIdentity.SchemaVersion` с 3 до 4;
-4. выставить `PRAGMA user_version = 4`;
-5. commit.
-
-Если этот шаг не commit-ится, Current остаётся полноценным v3. Policy и identity rows не пересоздаются и не теряются.
+1. валидировать identity + application-policy schemas;
+2. создать history tables/indexes;
+3. version `3 → 4` и `user_version = 4`;
+4. COMMIT.
 
 ### Current v4 → v5
 
-1. валидировать существующие identity, application-policy и history tables;
+1. валидировать identity, application-policy и history schemas;
 2. создать пустые global-policy tables;
-3. обновить `DatabaseIdentity.SchemaVersion` с 4 до 5 и `PRAGMA user_version = 5`;
-4. проверить отмену и commit.
+3. version `4 → 5` и `user_version = 5`;
+4. cancellation check и COMMIT.
 
-Ошибка или отмена до COMMIT сохраняет Current v4. Существующие данные не переписываются.
-Catalog v1→v2 выполняется отдельным шагом согласно `STORAGE_CATALOG_SCHEMA.md`.
+Ошибка/отмена сохраняет полноценный v4.
 
-Для legacy пары v1/v1 последовательность выполняется как отдельные durable шаги `v1 → v2 → v3 → v4 → v5`, а не как одна неразличимая mutation.
+### Current v5 → v6
+
+1. валидировать identity, application-policy, history и global-policy schemas;
+2. создать пустую `CustomBinaryFormatConfiguration`;
+3. version `5 → 6` и `user_version = 6`;
+4. cancellation check и COMMIT.
+
+Ошибка/отмена сохраняет полноценный v5. Existing global policy, identity/application policy, history и Catalog addresses не переписываются.
+
+Catalog v1→v2 остаётся отдельным migration step согласно `STORAGE_CATALOG_SCHEMA.md`.
+
+Для legacy pair v1/v1 последовательность выполняется как отдельные durable steps `v1 → v2 → v3 → v4 → v5 → v6`; шаги не схлопываются в одну неразличимую mutation.
 
 ## Fail-closed validation
 
 Одного `SchemaVersion` недостаточно.
 
-- Current v2+ обязан иметь точную identity table/PK/FK/index shape.
-- Current v3+ дополнительно обязан иметь точную application-policy table/PK/FK shape.
-- Current v4+ дополнительно обязан иметь clipboard-history table/PK/FK/index shape.
-- Current v5+ дополнительно обязан иметь global-policy table/PK/FK shape.
+- Current v2+ обязан иметь identity table/PK/FK/index contract.
+- Current v3+ дополнительно обязан иметь application-policy contract.
+- Current v4+ дополнительно обязан иметь clipboard-history contract.
+- Current v5+ дополнительно обязан иметь global-policy contract.
+- Current v6+ дополнительно обязан иметь custom-binary configuration contract.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
-- malformed schema не принимается только потому, что таблицы имеют правильные имена.
+- malformed schema/data не принимаются только потому, что version number совпадает.
 
-Repositories не создают schema лениво. Schema creation/migration принадлежит `ProtectedStorageDatabaseService` до установления рабочего protected storage lifecycle.
+Repositories schema не создают и не мигрируют. Это принадлежит `ProtectedStorageDatabaseService` до рабочего protected storage lifecycle.
 
-`SqliteApplicationIdentityRepository` работает с Current v2 и более поздними версиями при сохранении identity schema contract. `SqliteClipboardCapturePolicyRepository` требует Current v3 или более позднюю совместимую схему. History repository/sink требует Current v4 или более позднюю совместимую схему. Global-policy repository в этом этапе принимает Current v5.
+Совместимость repository boundaries:
+
+- `SqliteApplicationIdentityRepository`: Current v2+ при сохранении identity contract;
+- `SqliteClipboardCapturePolicyRepository`: Current v3+;
+- history repository/sink: Current v4+;
+- `SqliteGlobalClipboardCapturePolicyRepository`: Current v5+;
+- `SqliteCustomBinaryFormatConfigurationRepository`: Current v6+.
