@@ -2,6 +2,7 @@ using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Clipensk.Storage.Clipboard;
+using Clipensk.Storage.History;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
