@@ -19,6 +19,25 @@ public sealed class ProtectedStorageCurrentSchemaV7MigrationTests
     }
 
     [Fact]
+    public async Task V7Validation_RejectsNonUtcPendingMaintenanceTimestamp()
+    {
+        using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.Execute($"""
+            INSERT INTO PendingStorageMaintenance (
+                SingletonId, OperationId, OperationKind, CreatedAtUtc)
+            VALUES (
+                1,
+                '{Guid.NewGuid():D}',
+                'PolicyMutation',
+                '2026-09-08T19:00:00.0000000+07:00');
+            """);
+
+        Assert.Equal(
+            ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity,
+            (await environment.ValidateAsync()).Status);
+    }
+
+    [Fact]
     public async Task InvalidCatalog_PreventsV6Mutation()
     {
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
