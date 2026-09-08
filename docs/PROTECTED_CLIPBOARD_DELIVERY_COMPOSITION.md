@@ -6,10 +6,9 @@
 индивидуальные policy overrides, durable application identity, Catalog-backed external resolver,
 history sink и accepted capture delivery с одной активной `ProtectedStorageSessionLease`.
 
-Latest storage contract — Current v6 / Catalog v3. Current v6 предоставляет storage-scoped
-custom-binary extension configuration; production App использует её через
-`SqliteCustomBinaryFormatConfigurationRepository` и
-`RepositoryClipboardCustomBinaryFileExtensionProvider`.
+Latest storage contract — Current v7 / Catalog v3. Current v6 предоставляет storage-scoped
+custom-binary extension configuration; Current v7 добавляет пустой по умолчанию durable
+`PendingPolicyMaintenance` marker для resumable policy-maintenance lifecycle.
 
 Composition строит **inert graph**. Само создание не читает clipboard payload, не потребляет
 capture queue и не вызывает `ProcessNextAsync`. Resident processing принадлежит App worker
@@ -36,18 +35,21 @@ MIME/registry associations или hidden `.bin` default.
 ## Порядок создания boundary
 
 1. Проверить обязательные зависимости и active session; связать caller/session cancellation.
-2. Прочитать global policy из Current через `SqliteGlobalClipboardCapturePolicyRepository`.
-3. Если policy отсутствует, вернуть `null`, не создавая delivery graph.
-4. Для сохранённой policy, включая explicit Deny, собрать capture/history services на той же session.
-5. Передать factory policy provider, history sink и durable identity registry.
-6. Повторно проверить cancellation/session и вернуть protected delivery wrapper.
+2. ReadOnly проверить Current v7 `PendingPolicyMaintenance`.
+3. Если durable marker присутствует, завершить composition через `PendingPolicyMaintenanceException` до global-policy read/factory creation.
+4. Прочитать global policy из Current через `SqliteGlobalClipboardCapturePolicyRepository`.
+5. Если policy отсутствует, вернуть `null`, не создавая delivery graph.
+6. Для сохранённой policy, включая explicit Deny, собрать capture/history services на той же session.
+7. Передать factory policy provider, history sink и durable identity registry.
+8. Повторно проверить cancellation/session и вернуть protected delivery wrapper.
 
-Ошибка policy/schema/storage не превращается в `null`, Allow или Deny. `null` означает только
-отсутствующую global policy.
+Ошибка maintenance/policy/schema/storage не превращается в `null`, Allow или Deny. `null` означает только
+отсутствующую global policy. Любая строка pending-maintenance table является conservative fail-closed
+blocker; foundation tranche пока не создаёт и не очищает такие строки production-кодом.
 
-При composition открывается только Current ReadOnly для global policy. Catalog, external files,
-application-policy operations и custom-binary extension lookup остаются lazy до фактического
-`ProcessNextAsync`.
+При composition Current открывается ReadOnly сначала для durable maintenance gate, затем для global policy.
+Catalog, external files, application-policy operations и custom-binary extension lookup остаются lazy до
+фактического `ProcessNextAsync`.
 
 ## App-level composition и запуск runtime
 
@@ -60,8 +62,9 @@ application-policy operations и custom-binary extension lookup остаются
 reference identity. Старый результат после lock, close, maintenance suspension или нового composition request не принимается.
 
 Clipboard listener **не запускается просто после unlock**. Если global policy отсутствует,
-boundary возвращает `null`; App оставляет monitoring выключенным и worker не создаёт. Ошибка
-composition или active maintenance suspension также не включает fallback capture path.
+boundary возвращает `null`; если pending marker существует, composition fail-closed завершается ошибкой.
+В обоих случаях App оставляет monitoring выключенным и worker не создаёт. Ошибка composition или active
+maintenance suspension также не включает fallback capture path.
 
 Если services non-null, App создаёт exact-session worker generation. Новый worker сначала ждёт
 previous worker task, затем повторно проходит generation/session/suspension checks и только после этого
@@ -70,7 +73,7 @@ ready-reader boundary.
 
 ## Maintenance suspension и fresh recompose
 
-Future destructive maintenance не должна менять persisted policy, пока старый delivery graph ещё способен завершить capture по закэшированной global policy. App поэтому имеет отдельный quiescence boundary до storage mutation.
+Destructive maintenance не должна менять persisted policy, пока старый delivery graph ещё способен завершить capture по закэшированной global policy. App поэтому имеет отдельный quiescence boundary до storage mutation.
 
 `TryQuiesceClipboardRuntimeAsync`:
 
@@ -81,18 +84,18 @@ Future destructive maintenance не должна менять persisted policy, 
 - отменяет current worker generation;
 - ждёт exact предыдущий worker task до полного завершения.
 
-Только после successful quiesce caller получает owner token и может начинать destructive maintenance. После этого runtime **не** возобновляется автоматически при exception/cancellation maintenance: это fail-closed foundation для будущего durable pending-operation contract.
+Только после successful quiesce caller получает owner token и может начинать destructive maintenance. После этого runtime **не** возобновляется автоматически при exception/cancellation maintenance: это fail-closed foundation для durable pending-operation contract.
 
-`TryResumeClipboardRuntimeAfterMaintenance` снимает только exact owner token. Если original protected session всё ещё current, App запускает **новую** composition и заново читает persisted global policy; pre-maintenance `ProtectedClipboardDeliveryServices` не переиспользуется.
+`TryResumeClipboardRuntimeAfterMaintenance` снимает только exact owner token. Если original protected session всё ещё current, App запускает **новую** composition и заново читает persisted maintenance state и global policy; pre-maintenance `ProtectedClipboardDeliveryServices` не переиспользуется.
 
-Owner token также защищает lock/reopen ABA: stale caller старой session не может снять suspension, уже принадлежащую новой session. Lock сбрасывает только in-memory owner для новой protected session; будущая незавершённая durable maintenance должна блокироваться отдельным Current marker после reopen.
+Owner token также защищает lock/reopen ABA: stale caller старой session не может снять suspension, уже принадлежащую новой session. Lock сбрасывает только in-memory owner для новой protected session; Current v7 marker сохраняется durable и блокирует capture после reopen, пока будущий recovery workflow явно не завершит maintenance.
 
 Полный порядок listener/worker drain и cancellation semantics описан в `CLIPBOARD_WORKER_LIFECYCLE.md`.
 
 ## Post-COMMIT initial setup handoff
 
 Product initial setup сохраняет global policy и explicit custom-binary extension mappings
-через `SqliteInitialClipboardCaptureConfigurationService` в одной Current v6 transaction.
+через `SqliteInitialClipboardCaptureConfigurationService` в одной Current transaction.
 
 После successful aggregate COMMIT JournalWindow отправляет внутреннее notification App. Callback
 не является частью durable transaction: его exception не может превратить committed policy/mappings
@@ -112,7 +115,7 @@ Low-level `SqliteGlobalClipboardCapturePolicyRepository.InitializeAsync` и
 
 1. exact SHA lookup в current Catalog v3 `ExternalPayloadAddressIndex`;
 2. existing address используется без provider;
-3. для нового SHA provider читает exact `FormatName → FileExtension` из Current v6;
+3. для нового SHA provider читает exact `FormatName → FileExtension` из Current v6+;
 4. missing/invalid mapping завершается fail-closed;
 5. canonical extension участвует в первом content-addressed relative path;
 6. first persisted Catalog address остаётся неизменным для duplicate SHA.
@@ -149,8 +152,9 @@ source/policy/read/persist processing.
 
 Storage composition tests покрывают unconfigured policy, Allow/Deny, durable identity,
 individual overrides, cancellation/lock/dispose, malformed policy, mandatory extension provider,
-operation-token lifetime и committed accepted-text path. Current v6 tests отдельно покрывают
-extension repository/provider и migration.
+operation-token lifetime, committed accepted-text path и fail-closed pending-maintenance marker.
+Current v7 migration tests отдельно покрывают empty-by-default table, preservation existing state,
+Catalog-before-mutation validation, rollback/retry и cancellation-before-COMMIT.
 
 Aggregate initial-configuration tests покрывают единый policy+mapping COMMIT, rollback при custom
 insert failure, rejection partial existing setup и pre-open validation prohibited/not-allowed custom
@@ -159,7 +163,7 @@ mappings.
 Core worker tests покрывают blocked cancellation, продолжение после item failure и serial
 `ProcessNextAsync`. Windows x64 Build компилирует App lifecycle, suspension owner-token wiring и dynamic initial-policy UI wiring.
 
-Quiescence tranche не реализует сам policy mutation, durable maintenance marker или cleanup. Однако он устраняет runtime stale-policy race, который должен быть закрыт **до** будущего destructive Current/Archive workflow.
+Current v7 foundation **не** реализует production writer marker, policy mutation, destructive Current/Archive cleanup, Catalog rebuild или Trash retention. Эти операции должны использовать уже существующий runtime quiescence boundary и durable marker как отдельный следующий tranche.
 
 **Manual WinUI/real-clipboard smoke остаётся UNVERIFIED**: unit/CI tests не эмулируют настоящий
 foreground source application, Windows `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView`, dispatcher race
