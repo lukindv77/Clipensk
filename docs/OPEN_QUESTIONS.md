@@ -55,7 +55,8 @@
 - текущий unpackaged x64 publish path проверяет hash/provenance staged `sqlcipher.dll` и выполняет post-publish production storage smoke непосредственно через final runtime layout;
 - ARM64 не поддерживается и не является будущим native target;
 - production умеет перестраивать обе Catalog v3 projections внутри существующего валидного Catalog;
-- explicit pre-session recovery умеет атомарно пересоздать **отсутствующий** `storage-catalog.db` из валидного Current + Archive state, не ослабляя normal unlock fail-closed semantics.
+- explicit pre-session recovery умеет атомарно пересоздать **отсутствующий** `storage-catalog.db` из валидного Current + Archive state, не ослабляя normal unlock fail-closed semantics;
+- explicit pre-session replacement умеет полностью построить replacement **существующего** Catalog из authoritative Current + Archive state и атомарно опубликовать его с сохранением старых Catalog bytes в `Current/CatalogQuarantine`.
 
 Остаётся определить/реализовать:
 
@@ -63,9 +64,9 @@
 - byte-for-byte reproducibility/provenance hardening;
 - процедуру смены пароля и/или MasterKey;
 - recovery procedure при потере/повреждении crypto metadata;
-- explicit quarantine/replace workflow для **существующего повреждённого** Catalog;
 - recovery strategy при потере `current.db` (Catalog не является source of truth и сам по себе не может восстановить Current);
-- пользовательский recovery UI/confirmation flow.
+- пользовательский recovery UI/confirmation flow и явный выбор между missing-Catalog recreation и existing-Catalog replacement;
+- retention/удаление Catalog quarantine backups.
 
 ## 5. Hot backup / snapshot
 
