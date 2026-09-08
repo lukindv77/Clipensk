@@ -80,7 +80,7 @@
 `GLOBAL_CAPTURE_POLICY.md`: защищённый Current, storage scope, явная первичная настройка.
 Current v6, repository, JournalWindow setup UI, app-level policy loading, custom-binary extension
 repository/provider, protected composition и worker lifecycle реализованы. **Policy cleanup для
-последующего изменения ещё не реализован.**
+последующего изменения ещё не реализован.** Last-reference physical cleanup foundation уже реализован отдельно: `ProtectedExternalPayloadTrashCollector` выводит live-set из Current+Archive через authoritative Catalog rebuild и переносит только verified history-unreferenced canonical external objects `Files -> Trash`. Это не заменяет multi-DB policy cleanup.
 
 Нужно утвердить конкретные defaults:
 
@@ -105,6 +105,7 @@ repository/provider, protected composition и worker lifecycle реализов�
 - App compose-ит protected delivery после active unlock session и повторно после первого policy COMMIT;
 - listener стартует только для non-null persisted policy graph, а single-reader worker использует cancellation exact protected session;
 - lock останавливает listener, инвалидирует capture epoch и worker/composition generations; новая session не начинает dequeue до завершения предыдущего worker task;
+- external last-reference physical cleanup foundation умеет после authoritative Current+Archive projection rebuild безопасно перемещать history-unreferenced canonical Files objects в date-grouped Trash, fail-closed проверяя SHA и reparse-point containment;
 - CF_WAVE, CF_RIFF и virtual file contents не сохраняются и блокируются до reader routing.
 
 Manual WinUI/real-clipboard smoke для полного runtime остаётся отдельным неполученным evidence; unit/CI tests не эмулируют настоящий `WM_CLIPBOARDUPDATE`, foreground source application и WinRT `DataPackageView`.
