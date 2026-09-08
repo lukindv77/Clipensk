@@ -15,7 +15,7 @@ public sealed class ProtectedStorageCurrentSchemaV7MigrationTests
             ClipboardCapturePolicyRule.Allow,
             new Dictionary<string, ClipboardFormatCapturePolicy>
             {
-                ["Text"] = new(ClipboardFormatCapturePolicyRule.Allow, 4096),
+                ["Text"] = new(ClipboardCapturePolicyRule.Allow, 4096),
             }));
         await environment.CustomBinaryConfigurations.InitializeAsync("Private.Format", ".dat");
         environment.DowngradeToV6();
