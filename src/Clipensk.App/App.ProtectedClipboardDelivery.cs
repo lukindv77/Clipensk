@@ -16,7 +16,8 @@ public partial class App
         ResidentWindowsHost host)
     {
         ProtectedApplicationLifecycle? lifecycle = _lifecycle;
-        if (lifecycle is null ||
+        if (IsClipboardRuntimeSuspended ||
+            lifecycle is null ||
             !lifecycle.CanAccessProtectedData ||
             !window.TryGetActiveProtectedStorageSession(out ProtectedStorageSessionLease? session) ||
             session is null)
