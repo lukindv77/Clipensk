@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/policy-maintenance-transfer-lease ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
