@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-07.
+Checkpoint prepared: 2026-09-08.
 
 Этот файл — operational checkpoint. Mutable GitHub state всегда важнее текста handoff. Перед любой durable записью нужен fresh TOCTOU GitHub.
 
@@ -15,227 +15,223 @@ Clipensk — Open Source resident Windows clipboard-history manager.
 - protected storage: SQLCipher, один MasterKey на storage;
 - production schemas: **Current v6 / Catalog v3 / Archive v1**.
 
-Ключевые документы: `AGENTS.md`, `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/CLIPBOARD_HISTORY_SCHEMA.md`, `docs/STORAGE_CATALOG_SCHEMA.md`, `docs/EXTERNAL_PAYLOAD_CATALOG_REBUILD.md`, `docs/ARCHIVE_DATABASE_SCHEMA.md`, `docs/GLOBAL_CAPTURE_POLICY.md`, `docs/CUSTOM_BINARY_FORMAT_CONFIGURATION.md`, `docs/PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `docs/CLIPBOARD_WORKER_LIFECYCLE.md`, `docs/OPEN_QUESTIONS.md`.
+Ключевые storage docs: `CURRENT_DATABASE_SCHEMA.md`, `CLIPBOARD_HISTORY_SCHEMA.md`, `STORAGE_CATALOG_SCHEMA.md`, `EXTERNAL_PAYLOAD_CATALOG_REBUILD.md`, `STORAGE_CATALOG_RECOVERY.md`, `ARCHIVE_DATABASE_SCHEMA.md`.
 
 ## B. Workflow rules
 
 - GitHub `main` + exact Actions evidence — source of truth.
 - Code changes идут через feature branch.
-- Перед `main` update: fresh main + exact feature, compare, `behind=0`, merge-base=current main; только fast-forward `force:false`.
-- PASS только после exact-SHA official GitHub Actions evidence на `main`.
+- Перед `main` update: fresh main + exact feature, compare, `behind=0`, merge-base=current main; fast-forward только `force:false`.
+- PASS только после exact-SHA official Build и, для storage/runtime changes, Native SQLCipher evidence на `main`.
 - Failure-driven fixes only.
-- x64 only.
-- Whole storage pair validation before migration mutation.
-- Cancellation before COMMIT; committed success не превращать в late cancellation failure.
 - Temporary feature Build trigger обязан быть восстановлен byte-for-byte до final compare.
-- Policy mutation нельзя делать без cleanup semantics.
-- Manual WinUI/real clipboard smoke остаётся UNVERIFIED без evidence.
+- Whole storage pair validation before migration mutation.
+- Cancellation before COMMIT/publication; committed durable success не демотируется late cancellation.
+- Manual WinUI/real clipboard smoke остаётся UNVERIFIED без отдельного evidence.
 
-## C. Canonical main before active external-Catalog tranche
+## C. Last canonical main before active recovery feature
 
 Canonical main:
 
-`99b4bed6fcb426366e919596d72488958dfd1f2d`
+`50efc0ccca95a99f71d075217635f8fbba76fceb`
 
 Этот main уже содержит:
 
 - Archive v1 create/validate;
 - resumable Current→Archive transfer;
-- Catalog v3 `ArchiveSegmentIndex` + rebuild/derived sealing;
-- unified read-only Current+Archive history repository;
-- exact duplicate collapse with physical locations;
-- Current-first unified read ordering relative to Archive-first transfer;
-- Current v6 / Catalog v3 / Archive v1 docs.
+- Catalog v3 `ArchiveSegmentIndex` + derived sealing;
+- unified read-only Current+Archive history;
+- full external SHA Catalog projection rebuild;
+- session-wide mutation lease между capture SHA reservation→Current COMMIT и external-Catalog rebuild.
 
-Official exact-SHA evidence на `99b4bed6…`:
+Exact official evidence на `50efc0cc…`:
 
-- Build #179 / run `34141616581` — SUCCESS;
-- Native SQLCipher #44 / run `34141616571` — SUCCESS;
-- Native #44 включает pinned SQLCipher x64 build, provenance, encrypted-storage smoke, unpackaged x64 publish, production runtime SQLCipher loading и artifact uploads.
+- Build #185 / run `34145266628` — SUCCESS;
+- Native SQLCipher #45 / run `34145266718` — SUCCESS;
+- Native #45: pinned x64 build, provenance, encrypted-storage verification, unpackaged publish, production runtime SQLCipher loading и artifact uploads — SUCCESS.
+
+Следовательно external-payload Catalog rebuild tranche полностью PASS на canonical main.
 
 ## D. Active feature
 
 Branch:
 
-`feat/external-payload-catalog-rebuild`
+`feat/storage-catalog-file-recovery`
 
 Base:
 
-`99b4bed6fcb426366e919596d72488958dfd1f2d`
+`50efc0ccca95a99f71d075217635f8fbba76fceb`
 
-Owner: **full rebuild содержимого external SHA Catalog projection из Current + Archive history + минимальная session-wide mutation coordination между capture reservation и rebuild**.
+Owner: **explicit pre-session recreation отсутствующего `Current/storage-catalog.db` из authoritative Current + Archive state**.
 
-Temporary `.github/workflows/build.yml` сейчас включает feature branch для Windows feature CI. Canonical main-only blob:
+Temporary `.github/workflows/build.yml` включает feature branch для Windows CI. Canonical main-only blob:
 
 `657f11356566b459dc46f1639b0d4ea7728083f2`
 
 обязан быть восстановлен перед final compare.
 
-Последний exact code/test SHA с полным green evidence до docs:
+Последний exact runtime/test SHA до docs:
 
-`a228295c090303477696bdf7fa316ec08a6411f2`
+`1d7070e320592398f52884739010256dc2966e86`
 
-Build #181 / run `34143412283` — SUCCESS:
+Build #186 / run `34146358793` — SUCCESS:
 
 - x64-only scope — SUCCESS;
 - Restore — SUCCESS;
 - Release Build — SUCCESS;
 - Test — SUCCESS.
 
-После этого SHA добавлены authoritative docs; latest docs-inclusive head обязан получить отдельный exact Build/Test до promotion.
+После этого SHA меняются только recovery docs. Последний docs-inclusive head должен получить отдельный exact Build/Test перед promotion.
 
-## E. Session mutation coordination implemented
+## E. Recovery boundary implemented
 
-Добавлен `ProtectedStorageMutationLease` и `ProtectedStorageSessionLease.AcquireMutationLeaseAsync`.
+`ProtectedStorageCatalogRecoveryService.RecoverMissingCatalogAsync` — explicit **pre-session** operation.
 
-Properties:
+Inputs:
 
-- один async-exclusive mutation gate на exact protected storage session;
-- wait объединяет caller token + protected-session token;
-- lock/session dispose отменяет waiters;
-- acquisition повторно проверяет active session;
-- lease release idempotent;
-- semaphore не dispose-ится отдельно от session object, поэтому поздний release после lock безопасен.
+- storage root;
+- expected StorageId;
+- 32-byte MasterKey;
+- explicit `currentCalendarDate`;
+- cancellation token.
 
-Сегодня gate используется только там, где доказана необходимость:
+Recovery разрешена только для состояния:
 
-1. `SqliteClipboardHistorySink.StoreAsync` — lease берётся **до external SHA reservation** и удерживается до Current history COMMIT;
-2. `ProtectedExternalPayloadCatalogRebuildService.RebuildAsync` — lease удерживается от physical scan до Catalog replacement COMMIT.
+```text
+Current/current.db exists
+Current/storage-catalog.db missing
+```
 
-Это закрывает race `new SHA reserved in Catalog -> rebuild deletes reservation -> history row commits with now-unindexed address`.
+Normal `ProtectedStorageDatabaseService.InitializeOrValidateAsync` не меняет semantics: partial pair остаётся `MissingOrPartialStorage`; никакого hidden auto-repair на unlock нет.
 
-Current→Archive transfer не обязан брать этот lease для external projection correctness: durable order `Archive COMMIT -> verify -> Current purge` вместе с rebuild order `Current scan -> Archive scan` гарантирует, что external reference будет виден хотя бы в одном source snapshot.
+Existing Catalog не перезаписывается. Missing Current не восстанавливается из accelerator metadata.
 
-Будущие maintenance writes, удаляющие/переписывающие durable external references, должны использовать тот же gate либо иметь отдельно доказанный эквивалентный ordering contract.
+## F. Authoritative validation
 
-## F. External payload Catalog rebuild implemented
+Current валидируется до recovery publication:
 
-Новый `ProtectedExternalPayloadCatalogRebuildService` полностью восстанавливает `ExternalPayloadAddressIndex` в существующем валидном Catalog v3.
+- configured keyed SQLite/SQLCipher open;
+- quick_check;
+- exact single-row DatabaseIdentity;
+- expected StorageId/Current role/encryption/schema version;
+- matching `PRAGMA user_version`;
+- schema tables, доступные для фактической Current v1..v6;
+- foreign keys;
+- history metadata, если Current имеет history schema.
 
-Physical scan:
+Recovery не мигрирует legacy Current. После успешной Catalog recreation обычный pair validation/migration path выполняет штатные Current migrations.
 
-1. Current ReadOnly первым;
-2. canonical top-level `Archive/archive_*.db` в ordinal filename order;
-3. каждый Archive full-validates через `ProtectedArchiveDatabaseService`;
-4. Archive DatabaseId проверяется вокруг scan;
-5. archive filename set сверяется до/после scan;
-6. Catalog открывается ReadWrite только после полного preflight.
+Все top-level `Archive/archive_*.db`:
 
-Projection source of truth — persisted external metadata в `ClipboardHistoryPayload`:
+- обязаны иметь canonical exact `ArchiveFileName`;
+- Archive v1 / same StorageId;
+- unique non-empty DatabaseId;
+- filename-compatible base/split identity;
+- valid assigned coverage;
+- valid user_version/schema/foreign keys/history coverage.
+
+Duplicate DatabaseId и overlapping Archive coverage — fail-closed.
+
+## G. Rebuilt Catalog v3 contents
+
+### ExternalPayloadAddressIndex
+
+Строится из persisted Current + Archive history references:
 
 ```text
 ExternalSha256 + ExternalRelativePath + ExternalSizeBytes
 ```
 
-Rules:
+Rules сохраняются из production rebuild:
 
-- SHA lowercase 64-hex;
+- lowercase 64-hex SHA;
 - non-negative size;
-- `ExternalSizeBytes == CanonicalByteCount`;
-- relative path обязан оставаться внутри `Files` root;
-- exact same SHA/path/size duplicate collapses;
+- exact size == CanonicalByteCount;
+- relative path внутри Files root;
+- exact duplicate collapse;
 - same SHA with different path/size — fail-closed;
-- same path for different SHA — fail-closed;
-- collision/validation failure происходит до Catalog mutation.
+- same path for different SHA — fail-closed.
 
-## G. Physical Files semantics
+Physical `Files/...` object может отсутствовать: history metadata остаётся authoritative для Catalog recreation.
 
-Rebuild не требует наличия physical external file.
+### ArchiveSegmentIndex
 
-Это intentional recovery contract:
+Для каждого Archive выводятся DatabaseId, canonical filename, assigned coverage и rebuildable `IsSealed`.
 
-- durable history reference остаётся authoritative metadata даже при missing `Files/...` object;
-- rebuild не читает file bytes и не recompute SHA;
-- не перемещает файлы в Trash;
-- не делает orphan-file GC;
-- не изменяет `ArchiveSegmentIndex`.
+```text
+IsSealed = Coverage.EndDate < currentCalendarDate
+           AND Current не содержит history row внутри coverage
+```
 
-Stale/orphan rows существующего `ExternalPayloadAddressIndex`, на которые нет history references, удаляются exact rebuild. Cleanup физического файла остаётся future last-reference/Trash GC tranche.
+Archive v1 остаётся authoritative source; Catalog не становится sole owner metadata.
 
-## H. Catalog replacement transaction
+## H. Staging / publication semantics
 
-После full preflight:
+Recovery никогда не публикует пустой Catalog, который предполагается достроить позже.
 
-1. валидируется Catalog identity/schema/user_version + v2/v3 tables;
-2. одна transaction удаляет старую `ExternalPayloadAddressIndex` projection;
-3. validated addresses вставляются целиком;
-4. cancellation непосредственно перед COMMIT;
-5. COMMIT.
+1. Derive complete Current+Archive snapshot #1.
+2. Создать полный Catalog v3 во staging file внутри `Current/`.
+3. Записать обе projections одной staging transaction.
+4. Полностью валидировать staging Catalog.
+5. Derive complete source snapshot #2.
+6. Snapshot #2 обязан exact совпасть с #1.
+7. Перед publication повторно проверить: Current всё ещё существует, final Catalog всё ещё отсутствует.
+8. Atomic `File.Move(staging, storage-catalog.db)`.
 
-`ArchiveSegmentIndex` не меняется. Ошибка/отмена до COMMIT оставляет прежнюю projection durable. После COMMIT late cancellation не демотирует success.
+Source change между двумя passes приводит к failure/retry, final Catalog остаётся отсутствующим.
 
-## I. Recovery scope that remains
+Cancellation разрешена до atomic publication. После successful move cancellation не проверяется: durable validated Catalog считается success.
 
-Этот tranche восстанавливает **содержимое external projection внутри существующего валидного Catalog v3**.
+## I. Regression coverage
 
-Он ещё не реализует:
+Build #186 покрывает:
 
-- recreation отсутствующего/повреждённого `storage-catalog.db` файла;
-- recovery partial Current/Catalog pair;
-- last-reference external cleanup;
-- Trash move/retention GC.
+- full Current + Archive recovery обеих Catalog projections;
+- отказ при existing Catalog;
+- overlapping Archive coverage;
+- conflicting external address metadata;
+- cancellation до publication;
+- source mutation между snapshot passes.
 
-Catalog v3 archive-segment projection rebuild и external-address projection rebuild теперь существуют отдельно; будущий full catalog-file recovery должен вызвать/переиспользовать их authoritative derivation contracts после создания нового валидного Catalog.
+## J. Explicit non-goals / remaining recovery work
 
-## J. Regression coverage
+Этот feature **не** реализует:
 
-Green code/test SHA #181 покрывает:
+- repair/quarantine повреждённого существующего Catalog;
+- восстановление missing Current;
+- recovery `storage-crypto.json`/MasterKey;
+- UI recovery flow;
+- external-file Trash/GC;
+- policy cleanup.
 
-- Current-only external projection rebuild;
-- Archive-only recovery;
-- missing physical file не блокирует rebuild;
-- exact Current+Archive duplicate collapse;
-- same-SHA metadata conflict до Catalog mutation;
-- relative-path collision между разными SHA до Catalog mutation;
-- `ArchiveSegmentIndex` preservation;
-- rebuild waits for existing mutation lease;
-- capture sink holds mutation lease before external resolution through Current COMMIT;
-- mutation lease serialization;
-- caller cancellation waiter;
-- protected lock cancellation waiter + safe late release.
+Нельзя автоматически удалять/перезаписывать существующий Catalog только потому, что normal unlock сообщил invalid identity/database: damaged-Catalog quarantine требует отдельного explicit workflow.
 
-## K. Invariants to preserve
-
-- `WM_CLIPBOARDUPDATE` signal/enqueue only.
-- Capture only under active unlocked protected access.
-- Password never persisted.
-- Current/Catalog/Archive share one MasterKey.
-- no silent identity merge or invented custom extension/size defaults.
-- external payload addresses resolved before history transaction.
-- Catalog first stored path wins for exact SHA.
-- external file bytes themselves are not encrypted with MasterKey.
-- archive ownership is whole calendar days; assigned coverage does not overlap.
-- Current→Archive ordering: Archive write -> verify -> Current purge.
-- temporary duplicate allowed; missing both copies forbidden.
-- Catalog is rebuildable accelerator, not sole authority.
-- committed success is not demoted by late cancellation.
-
-## L. Immediate resume steps
+## K. Immediate resume steps
 
 1. Fetch latest feature head after docs.
-2. Wait for exact docs-inclusive feature Build; require x64/Restore/Build/Test all SUCCESS.
-3. Restore `.github/workflows/build.yml` byte-for-byte to canonical main-only blob `657f11356566b459dc46f1639b0d4ea7728083f2`.
-4. Fresh fetch `main` immediately before promotion.
-5. Compare main→feature; require `behind=0`, merge-base=current main and no workflow diff.
-6. Fast-forward main with `force:false` only.
+2. Require latest docs-inclusive feature Build exact SHA: x64/Restore/Build/Test SUCCESS.
+3. Restore `.github/workflows/build.yml` byte-for-byte to `657f11356566b459dc46f1639b0d4ea7728083f2`.
+4. Fresh fetch current `main` immediately before promotion.
+5. Compare main→feature; require `behind=0`, merge-base=current main, no workflow diff.
+6. Fast-forward main with `force:false`.
 7. Require official Build on exact promoted SHA.
-8. Feature touches `src/Clipensk.Storage/**` and `src/Clipensk.Core/Storage/**`, поэтому Native SQLCipher должен trigger на promoted main; require exact promoted-SHA Native SUCCESS before PASS.
-9. Manual real WinUI/clipboard smoke remains UNVERIFIED.
+8. Because feature changes protected storage code, require exact-SHA Native SQLCipher SUCCESS before PASS.
+9. Manual real recovery/WinUI smoke остаётся UNVERIFIED.
 
-## M. Recommended next work after this tranche
+## L. Recommended next work after recovery
 
 Architecture-safe order:
 
-1. full `storage-catalog.db` file recreation / partial Current+Catalog recovery;
+1. damaged existing Catalog quarantine + explicit replace/recovery coordinator;
 2. external-reference last-reference cleanup + Trash GC;
 3. policy mutation with required Current/Archive cleanup;
 4. archive split/repair/migration;
 5. unified JournalWindow UI/search/FTS;
-6. manual real clipboard/WinUI smoke;
+6. manual real clipboard/recovery smoke;
 7. installer/packaging and final license decisions.
 
-Do not implement policy UPDATE as a Current-only shortcut: requirements demand cleanup across Current/Archive and external-reference last-reference semantics.
+Do not implement policy UPDATE as a Current-only shortcut: cleanup semantics must cover Current + Archive and external last-reference handling.
 
 ## Resume rule
 
-Mutable GitHub state supersedes this file. Never repeat completed Archive foundation, Current→Archive transfer, Catalog v3 archive projection, unified history read or external SHA projection rebuild if canonical main already contains a newer verified tranche.
+Mutable GitHub state supersedes this file. Never repeat completed Archive foundation, Current→Archive transfer, Catalog v3, unified history read, external SHA projection rebuild, or missing-Catalog recreation if canonical main already contains a newer verified tranche.
