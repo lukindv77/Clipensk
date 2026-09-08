@@ -208,7 +208,19 @@ public partial class App
             return false;
         }
 
-        Interlocked.Exchange(ref _clipboardRuntimeSuspended, 1);
+        // Suspension has a single in-memory owner. A concurrent maintenance request must not
+        // share this state because either caller could otherwise resume capture while the other
+        // still assumes a quiesced runtime.
+        if (Interlocked.CompareExchange(ref _clipboardRuntimeSuspended, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+        {
+            Interlocked.CompareExchange(ref _clipboardRuntimeSuspended, 0, 1);
+            return false;
+        }
 
         // Prevent an already-running composition from publishing after suspension. New requests
         // are rejected by the suspension gate before they can create another worker generation.
@@ -254,7 +266,7 @@ public partial class App
             return false;
         }
 
-        if (Interlocked.Exchange(ref _clipboardRuntimeSuspended, 0) == 0)
+        if (Interlocked.CompareExchange(ref _clipboardRuntimeSuspended, 0, 1) != 1)
         {
             return false;
         }
