@@ -53,7 +53,9 @@
 - production native SQLCipher строится из source, deprecated bundled `e_sqlcipher` binaries не используются;
 - для Windows x64 реализован pinned source-build/smoke pipeline на SQLCipher 4.17.0 + OpenSSL 3.5.8; его фактический PASS должен подтверждаться отдельным CI run;
 - текущий unpackaged x64 publish path проверяет hash/provenance staged `sqlcipher.dll` и выполняет post-publish production storage smoke непосредственно через final runtime layout;
-- ARM64 не поддерживается и не является будущим native target.
+- ARM64 не поддерживается и не является будущим native target;
+- production умеет перестраивать обе Catalog v3 projections внутри существующего валидного Catalog;
+- explicit pre-session recovery умеет атомарно пересоздать **отсутствующий** `storage-catalog.db` из валидного Current + Archive state, не ослабляя normal unlock fail-closed semantics.
 
 Остаётся определить/реализовать:
 
@@ -61,7 +63,9 @@
 - byte-for-byte reproducibility/provenance hardening;
 - процедуру смены пароля и/или MasterKey;
 - recovery procedure при потере/повреждении crypto metadata;
-- recovery для partial Current/Catalog и catalog rebuild.
+- explicit quarantine/replace workflow для **существующего повреждённого** Catalog;
+- recovery strategy при потере `current.db` (Catalog не является source of truth и сам по себе не может восстановить Current);
+- пользовательский recovery UI/confirmation flow.
 
 ## 5. Hot backup / snapshot
 
