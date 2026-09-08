@@ -74,6 +74,70 @@ public sealed class ProtectedStorageCatalogRecoveryServiceTests
     }
 
     [Fact]
+    public async Task RecoverMissingCatalogAsync_LegacyCurrentV6RemainsRecoverableWithoutImplicitMigration()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.Execute("""
+            INSERT INTO CustomBinaryFormatConfiguration (FormatName, FileExtension)
+            VALUES ('Example.Custom', '.payload');
+            """);
+        environment.DowngradeToV6();
+        environment.Session.Dispose();
+        File.Delete(environment.CatalogPath);
+
+        var recovery = new ProtectedStorageCatalogRecoveryService(environment.Factory);
+        ProtectedStorageDatabaseResult result = await recovery.RecoverMissingCatalogAsync(
+            environment.Root,
+            environment.StorageId,
+            environment.Key,
+            DateOnly.FromDateTime(DateTime.Now));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(File.Exists(environment.CatalogPath));
+        Assert.Equal(6, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
+        Assert.Equal(6, environment.Scalar("PRAGMA user_version;"));
+        Assert.Equal(1, environment.Scalar(
+            "SELECT COUNT(*) FROM CustomBinaryFormatConfiguration WHERE FormatName = 'Example.Custom';"));
+
+        ProtectedStorageDatabaseResult normalValidation =
+            await environment.Service.InitializeOrValidateAsync(
+                environment.Root,
+                environment.StorageId,
+                environment.Key,
+                allowInitialize: false);
+        Assert.True(normalValidation.IsSuccess);
+        Assert.Equal(ProtectedStorageDatabaseService.CurrentSchemaVersion,
+            environment.Scalar("PRAGMA user_version;"));
+    }
+
+    [Fact]
+    public async Task RecoverMissingCatalogAsync_MalformedV7MaintenanceSchemaFailsBeforePublication()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.Execute("""
+            DROP TABLE GlobalCapturePolicyMaintenance;
+            CREATE TABLE GlobalCapturePolicyMaintenance (
+                SingletonId INTEGER PRIMARY KEY,
+                OperationId TEXT,
+                Phase TEXT,
+                StartedAtUtc TEXT);
+            """);
+        environment.Session.Dispose();
+        File.Delete(environment.CatalogPath);
+
+        var recovery = new ProtectedStorageCatalogRecoveryService(environment.Factory);
+        ProtectedStorageDatabaseResult result = await recovery.RecoverMissingCatalogAsync(
+            environment.Root,
+            environment.StorageId,
+            environment.Key,
+            DateOnly.FromDateTime(DateTime.Now));
+
+        Assert.Equal(ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity, result.Status);
+        Assert.False(File.Exists(environment.CatalogPath));
+        Assert.Empty(RecoveryStagingFiles(environment));
+    }
+
+    [Fact]
     public async Task RecoverMissingCatalogAsync_ExistingCatalogRefusesWithoutReplacingIt()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();

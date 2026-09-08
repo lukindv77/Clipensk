@@ -258,7 +258,7 @@ public sealed class ProtectedStorageCatalogRecoveryService
             connection,
             storageId,
             DatabaseRole.Current,
-            [1, 2, 3, 4, 5, ProtectedStorageDatabaseService.CurrentSchemaVersion]);
+            Enumerable.Range(1, ProtectedStorageDatabaseService.CurrentSchemaVersion).ToArray());
         ValidateUserVersion(connection, identity.SchemaVersion, "Current");
 
         if (identity.SchemaVersion >= 2)
@@ -277,9 +277,15 @@ public sealed class ProtectedStorageCatalogRecoveryService
         {
             GlobalCapturePolicySqlSchema.ValidateTables(connection);
         }
-        if (identity.SchemaVersion >= ProtectedStorageDatabaseService.CurrentSchemaVersion)
+        if (identity.SchemaVersion >=
+            CustomBinaryFormatConfigurationSqlSchema.MinimumCurrentSchemaVersion)
         {
             CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
+        }
+        if (identity.SchemaVersion >=
+            GlobalCapturePolicyMaintenanceSqlSchema.MinimumCurrentSchemaVersion)
+        {
+            GlobalCapturePolicyMaintenanceSqlSchema.ValidateTable(connection);
         }
 
         ValidateForeignKeys(connection, "Current");

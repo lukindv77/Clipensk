@@ -22,10 +22,36 @@ public sealed class ProtectedClipboardDeliveryServicesTests
             environment.Session, factory, extensions, environment.Factory);
 
         Assert.Null(services);
-        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly, SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
         Assert.Equal(0, factory.CreateCount);
         Assert.Equal(0, factory.ProcessCount);
         Assert.Equal(0, extensions.CallCount);
+    }
+
+    [Fact]
+    public async Task PendingGlobalPolicyMaintenance_BlocksCompositionBeforePolicyRead()
+    {
+        using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        await environment.Repository.InitializeAsync(new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        environment.Execute("""
+            INSERT INTO GlobalCapturePolicyMaintenance (
+                SingletonId, OperationId, Phase, StartedAtUtc)
+            VALUES (
+                1,
+                '11111111-1111-1111-1111-111111111111',
+                'ArchiveCleanup',
+                '2026-09-08T08:00:00.0000000+00:00');
+            """);
+        var factory = new RecordingFactory();
+        environment.Factory.Modes.Clear();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await ProtectedClipboardDeliveryServices.TryCreateAsync(
+                environment.Session, factory, new NoExtensionRequests(), environment.Factory));
+
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+        Assert.Equal(0, factory.CreateCount);
+        Assert.Equal(0, factory.ProcessCount);
     }
 
     [Theory]
@@ -44,7 +70,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
             environment.Session, factory, extensions, environment.Factory);
 
         Assert.NotNull(services);
-        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly, SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
         Assert.Equal(1, factory.CreateCount);
         Assert.Equal(0, factory.ProcessCount);
         Assert.Equal(0, extensions.CallCount);
@@ -55,7 +81,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
         Assert.Equal(rule, policies.GlobalPolicy.Capture);
         Assert.Equal(4096, policies.GlobalPolicy.Formats["Text"].MaxBytes);
         Assert.Null(policies.ApplicationPolicy);
-        Assert.Single(environment.Factory.Modes);
+        Assert.Equal(2, environment.Factory.Modes.Count);
     }
 
     [Fact]

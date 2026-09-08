@@ -42,6 +42,14 @@ public sealed class ProtectedClipboardDeliveryServices
         CancellationToken token = linked.Token;
         EnsureActive(session, token);
 
+        var maintenance = new SqliteGlobalCapturePolicyMaintenanceRepository(session, connectionFactory);
+        if (await maintenance.ReadAsync(token).ConfigureAwait(false) is not null)
+        {
+            throw new InvalidOperationException(
+                "Clipboard capture cannot be composed while global policy maintenance is pending.");
+        }
+        EnsureActive(session, token);
+
         var globalPolicies = new SqliteGlobalClipboardCapturePolicyRepository(session, connectionFactory);
         ClipboardCapturePolicy? policy = await globalPolicies.ReadAsync(token).ConfigureAwait(false);
         EnsureActive(session, token);
