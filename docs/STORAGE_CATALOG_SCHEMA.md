@@ -182,9 +182,19 @@ Current и Catalog имеют независимые schema versions. Для с�
 
 Catalog остаётся rebuildable. Исторические payload rows сохраняют `ExternalSha256`, `ExternalRelativePath`, `ExternalSizeBytes`; Archive DB сами хранят `DatabaseId` и assigned coverage.
 
-Для archive inventory production rebuild projection из валидных Archive + Current state уже реализован. Для external SHA index production rebuild содержимого `ExternalPayloadAddressIndex` из Current + Archive history также реализован и не зависит от наличия physical external files.
+Production recovery теперь имеет три отдельных уровня:
 
-Отдельно остаётся full recovery, когда сам `storage-catalog.db` отсутствует/повреждён или Current/Catalog pair стала partial: текущий external rebuild требует уже существующий валидный Catalog v3 и не является catalog-file recreation.
+1. `ProtectedArchiveSegmentCatalog.RebuildAsync` перестраивает `ArchiveSegmentIndex` внутри существующего валидного Catalog v3;
+2. `ProtectedExternalPayloadCatalogRebuildService.RebuildAsync` перестраивает `ExternalPayloadAddressIndex` внутри существующего валидного Catalog v3;
+3. `ProtectedStorageCatalogRecoveryService.RecoverMissingCatalogAsync` **pre-session** создаёт отсутствующий `storage-catalog.db` целиком из authoritative Current + Archive state.
+
+Catalog-file recreation разрешена только при существующем Current и отсутствующем final Catalog. Обычный unlock/`InitializeOrValidateAsync` остаётся fail-closed для partial pair и не запускает repair автоматически.
+
+Recovery строит полный Catalog v3 во staging file, валидирует его, повторно выводит весь Current+Archive source snapshot и требует exact совпадения, после чего атомарно публикует staging через `File.Move`. Cancellation проверяется до publication; после successful move committed durable result не демотируется.
+
+Physical external files не требуются для восстановления address metadata. Missing Current не восстанавливается из Catalog. Existing повреждённый Catalog не перезаписывается автоматически: quarantine/repair damaged-Catalog и UI recovery flow остаются отдельными explicit contracts.
+
+Полный contract: `STORAGE_CATALOG_RECOVERY.md`.
 
 ## Custom binary extension
 
