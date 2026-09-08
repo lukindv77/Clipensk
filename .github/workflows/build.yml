@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/current-v7-maintenance-marker ]
   workflow_dispatch:
 
 permissions:
