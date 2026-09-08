@@ -19,6 +19,7 @@ public sealed class ProtectedCurrentToArchiveTransferMutationLeaseTests
         await archiveService.CreateAsync(archiveFileName, range);
 
         Task<ProtectedStorageMutationLease>? competingLeaseTask = null;
+        bool competingLeaseCompletedBeforeCurrentObservation = false;
         environment.Factory.OnOpen = (connection, mode) =>
         {
             if (competingLeaseTask is not null ||
@@ -32,16 +33,12 @@ public sealed class ProtectedCurrentToArchiveTransferMutationLeaseTests
             }
 
             competingLeaseTask = environment.Session.AcquireMutationLeaseAsync().AsTask();
-            bool completedBeforeCurrentObservation = competingLeaseTask.IsCompleted;
-            if (completedBeforeCurrentObservation &&
+            competingLeaseCompletedBeforeCurrentObservation = competingLeaseTask.IsCompleted;
+            if (competingLeaseCompletedBeforeCurrentObservation &&
                 competingLeaseTask.Status == TaskStatus.RanToCompletion)
             {
                 competingLeaseTask.Result.Dispose();
             }
-
-            Assert.False(
-                completedBeforeCurrentObservation,
-                "Current-to-Archive transfer must own the session mutation lease before reading Current.");
         };
 
         try
@@ -57,6 +54,9 @@ public sealed class ProtectedCurrentToArchiveTransferMutationLeaseTests
             Assert.Equal(0, result.CopiedEventCount);
             Assert.Equal(0, result.PurgedEventCount);
             Assert.NotNull(competingLeaseTask);
+            Assert.False(
+                competingLeaseCompletedBeforeCurrentObservation,
+                "Current-to-Archive transfer must own the session mutation lease before reading Current.");
 
             using ProtectedStorageMutationLease competingLease = await competingLeaseTask!;
         }
