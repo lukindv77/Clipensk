@@ -74,14 +74,18 @@ internal static class PendingStorageMaintenanceSqlSchema
             return;
         }
 
+        string createdAtText = rowReader.GetString(3);
+        bool validCreatedAt = DateTimeOffset.TryParse(
+            createdAtText,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out DateTimeOffset createdAtUtc) &&
+            createdAtUtc.Offset == TimeSpan.Zero;
+
         if (rowReader.GetInt64(0) != 1 ||
             !Guid.TryParse(rowReader.GetString(1), out Guid operationId) || operationId == Guid.Empty ||
             !string.Equals(rowReader.GetString(2), PolicyMutationOperationKind, StringComparison.Ordinal) ||
-            !DateTimeOffset.TryParse(
-                rowReader.GetString(3),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind,
-                out _))
+            !validCreatedAt)
         {
             throw new InvalidDataException("PendingStorageMaintenance contains invalid operation metadata.");
         }
