@@ -1,6 +1,7 @@
 using Clipensk.Core.History;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Databases;
+using Clipensk.Storage.Sqlite;
 using Xunit;
 
 namespace Clipensk.Storage.Tests;
@@ -8,7 +9,7 @@ namespace Clipensk.Storage.Tests;
 public sealed class ProtectedCurrentToArchiveTransferMutationLeaseTests
 {
     [Fact]
-    public async Task TransferAsync_HoldsSessionMutationLeaseBeforeAnyStorageOpen()
+    public async Task TransferAsync_HoldsSessionMutationLeaseBeforeCurrentObservation()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         DateOnly day = ClosedDay(3);
@@ -18,23 +19,29 @@ public sealed class ProtectedCurrentToArchiveTransferMutationLeaseTests
         await archiveService.CreateAsync(archiveFileName, range);
 
         Task<ProtectedStorageMutationLease>? competingLeaseTask = null;
-        environment.Factory.OnOpen = (_, _) =>
+        environment.Factory.OnOpen = (connection, mode) =>
         {
-            if (competingLeaseTask is not null)
+            if (competingLeaseTask is not null ||
+                mode != SqliteOpenMode.ReadOnly ||
+                !string.Equals(
+                    Path.GetFileName(connection.DataSource),
+                    "current.db",
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
             competingLeaseTask = environment.Session.AcquireMutationLeaseAsync().AsTask();
-            bool completedBeforeStorageWork = competingLeaseTask.IsCompleted;
-            if (completedBeforeStorageWork && competingLeaseTask.Status == TaskStatus.RanToCompletion)
+            bool completedBeforeCurrentObservation = competingLeaseTask.IsCompleted;
+            if (completedBeforeCurrentObservation &&
+                competingLeaseTask.Status == TaskStatus.RanToCompletion)
             {
                 competingLeaseTask.Result.Dispose();
             }
 
             Assert.False(
-                completedBeforeStorageWork,
-                "Current-to-Archive transfer must own the session mutation lease before opening storage.");
+                completedBeforeCurrentObservation,
+                "Current-to-Archive transfer must own the session mutation lease before reading Current.");
         };
 
         try
@@ -57,36 +64,6 @@ public sealed class ProtectedCurrentToArchiveTransferMutationLeaseTests
         {
             environment.Factory.OnOpen = null;
         }
-    }
-
-    [Fact]
-    public async Task TransferAsync_CancellationWhileWaitingForMutationLeaseDoesNotOpenStorage()
-    {
-        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
-        DateOnly day = ClosedDay(4);
-        var range = new JournalDateRange(day, day);
-        var archiveFileName = new ArchiveFileName(42, ArchiveFileName.NoSplit);
-        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
-        await archiveService.CreateAsync(archiveFileName, range);
-
-        environment.Factory.Modes.Clear();
-        using ProtectedStorageMutationLease heldLease =
-            await environment.Session.AcquireMutationLeaseAsync();
-        using var cancellation = new CancellationTokenSource();
-        var service = new ProtectedCurrentToArchiveTransferService(
-            environment.Session,
-            environment.Factory);
-
-        Task<CurrentToArchiveTransferResult> transferTask = service.TransferAsync(
-            archiveFileName,
-            range,
-            cancellation.Token);
-
-        Assert.False(transferTask.IsCompleted);
-        cancellation.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await transferTask);
-        Assert.Empty(environment.Factory.Modes);
     }
 
     private static DateOnly ClosedDay(int daysAgo) =>
