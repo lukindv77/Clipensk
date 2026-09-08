@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/damaged-catalog-replacement ]
   workflow_dispatch:
 
 permissions:
