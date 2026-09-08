@@ -6,11 +6,11 @@ Schema versions принадлежат конкретной роли БД, а н
 
 Текущее production состояние:
 
-- `current.db`: schema version **6**;
+- `current.db`: schema version **7**;
 - `storage-catalog.db`: schema version **3**;
 - Archive DB: schema version **1**.
 
-`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration или assigned Archive coverage.
+`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration, pending policy maintenance или assigned Archive coverage.
 
 ## Current v2 — durable application identity
 
@@ -62,16 +62,26 @@ Mapping storage-scoped и хранится только в зашифрован�
 
 Repository выполняет exact/BINARY lookup и атомарное первое назначение. Повторный initialize/rebind запрещён без отдельного cleanup contract. Missing mapping для нового custom-binary SHA является fail-closed; скрытый `.bin` production resolver не использует.
 
+## Current v7 — durable pending policy-maintenance marker
+
+Current v7 добавляет `PendingPolicyMaintenance` — singleton durable marker для будущего resumable policy cleanup/mutation workflow.
+
+Таблица создаётся **пустой**. Schema не seed-ит maintenance state и сама не меняет policy/history/Catalog/external files. Marker содержит explicit operation identity/kind, opaque `StateJson` и created/updated timestamps; production writer/cleanup workflow добавляется отдельным tranche.
+
+Presence любой строки означает, что policy maintenance не завершена. Protected delivery composition проверяет marker до global-policy read и fail-closed завершает создание graph через `PendingPolicyMaintenanceException`. Это состояние намеренно не превращается в `null`: `null` по-прежнему означает только реальное отсутствие global policy.
+
+Такой durable gate дополняет App runtime quiescence: после crash/reopen незавершённая maintenance не позволяет resident capture стартовать по persisted policy до explicit recovery/resume workflow.
+
 ## New storage initialization
 
 Новая storage pair создаётся staging-операцией:
 
-1. `current.db` создаётся сразу как v6 с identity, application-policy, history, global-policy и custom-binary configuration tables;
+1. `current.db` создаётся сразу как v7 с identity, application-policy, history, global-policy, custom-binary configuration и пустой pending-maintenance table;
 2. `storage-catalog.db` создаётся сразу как v3 с `ExternalPayloadAddressIndex` и пустой `ArchiveSegmentIndex`;
 3. обе БД полностью валидируются;
 4. только затем staging `Current` перемещается на final path.
 
-Policy и custom-binary mappings не seed-ятся defaults. Catalog archive projection также не seed-ится из догадок: она строится отдельно из authoritative Archive DB.
+Policy, custom-binary mappings и pending maintenance не seed-ятся defaults. Catalog archive projection также не seed-ится из догадок: она строится отдельно из authoritative Archive DB.
 
 ## Resumable legacy migration
 
@@ -114,7 +124,14 @@ Policy и custom-binary mappings не seed-ятся defaults. Catalog archive pr
 3. version `5 → 6` и `user_version = 6`;
 4. cancellation check и COMMIT.
 
-Existing global policy, identity/application policy, history и Catalog rows не переписываются.
+### Current v6 → v7
+
+1. валидировать identity, application-policy, history, global-policy и custom-binary schemas;
+2. создать пустую `PendingPolicyMaintenance`;
+3. version `6 → 7` и `user_version = 7`;
+4. cancellation check и COMMIT.
+
+Existing global policy, identity/application policy, history, custom-binary mappings и Catalog rows не переписываются.
 
 ### Catalog v1 → v2 → v3
 
@@ -127,7 +144,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 
 Ошибка/отмена до COMMIT оставляет полноценную предыдущую schema version, поэтому следующий unlock может повторить конкретный шаг.
 
-Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6`, Catalog — `1→2→3`; эти durable boundaries не схлопываются.
+Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7`, Catalog — `1→2→3`; эти durable boundaries не схлопываются.
 
 ## Fail-closed validation
 
@@ -138,6 +155,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 - Current v4+ clipboard-history contract.
 - Current v5+ global-policy contract.
 - Current v6+ custom-binary configuration contract.
+- Current v7+ pending policy-maintenance contract.
 - Catalog v2+ обязан иметь external-payload address contract.
 - Catalog v3+ дополнительно обязан иметь archive-segment projection table/index contract.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
@@ -152,5 +170,6 @@ Repositories schema не создают и не мигрируют. Это пр�
 - history repository/sink: Current v4+;
 - `SqliteGlobalClipboardCapturePolicyRepository`: Current v5+;
 - `SqliteCustomBinaryFormatConfigurationRepository`: Current v6+;
+- pending-maintenance composition reader: Current v7+;
 - `SqliteExternalPayloadAddressIndex`: Catalog v2+;
 - `ProtectedArchiveSegmentCatalog`: Catalog v3 + active Current history schema.
