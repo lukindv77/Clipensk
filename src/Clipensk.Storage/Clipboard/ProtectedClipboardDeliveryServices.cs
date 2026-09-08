@@ -24,7 +24,8 @@ public sealed class ProtectedClipboardDeliveryServices
 
     /// <summary>
     /// Returns null only when the persisted global policy is not configured.
-    /// Reads Current once; remaining graph construction is lazy. Does not start processing.
+    /// A durable pending-maintenance marker fails closed with PendingPolicyMaintenanceException.
+    /// Reads Current synchronously; remaining graph construction is lazy. Does not start processing.
     /// The caller selects the execution context for synchronous SQLite work.
     /// </summary>
     public static async ValueTask<ProtectedClipboardDeliveryServices?> TryCreateAsync(
@@ -40,6 +41,13 @@ public sealed class ProtectedClipboardDeliveryServices
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
             session.CancellationToken, cancellationToken);
         CancellationToken token = linked.Token;
+        EnsureActive(session, token);
+
+        var maintenance = new SqlitePendingPolicyMaintenanceReader(session, connectionFactory);
+        if (await maintenance.HasPendingAsync(token).ConfigureAwait(false))
+        {
+            throw new PendingPolicyMaintenanceException();
+        }
         EnsureActive(session, token);
 
         var globalPolicies = new SqliteGlobalClipboardCapturePolicyRepository(session, connectionFactory);
