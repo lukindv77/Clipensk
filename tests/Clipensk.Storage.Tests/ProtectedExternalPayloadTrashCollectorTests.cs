@@ -92,6 +92,7 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         DateOnly storedDate = ClosedDay(6);
+        DateOnly deletionDate = ClosedDay(0);
         byte[] expectedBytes = [1, 1, 2, 3, 5, 8];
         byte[] wrongBytes = [8, 5, 3, 2, 1, 1];
         ExternalPayloadAddress address = AddressForBytes(storedDate, expectedBytes);
@@ -101,16 +102,17 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
             environment.Session,
             environment.Factory);
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            collector.CollectAsync(ClosedDay(0)));
+            collector.CollectAsync(deletionDate));
 
         Assert.True(File.Exists(sourcePath));
-        Assert.False(Directory.Exists(Path.Combine(environment.Root, "Trash")));
+        AssertDeletionDateTrashAbsent(environment, deletionDate);
     }
 
     [Fact]
     public async Task CollectAsync_NonCanonicalFilesAreIgnored()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        DateOnly deletionDate = ClosedDay(0);
         string directory = Path.Combine(
             environment.Root,
             "Files",
@@ -122,11 +124,11 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
         var collector = new ProtectedExternalPayloadTrashCollector(
             environment.Session,
             environment.Factory);
-        ExternalPayloadTrashCollectionResult result = await collector.CollectAsync(ClosedDay(0));
+        ExternalPayloadTrashCollectionResult result = await collector.CollectAsync(deletionDate);
 
         Assert.Equal(0, result.CollectedFileCount);
         Assert.True(File.Exists(foreignPath));
-        Assert.False(Directory.Exists(Path.Combine(environment.Root, "Trash")));
+        AssertDeletionDateTrashAbsent(environment, deletionDate);
     }
 
     [Fact]
@@ -159,6 +161,7 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         DateOnly storedDate = ClosedDay(8);
+        DateOnly deletionDate = ClosedDay(0);
         byte[] bytes = [70, 71, 72];
         ExternalPayloadAddress address = AddressForBytes(storedDate, bytes);
         string sourcePath = WriteManagedFile(environment, address, bytes);
@@ -180,11 +183,11 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
             environment.Session,
             environment.Factory);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            collector.CollectAsync(ClosedDay(0), cancellation.Token));
+            collector.CollectAsync(deletionDate, cancellation.Token));
 
         environment.Factory.OnOpen = null;
         Assert.True(File.Exists(sourcePath));
-        Assert.False(Directory.Exists(Path.Combine(environment.Root, "Trash")));
+        AssertDeletionDateTrashAbsent(environment, deletionDate);
     }
 
     [Fact]
@@ -328,6 +331,17 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
                 reader.GetInt64(2)));
         }
         return result.ToArray();
+    }
+
+    private static void AssertDeletionDateTrashAbsent(
+        GlobalPolicyTestEnvironment environment,
+        DateOnly deletionDate)
+    {
+        string deletionDatePath = Path.Combine(
+            environment.Root,
+            "Trash",
+            deletionDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        Assert.False(Directory.Exists(deletionDatePath));
     }
 
     private static string TrashRelativePath(
