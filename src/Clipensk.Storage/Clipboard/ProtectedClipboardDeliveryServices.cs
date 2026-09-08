@@ -24,8 +24,8 @@ public sealed class ProtectedClipboardDeliveryServices
 
     /// <summary>
     /// Returns null only when the persisted global policy is not configured.
-    /// Reads Current once; remaining graph construction is lazy. Does not start processing.
-    /// The caller selects the execution context for synchronous SQLite work.
+    /// Pending durable maintenance is fail-closed and prevents graph construction.
+    /// Remaining graph construction is lazy and does not start processing.
     /// </summary>
     public static async ValueTask<ProtectedClipboardDeliveryServices?> TryCreateAsync(
         ProtectedStorageSessionLease session,
@@ -42,6 +42,14 @@ public sealed class ProtectedClipboardDeliveryServices
         CancellationToken token = linked.Token;
         EnsureActive(session, token);
 
+        var pendingMaintenance = new SqlitePendingStorageMaintenanceRepository(session, connectionFactory);
+        if (await pendingMaintenance.HasPendingAsync(token).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                "Clipboard capture cannot start while protected storage maintenance is pending.");
+        }
+
+        EnsureActive(session, token);
         var globalPolicies = new SqliteGlobalClipboardCapturePolicyRepository(session, connectionFactory);
         ClipboardCapturePolicy? policy = await globalPolicies.ReadAsync(token).ConfigureAwait(false);
         EnsureActive(session, token);
