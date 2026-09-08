@@ -25,6 +25,11 @@ jobs:
         shell: pwsh
         run: ./eng/bootstrap-current-v7-policy-maintenance.ps1
 
+      - name: Apply Current v7 maintenance fixes
+        if: github.ref_name == 'feat/current-v7-policy-maintenance'
+        shell: pwsh
+        run: ./eng/bootstrap-current-v7-policy-maintenance-fixes.ps1
+
       - name: Verify x64-only implementation scope
         shell: pwsh
         run: |
