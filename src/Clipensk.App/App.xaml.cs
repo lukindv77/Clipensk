@@ -216,7 +216,6 @@ public partial class App : Application
 
         InvalidateClipboardWorker();
         InvalidateClipboardDeliveryComposition();
-        ResetClipboardRuntimeSuspension();
 
         if (_window is not null)
         {
