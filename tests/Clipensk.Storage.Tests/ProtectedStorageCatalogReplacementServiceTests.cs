@@ -102,43 +102,34 @@ public sealed class ProtectedStorageCatalogReplacementServiceTests
     }
 
     [Fact]
-    public async Task ReplaceExistingCatalogAsync_CurrentChangeDuringBuildFailsClosed()
+    public async Task ReplaceExistingCatalogAsync_CurrentProjectionChangeDuringBuildFailsClosed()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         environment.Session.Dispose();
+
         byte[] damagedCatalog = RandomNumberGenerator.GetBytes(640);
         File.WriteAllBytes(environment.CatalogPath, damagedCatalog);
-        DateOnly day = DateOnly.FromDateTime(DateTime.Now).AddDays(-1);
-        int currentReadOnlyOpens = 0;
-        bool injected = false;
 
-        environment.Factory.OnOpen = (connection, mode) =>
-        {
-            if (injected ||
-                mode != SqliteOpenMode.ReadOnly ||
-                !string.Equals(
-                    Path.GetFileName(connection.DataSource),
-                    "current.db",
-                    StringComparison.OrdinalIgnoreCase) ||
-                Interlocked.Increment(ref currentReadOnlyOpens) != 2)
-            {
-                return;
-            }
+        string alternateCurrentPath = Path.Combine(environment.Root, "alternate-current.db");
+        File.Copy(environment.CurrentPath, alternateCurrentPath);
+        SeedExternalHistory(
+            environment,
+            alternateCurrentPath,
+            DateOnly.FromDateTime(DateTime.Now).AddDays(-1));
 
-            injected = true;
-            environment.Factory.OnOpen = null;
-            SeedInlineHistory(environment, day);
-        };
+        var switchingFactory = new SecondCurrentSnapshotConnectionFactory(
+            environment.Factory,
+            environment.CurrentPath,
+            alternateCurrentPath);
+        var service = new ProtectedStorageCatalogReplacementService(switchingFactory);
 
-        var service = new ProtectedStorageCatalogReplacementService(environment.Factory);
         ProtectedStorageCatalogReplacementResult result = await service.ReplaceExistingCatalogAsync(
             environment.Root,
             environment.StorageId,
             environment.Key,
             DateOnly.FromDateTime(DateTime.Now));
 
-        environment.Factory.OnOpen = null;
-        Assert.True(injected);
+        Assert.True(switchingFactory.DidSwitch);
         Assert.Equal(ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity, result.Status);
         Assert.Equal(damagedCatalog, File.ReadAllBytes(environment.CatalogPath));
         Assert.False(Directory.Exists(QuarantineDirectory(environment)));
@@ -188,15 +179,22 @@ public sealed class ProtectedStorageCatalogReplacementServiceTests
         Assert.Empty(ReplacementShadowDirectories(environment));
     }
 
-    private static void SeedInlineHistory(
+    private static void SeedExternalHistory(
         GlobalPolicyTestEnvironment environment,
+        string databasePath,
         DateOnly day)
     {
         using SqliteConnection connection = environment.Factory.Open(
-            environment.CurrentPath,
+            databasePath,
             environment.Key,
             SqliteOpenMode.ReadWrite);
         Guid eventId = Guid.NewGuid();
+        const string sha256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        const long sizeBytes = 77;
+        string relativePath = Path.Combine(
+            day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            sha256 + ".png");
+
         using (SqliteCommand insertEvent = connection.CreateCommand())
         {
             insertEvent.CommandText = """
@@ -226,10 +224,13 @@ public sealed class ProtectedStorageCatalogReplacementServiceTests
                 InlineCanonicalText, SearchText, ExternalSha256,
                 ExternalRelativePath, ExternalSizeBytes)
             VALUES (
-                $eventId, 0, 'Text', 'InlineText', 1,
-                'x', 'x', NULL, NULL, NULL);
+                $eventId, 0, 'Bitmap', 'PngImage', $sizeBytes,
+                NULL, NULL, $sha256, $relativePath, $sizeBytes);
             """;
         insertPayload.Parameters.AddWithValue("$eventId", eventId.ToString("D"));
+        insertPayload.Parameters.AddWithValue("$sizeBytes", sizeBytes);
+        insertPayload.Parameters.AddWithValue("$sha256", sha256);
+        insertPayload.Parameters.AddWithValue("$relativePath", relativePath);
         insertPayload.ExecuteNonQuery();
     }
 
@@ -255,4 +256,43 @@ public sealed class ProtectedStorageCatalogReplacementServiceTests
                 ".clipensk-catalog-replacement-*",
                 SearchOption.TopDirectoryOnly)
             .ToArray();
+
+    private sealed class SecondCurrentSnapshotConnectionFactory
+        : IKeyedSqliteConnectionFactory
+    {
+        private readonly IKeyedSqliteConnectionFactory _inner;
+        private readonly string _currentPath;
+        private readonly string _alternateCurrentPath;
+        private int _currentReadOnlyOpens;
+        private int _switches;
+
+        public SecondCurrentSnapshotConnectionFactory(
+            IKeyedSqliteConnectionFactory inner,
+            string currentPath,
+            string alternateCurrentPath)
+        {
+            _inner = inner;
+            _currentPath = Path.GetFullPath(currentPath);
+            _alternateCurrentPath = Path.GetFullPath(alternateCurrentPath);
+        }
+
+        public bool DidSwitch => Volatile.Read(ref _switches) == 1;
+
+        public SqliteConnection Open(
+            string databasePath,
+            ReadOnlyMemory<byte> masterKey,
+            SqliteOpenMode mode)
+        {
+            string fullPath = Path.GetFullPath(databasePath);
+            if (mode == SqliteOpenMode.ReadOnly &&
+                string.Equals(fullPath, _currentPath, StringComparison.OrdinalIgnoreCase) &&
+                Interlocked.Increment(ref _currentReadOnlyOpens) == 2)
+            {
+                Interlocked.Increment(ref _switches);
+                return _inner.Open(_alternateCurrentPath, masterKey, mode);
+            }
+
+            return _inner.Open(fullPath, masterKey, mode);
+        }
+    }
 }
