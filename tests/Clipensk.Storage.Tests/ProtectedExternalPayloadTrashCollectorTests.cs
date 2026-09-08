@@ -132,6 +132,53 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
     }
 
     [Fact]
+    public async Task CollectAsync_CanonicalDateDirectorySymlinkFailsClosedWhenSupported()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        DateOnly storedDate = ClosedDay(10);
+        DateOnly deletionDate = ClosedDay(0);
+        byte[] bytes = [101, 102, 103, 104];
+        ExternalPayloadAddress address = AddressForBytes(storedDate, bytes);
+        string targetRoot = Path.Combine(
+            Path.GetTempPath(),
+            "Clipensk.Storage.Tests.Reparse",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(targetRoot);
+        string targetFile = Path.Combine(targetRoot, Path.GetFileName(address.RelativePath));
+        File.WriteAllBytes(targetFile, bytes);
+        string linkPath = Path.Combine(
+            environment.Root,
+            "Files",
+            storedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+        if (!TryCreateDirectorySymlink(linkPath, targetRoot))
+        {
+            Directory.Delete(targetRoot, recursive: true);
+            return;
+        }
+
+        try
+        {
+            var collector = new ProtectedExternalPayloadTrashCollector(
+                environment.Session,
+                environment.Factory);
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                collector.CollectAsync(deletionDate));
+
+            Assert.Equal(bytes, File.ReadAllBytes(targetFile));
+            AssertDeletionDateTrashAbsent(environment, deletionDate);
+        }
+        finally
+        {
+            if (Directory.Exists(linkPath))
+            {
+                Directory.Delete(linkPath);
+            }
+            Directory.Delete(targetRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CollectAsync_ExistingExactTrashCopyDeletesDuplicateSource()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
@@ -331,6 +378,20 @@ public sealed class ProtectedExternalPayloadTrashCollectorTests
                 reader.GetInt64(2)));
         }
         return result.ToArray();
+    }
+
+    private static bool TryCreateDirectorySymlink(string linkPath, string targetPath)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, targetPath);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException or IOException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static void AssertDeletionDateTrashAbsent(
