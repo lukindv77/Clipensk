@@ -9,15 +9,19 @@ if (-not (Test-Path $fullPath)) {
 
 $text = [System.IO.File]::ReadAllText($fullPath)
 if (-not $text.Contains('using Clipensk.Core.Storage;')) {
-    $old = "using Clipensk.Storage.Clipboard;`nusing Clipensk.Storage.Sqlite;"
-    $new = "using Clipensk.Core.Storage;`nusing Clipensk.Storage.Clipboard;`nusing Clipensk.Storage.Sqlite;"
-    $count = ([regex]::Matches($text, [regex]::Escape($old))).Count
-    if ($count -ne 1) {
-        throw "Expected exactly one import anchor in $path, found $count."
+    $pattern = '(?m)^using Clipensk\.Storage\.Clipboard;\r?$'
+    $matches = [regex]::Matches($text, $pattern)
+    if ($matches.Count -ne 1) {
+        throw "Expected exactly one Clipboard import anchor in $path, found $($matches.Count)."
     }
 
+    $text = [regex]::Replace(
+        $text,
+        $pattern,
+        "using Clipensk.Core.Storage;`r`nusing Clipensk.Storage.Clipboard;",
+        1)
     [System.IO.File]::WriteAllText(
         $fullPath,
-        $text.Replace($old, $new),
+        $text,
         [System.Text.UTF8Encoding]::new($false))
 }
