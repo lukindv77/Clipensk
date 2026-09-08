@@ -14,10 +14,11 @@ public partial class App
     private ProtectedClipboardDeliveryServices? _clipboardWorkerServices;
     private CancellationTokenSource? _clipboardWorkerCancellation;
     private long _clipboardWorkerGeneration;
-    private int _clipboardRuntimeSuspended;
+    private long _clipboardRuntimeSuspensionOwner;
+    private long _clipboardRuntimeSuspensionSequence;
 
     private bool IsClipboardRuntimeSuspended =>
-        Volatile.Read(ref _clipboardRuntimeSuspended) != 0;
+        Volatile.Read(ref _clipboardRuntimeSuspensionOwner) != 0;
 
     private void RequestClipboardWorkerStart(
         JournalWindow window,
@@ -191,11 +192,10 @@ public partial class App
 
     /// <summary>
     /// Stops accepting new clipboard updates, revokes the current worker generation and does not
-    /// return a successful quiesced state until the exact previous worker task has completed.
-    /// The suspended state intentionally remains active until an explicit resume or a protected
-    /// lifecycle reset; future destructive maintenance can therefore fail closed after errors.
+    /// return a suspension owner token until the exact previous worker task has completed.
+    /// The returned token uniquely owns this in-memory suspension and must be supplied to resume.
     /// </summary>
-    private async Task<bool> TryQuiesceClipboardRuntimeAsync(
+    private async Task<long?> TryQuiesceClipboardRuntimeAsync(
         JournalWindow window,
         ResidentWindowsHost host,
         ProtectedApplicationLifecycle lifecycle,
@@ -205,21 +205,22 @@ public partial class App
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
         {
-            return false;
+            return null;
         }
 
-        // Suspension has a single in-memory owner. A concurrent maintenance request must not
-        // share this state because either caller could otherwise resume capture while the other
-        // still assumes a quiesced runtime.
-        if (Interlocked.CompareExchange(ref _clipboardRuntimeSuspended, 1, 0) != 0)
+        long suspensionOwner = NextClipboardRuntimeSuspensionOwner();
+        if (Interlocked.CompareExchange(
+                ref _clipboardRuntimeSuspensionOwner,
+                suspensionOwner,
+                comparand: 0) != 0)
         {
-            return false;
+            return null;
         }
 
         if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
         {
-            Interlocked.CompareExchange(ref _clipboardRuntimeSuspended, 0, 1);
-            return false;
+            TryReleaseClipboardRuntimeSuspension(suspensionOwner);
+            return null;
         }
 
         // Prevent an already-running composition from publishing after suspension. New requests
@@ -233,13 +234,10 @@ public partial class App
         Task workerCompletion = InvalidateClipboardWorkerAndGetCompletion();
         try
         {
-            await workerCompletion.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Suspension stays asserted. A cancelled maintenance caller must not accidentally
-            // reactivate capture while the old worker completion is still unknown to that caller.
-            throw;
+            // Once suspension owns the runtime, cancellation cannot safely make this method return
+            // before the old worker is known to be finished. The worker itself has already been
+            // cancelled; drain completion is therefore an unconditional safety boundary.
+            await workerCompletion.ConfigureAwait(false);
         }
         catch
         {
@@ -247,26 +245,40 @@ public partial class App
             // proceed if the same protected session still owns the runtime boundary.
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        return IsCurrentProtectedStorageSession(host, window, lifecycle, session);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            // Maintenance has not started yet because quiesce has not returned. Releasing this
+            // exact owner and requesting fresh composition is therefore safe on caller cancel.
+            if (TryReleaseClipboardRuntimeSuspension(suspensionOwner) &&
+                IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+            {
+                RequestClipboardDeliveryComposition(window, host);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+        {
+            TryReleaseClipboardRuntimeSuspension(suspensionOwner);
+            return null;
+        }
+
+        return suspensionOwner;
     }
 
     /// <summary>
-    /// Explicitly leaves maintenance suspension and requests a fresh composition from persisted
-    /// state. No old delivery graph is reused.
+    /// Releases only the exact maintenance suspension owner and requests a fresh composition from
+    /// persisted state when the original protected session is still current. No old graph is reused.
     /// </summary>
     private bool TryResumeClipboardRuntimeAfterMaintenance(
         JournalWindow window,
         ResidentWindowsHost host,
         ProtectedApplicationLifecycle lifecycle,
-        ProtectedStorageSessionLease session)
+        ProtectedStorageSessionLease session,
+        long suspensionOwner)
     {
-        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
-        {
-            return false;
-        }
-
-        if (Interlocked.CompareExchange(ref _clipboardRuntimeSuspended, 0, 1) != 1)
+        if (!TryReleaseClipboardRuntimeSuspension(suspensionOwner))
         {
             return false;
         }
@@ -280,9 +292,30 @@ public partial class App
         return true;
     }
 
+    private long NextClipboardRuntimeSuspensionOwner()
+    {
+        long owner;
+        do
+        {
+            owner = Interlocked.Increment(ref _clipboardRuntimeSuspensionSequence);
+        }
+        while (owner == 0);
+
+        return owner;
+    }
+
+    private bool TryReleaseClipboardRuntimeSuspension(long suspensionOwner)
+    {
+        return suspensionOwner != 0 &&
+            Interlocked.CompareExchange(
+                ref _clipboardRuntimeSuspensionOwner,
+                value: 0,
+                comparand: suspensionOwner) == suspensionOwner;
+    }
+
     private void ResetClipboardRuntimeSuspension()
     {
-        Interlocked.Exchange(ref _clipboardRuntimeSuspended, 0);
+        Interlocked.Exchange(ref _clipboardRuntimeSuspensionOwner, 0);
     }
 
     private void InvalidateClipboardWorker()
