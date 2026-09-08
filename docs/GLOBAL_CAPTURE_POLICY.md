@@ -1,6 +1,6 @@
 # Глобальная capture policy — введена в Current v5
 
-Latest Current schema — **v6**. Global capture policy остаётся storage-scoped контрактом, введённым в v5; v6 добавляет exact custom-binary file-extension configuration. Первичный product setup теперь сохраняет policy и относящиеся к ней custom mappings атомарно.
+Latest Current schema — **v6**. Global capture policy остаётся storage-scoped контрактом, введённым в v5; v6 добавляет exact custom-binary file-extension configuration. Первичный product setup сохраняет policy и относящиеся к ней custom mappings атомарно.
 
 ## Принятый контракт
 
@@ -44,7 +44,7 @@ Repository принимает Current **v5+**, проверяет storage identi
 
 ## Атомарная product initial setup
 
-JournalWindow больше не выполняет global policy и custom-binary mappings отдельными durable writes. Product first-run policy path использует `SqliteInitialClipboardCaptureConfigurationService` на той же active `ProtectedStorageSessionLease`.
+JournalWindow не выполняет global policy и custom-binary mappings отдельными durable writes. Product first-run policy path использует `SqliteInitialClipboardCaptureConfigurationService` на той же active `ProtectedStorageSessionLease`.
 
 Aggregate service принимает полностью валидированную `ClipboardCapturePolicy` и zero-or-more explicit `InitialCustomBinaryFormatConfiguration`. Он требует Current v6, валидирует обе schema families и начинает immediate transaction. Перед INSERT service проверяет, что initial-configuration tables ещё не содержат durable rows:
 
@@ -76,7 +76,7 @@ UI всегда показывает exact Windows `StandardDataFormats`:
 
 ### Custom binary formats
 
-UI теперь позволяет **явно добавить** zero-or-more custom binary rows. Никакие discovered/private formats не добавляются, не выбираются и не включаются автоматически.
+UI позволяет **явно добавить** zero-or-more custom binary rows. Никакие discovered/private formats не добавляются, не выбираются и не включаются автоматически.
 
 Каждая custom row требует exact `FormatName` и explicit Allow/Deny. `WaveAudio`, `RiffAudio` и `FileContents` запрещены capture guard. Exact duplicate имени — включая collision со standard row — отклоняется.
 
@@ -91,7 +91,7 @@ Read-only summary для non-standard Allow дополнительно чита�
 
 Clipboard format discovery UI пока отсутствует. Product не предлагает эвристические format names и не включает неизвестные formats автоматически.
 
-## Composition и worker lifecycle
+## Composition, worker lifecycle и maintenance quiescence
 
 Persisted policy подключена к `ProtectedClipboardDeliveryServices.TryCreateAsync`. Boundary возвращает `null` только при действительно отсутствующей global policy; storage/schema errors остаются errors.
 
@@ -101,16 +101,24 @@ App выполняет composition после active protected session и пуб
 
 Для non-null composition App создаёт exact-session single-reader `ClipboardAcceptedCaptureWorker`. Новый worker ждёт завершения previous generation; Windows listener запускается только после ready-reader gate. Lock останавливает listener, инвалидирует capture epoch, worker generation и composition; linked App/session cancellation завершает blocked/active worker.
 
+Перед будущим **изменением уже настроенной policy** App теперь имеет отдельный runtime-quiescence foundation. `TryQuiesceClipboardRuntimeAsync` атомарно захватывает unique suspension owner token, блокирует новые composition/worker/listener paths, останавливает listener, отменяет current worker и ждёт завершения exact worker task до возврата caller'у. Это закрывает stale-global-policy race: старый delivery graph не может оставаться активным во время destructive cleanup/policy publication.
+
+После successful quiesce auto-resume отсутствует. Future maintenance должна явно передать exact owner token в `TryResumeClipboardRuntimeAfterMaintenance`; только тогда App снимает suspension и для всё ещё current protected session строит **fresh composition**, заново читая persisted global policy. Lock/reopen ABA защищён owner-token semantics: stale old-session caller не может снять suspension новой session.
+
+Сам policy cleanup/update этим tranche **ещё не реализован**. Нет Current/Archive history deletion, durable maintenance marker, policy UPDATE API или maintenance UI. Quiescence — только обязательный runtime safety boundary перед ними.
+
 Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md` и `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
 
 ## Migration и latest schema
 
-`ProtectedStorageDatabaseService` создаёт новую pair как **Current v6 / Catalog v2**.
+`ProtectedStorageDatabaseService` создаёт новую pair как **Current v6 / Catalog v3**.
 
 Migration sequence сохраняет отдельные durable steps:
 
 - v4 → v5: global-policy tables, без seed/defaults;
 - v5 → v6: пустая `CustomBinaryFormatConfiguration`, без переписывания policy.
+
+Catalog отдельно дошёл до v3 с rebuildable Archive segment projection; это не меняет source-of-truth semantics global policy.
 
 До mutation валидируется Current/Catalog pair. Ошибка/отмена v4→v5 оставляет полноценный v4; ошибка/отмена v5→v6 оставляет полноценный v5. Повторное открытие может безопасно продолжить migration.
 
@@ -126,8 +134,8 @@ Aggregate initial-configuration tests дополнительно покрыва�
 - prohibited format validation до DB open;
 - требование, чтобы mapping относился к explicit allowed format.
 
-Windows feature Build должен подтвердить App UI wiring на exact feature SHA. После продвижения final tree required official main Build и Native SQLCipher evidence проверяются на exact main SHA, поскольку tranche меняет `src/Clipensk.Storage/**`.
+Runtime-quiescence feature не меняет `src/Clipensk.Storage/**`; Windows feature Build компилирует App suspension/owner-token wiring и выполняет существующий full test suite. По текущему Native SQLCipher workflow path scope обычные `src/Clipensk.App/*.cs` сами по себе не запускают новый native gate.
 
-**Manual WinUI/real-clipboard smoke остаётся UNVERIFIED.** Unit/CI tests не эмулируют настоящий foreground application, `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView` и пользовательскую работу dynamic custom rows.
+**Manual WinUI/real-clipboard smoke остаётся UNVERIFIED.** Unit/CI tests не эмулируют настоящий foreground application, `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView`, suspension во время active capture и пользовательскую работу dynamic custom rows.
 
 Policy cleanup/update для последующего изменения остаётся отдельным этапом. Format/size defaults по-прежнему не назначены.
