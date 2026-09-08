@@ -80,14 +80,19 @@ internal sealed class SqlitePendingPolicyMaintenanceReader
                 !string.Equals(
                     reader.GetString(2),
                     DatabaseRole.Current.ToString(),
-                    StringComparison.Ordinal) ||
-                reader.Read())
+                    StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
                     "Pending policy maintenance requires the expected Current identity.");
             }
 
             version = reader.GetInt32(3);
+            if (reader.Read())
+            {
+                throw new InvalidDataException(
+                    "Pending policy maintenance requires exactly one Current identity row.");
+            }
+
             if (version < PendingPolicyMaintenanceSqlSchema.MinimumCurrentSchemaVersion)
             {
                 throw new InvalidDataException(
