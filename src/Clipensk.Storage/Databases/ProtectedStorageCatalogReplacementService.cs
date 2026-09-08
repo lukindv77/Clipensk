@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Clipensk.Core.Storage;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
 
@@ -248,7 +249,7 @@ public sealed class ProtectedStorageCatalogReplacementService
             FileAccess.Read,
             FileShare.Read | FileShare.Delete,
             bufferSize: 128 * 1024,
-            FileOptions.SequentialScan);
+            options: FileOptions.SequentialScan);
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         byte[] buffer = new byte[128 * 1024];
         while (true)
