@@ -75,6 +75,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     }
 
     public void DowngradeToV4() => Execute("""
+        DROP TABLE PendingStorageMaintenance;
         DROP TABLE CustomBinaryFormatConfiguration;
         DROP TABLE GlobalFormatCapturePolicy;
         DROP TABLE GlobalCapturePolicy;
@@ -83,6 +84,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV5() => Execute("""
+        DROP TABLE PendingStorageMaintenance;
         DROP TABLE CustomBinaryFormatConfiguration;
         UPDATE DatabaseIdentity SET SchemaVersion = 5;
         PRAGMA user_version = 5;
