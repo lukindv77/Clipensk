@@ -2,11 +2,11 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/current-v7-policy-maintenance ]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -19,6 +19,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Bootstrap Current v7 policy maintenance
+        if: github.ref_name == 'feat/current-v7-policy-maintenance'
+        shell: pwsh
+        run: ./eng/bootstrap-current-v7-policy-maintenance.ps1
 
       - name: Verify x64-only implementation scope
         shell: pwsh
@@ -56,3 +61,15 @@ jobs:
 
       - name: Test
         run: dotnet test Clipensk.slnx --configuration Release --no-build
+
+      - name: Commit validated Current v7 implementation
+        if: github.ref_name == 'feat/current-v7-policy-maintenance' && success()
+        shell: pwsh
+        run: |
+          git add src tests
+          if (-not (git diff --cached --quiet)) {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'feat: add Current v7 policy maintenance marker'
+            git push origin "HEAD:${{ github.ref_name }}"
+          }
