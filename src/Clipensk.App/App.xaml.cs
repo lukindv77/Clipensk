@@ -107,6 +107,7 @@ public partial class App : Application
             TrySetClipboardMonitoring(host, start: false);
             InvalidateClipboardWorker();
             InvalidateClipboardDeliveryComposition();
+            ResetClipboardRuntimeSuspension();
             return;
         }
 
@@ -149,8 +150,9 @@ public partial class App : Application
 
         TrySetClipboardMonitoring(host, start: true);
 
-        // A lock/close can race the Win32 start boundary from another callback thread.
-        // Re-check after Start and immediately revoke monitoring if protected ownership changed.
+        // A lock/close/maintenance suspension can race the Win32 start boundary from another
+        // callback thread. Re-check after Start and immediately revoke monitoring if protected
+        // ownership or runtime eligibility changed.
         if (!IsCurrentClipboardRuntimeSession(host, window, lifecycle, session))
         {
             TrySetClipboardMonitoring(host, start: false);
@@ -158,6 +160,16 @@ public partial class App : Application
     }
 
     private bool IsCurrentClipboardRuntimeSession(
+        ResidentWindowsHost host,
+        JournalWindow window,
+        ProtectedApplicationLifecycle lifecycle,
+        ProtectedStorageSessionLease session)
+    {
+        return !IsClipboardRuntimeSuspended &&
+            IsCurrentProtectedStorageSession(host, window, lifecycle, session);
+    }
+
+    private bool IsCurrentProtectedStorageSession(
         ResidentWindowsHost host,
         JournalWindow window,
         ProtectedApplicationLifecycle lifecycle,
@@ -204,6 +216,7 @@ public partial class App : Application
 
         InvalidateClipboardWorker();
         InvalidateClipboardDeliveryComposition();
+        ResetClipboardRuntimeSuspension();
 
         if (_window is not null)
         {
