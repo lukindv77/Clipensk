@@ -10,219 +10,197 @@ Clipensk — Open Source resident Windows clipboard-history manager.
 
 - repository: `lukindv77/Clipensk`;
 - canonical branch: `main`;
-- platform: Windows x64/AMD64 only; ARM64 вне product scope;
-- stack: C# / .NET 10 / WinUI 3 / Windows App SDK;
-- protected storage: SQLCipher, один MasterKey на storage;
-- production schemas: **Current v6 / Catalog v3 / Archive v1**.
+- Windows x64/AMD64 only; ARM64 вне scope;
+- C# / .NET 10 / WinUI 3 / Windows App SDK;
+- protected SQLite: SQLCipher, один MasterKey на storage;
+- production schemas на этом checkpoint: **Current v6 / Catalog v3 / Archive v1**.
 
-Ключевые storage docs: `CURRENT_DATABASE_SCHEMA.md`, `CLIPBOARD_HISTORY_SCHEMA.md`, `STORAGE_CATALOG_SCHEMA.md`, `EXTERNAL_PAYLOAD_CATALOG_REBUILD.md`, `EXTERNAL_PAYLOAD_TRASH_GC.md`, `STORAGE_CATALOG_RECOVERY.md`, `ARCHIVE_DATABASE_SCHEMA.md`.
-
-## B. Workflow rules
+## B. Workflow invariants
 
 - GitHub `main` + exact Actions evidence — source of truth.
 - Code changes идут через feature branch.
-- Перед `main` update: fresh main + exact feature, compare, `behind=0`, merge-base=current main; fast-forward только `force:false`.
-- PASS только после exact-SHA official Build и, для storage/runtime changes, Native SQLCipher evidence на `main`.
-- Failure-driven fixes only.
-- Temporary feature Build trigger обязан быть восстановлен byte-for-byte до final compare.
-- Whole storage pair validation before migration mutation.
-- Cancellation before COMMIT/publication; committed durable success не демотируется late cancellation.
+- Перед main update: fresh main + exact feature + compare; require `behind=0`, merge-base exactly current main, затем `update_ref(force:false)`.
+- Build/PASS не заявлять без exact SHA evidence.
+- Temporary feature Build trigger восстановить byte-for-byte перед final compare.
+- Canonical main-only `.github/workflows/build.yml` blob: `657f11356566b459dc46f1639b0d4ea7728083f2`.
+- Storage/runtime changes, попадающие в Native SQLCipher workflow paths, требуют exact promoted-SHA Native PASS.
 - Manual WinUI/real clipboard/recovery smoke остаётся UNVERIFIED без отдельного evidence.
 
-Canonical main-only `build.yml` blob:
+## C. Canonical main before active feature
 
-`657f11356566b459dc46f1639b0d4ea7728083f2`
+Fresh main перед `policy-runtime-quiescence` feature:
 
-## C. Canonical main
+`d7918b90be474aa653f3c99b87fda13f210132a5`
 
-Canonical main перед текущим feature:
+Этот main содержит completed external-payload Trash GC foundation вместе с ранее завершёнными Archive/Catalog/unified-history tranches.
 
-`4c438cd0697861d8366c34936521af940df988cf`
+Exact official evidence на `d7918b90…`:
 
-Этот main уже содержит:
+- Build #209 / run `34194079867` — SUCCESS;
+  - x64 scope SUCCESS;
+  - Restore SUCCESS;
+  - Release Build SUCCESS;
+  - Test SUCCESS.
+- Native SQLCipher #48 / run `34194079912` — SUCCESS;
+  - pinned SQLCipher x64 build SUCCESS;
+  - provenance SUCCESS;
+  - SQLCipher smoke publish SUCCESS;
+  - encrypted storage x64 verification SUCCESS;
+  - unpackaged Clipensk x64 publish SUCCESS;
+  - published runtime SQLCipher loading SUCCESS;
+  - native/runtime artifacts SUCCESS.
 
-- Archive v1 create/validate;
-- resumable Current→Archive transfer;
-- Catalog v3 `ArchiveSegmentIndex` + derived sealing;
-- unified read-only Current+Archive history;
-- full external SHA Catalog projection rebuild;
-- session-wide mutation lease между capture SHA reservation→Current COMMIT и external-Catalog rebuild;
-- explicit pre-session recreation отсутствующего Catalog;
-- explicit pre-session replacement существующего damaged/stale Catalog с quarantine backup прежних exact bytes.
+Следовательно external-payload Trash GC tranche полностью automated PASS на canonical main.
 
-Exact official evidence на `4c438cd0…`:
-
-- Build #200 — SUCCESS;
-- Native SQLCipher #47 / run `34188687273` — SUCCESS;
-- Native #47 завершил pinned SQLCipher x64 build, provenance, encrypted-storage verification, unpackaged publish, production runtime SQLCipher loading и artifact publication.
-
-Следовательно damaged-Catalog replacement полностью PASS на canonical main.
-
-## D. Active feature
+## D. Active feature — policy runtime quiescence
 
 Branch:
 
-`feat/external-payload-trash-gc`
+`feat/policy-runtime-quiescence`
 
 Base:
 
-`4c438cd0697861d8366c34936521af940df988cf`
+`d7918b90be474aa653f3c99b87fda13f210132a5`
 
-Owner: **history-unreferenced external payload Files→Trash collector / last-reference physical cleanup foundation**.
+Owner: **App-level stop/drain/resume boundary, обязательный до destructive policy cleanup/mutation**.
 
-Temporary `.github/workflows/build.yml` сейчас включает feature branch. Перед final compare он обязан быть восстановлен к canonical blob `657f1135…`.
+Temporary `build.yml` feature trigger включён до final validation и обязан исчезнуть из final main diff.
 
-Последний exact runtime/test SHA:
+Последний exact runtime/test SHA до docs:
 
-`a50960f8b0df300e692783921cdc320e4a4d3f86`
+`589e786f77d9a78f71098d2ea67d5316abd0ce20`
 
-Build #204 / run `34190036583` — SUCCESS:
+Build #216 / run `34204882406` — SUCCESS:
 
-- x64-only scope — SUCCESS;
-- Restore — SUCCESS;
-- Release Build — SUCCESS;
-- Test — SUCCESS.
+- x64-only scope SUCCESS;
+- Restore SUCCESS;
+- Release Build SUCCESS;
+- Test SUCCESS.
 
-После `a50960f8…` меняются только authoritative docs. Docs-inclusive head обязан получить отдельный exact Build/Test перед promotion.
+После `589e786f…` меняются только authoritative docs. Docs-inclusive feature tip обязан получить отдельный exact Build/Test перед promotion.
 
-## E. Trash GC implementation
+Если fresh GitHub уже показывает `main` равным final feature SHA, считать promotion выполненным и проверять official main Build вместо повторного merge.
 
-`ProtectedExternalPayloadTrashCollector.CollectAsync` работает только с active `ProtectedStorageSessionLease`.
+## E. Quiescence contract
 
-Collector не удаляет history rows и не меняет policy. Его input — explicit `deletionDate` + cancellation token.
+App runtime теперь имеет in-memory maintenance suspension, участвующую в:
 
-Основной contract:
+- `RequestClipboardDeliveryComposition`;
+- composition publication validation;
+- `RequestClipboardWorkerStart`;
+- `IsCurrentClipboardWorker`;
+- `IsCurrentClipboardRuntimeSession` до и после listener Start.
 
-1. запускается `ProtectedExternalPayloadCatalogRebuildService.RebuildAsync`, чтобы вывести projection только из authoritative Current+Archive history и убрать stale capture reservations;
-2. после rebuild collector получает session mutation lease;
-3. под lease Catalog перечитывается только как conservative keep-set;
-4. live Current/Archive references сохраняют physical object;
-5. только history-unreferenced canonical managed objects становятся Trash candidates.
+`TryQuiesceClipboardRuntimeAsync` работает только для exact current window/host/lifecycle/session.
 
-Catalog остаётся rebuildable accelerator и сам по себе не является durable reference.
+Порядок:
 
-## F. Capture race safety
+1. проверить caller cancellation и exact protected session;
+2. атомарно получить unique non-zero suspension owner token;
+3. повторно проверить exact session;
+4. invalidate composition generation;
+5. `StopClipboardMonitoring`, что инвалидирует capture epoch;
+6. invalidate worker generation и cancel exact App-owned worker CTS;
+7. **безусловно дождаться exact previous worker task completion**;
+8. только затем вернуть owner token.
 
-Capture резервирует external SHA/address и завершает Current history COMMIT, удерживая тот же session mutation lease.
+До завершения worker task caller не получает quiesced state.
 
-Поэтому capture между rebuild и collector lease не теряется: к моменту post-lease keep-set read его reservation уже видна.
+## F. Why owner token, not bool
 
-Capture crash после reservation и до history COMMIT может временно оставить stale reservation и сохранить orphan object ещё на один GC pass. Это допустимый safe leak, не data loss.
+Boolean suspension имеет ABA race:
 
-Current→Archive transfer не создаёт новый content address и сохраняет archive-first durable order, поэтому не создаёт отдельный last-reference race.
+`old owner=1 → lock resets 0 → new session acquires 1 → stale old caller clears 1`.
 
-## G. Managed Files and Trash layout
+Текущий contract использует monotonic unique owner token. Release выполняется CAS только против exact token, поэтому stale old-session caller не может снять suspension новой session.
 
-Collector рассматривает только exact canonical objects:
+Lock/revoke сбрасывает in-memory owner, чтобы новая protected session не наследовала transient App state. Это **не** recovery contract для будущей durable maintenance: незавершённая destructive operation должна отдельно блокироваться Current pending-operation marker после reopen.
 
-```text
-Files/<yyyy-MM-dd>/<64 lowercase hex SHA-256>.<lowercase extension>
-```
+Window close suspension не снимает и resume не вызывает.
 
-Source bytes перед publication exact SHA-256 проверяются против filename. Canonical-looking object с другими bytes завершает operation fail-closed. Noncanonical/foreign files игнорируются.
+## G. Cancellation and stale-capture safety
 
-Trash publication:
+После owner acquisition quiesce не возвращается по caller cancellation, пока old worker не завершён. Worker уже cancelled, поэтому drain остаётся обязательной safety boundary.
 
-```text
-Trash/<deletion-date>/<original Files relative path>
-```
+Если caller token отменён во время drain, destructive maintenance ещё не начиналась. После worker completion exact suspension owner освобождается, и только для той же active session запрашивается fresh composition; затем cancellation возвращается caller'у.
 
-Например:
+После successful quiesce никакого auto-resume нет. Future maintenance exception/cancellation может оставить capture suspended fail-closed.
 
-```text
-Trash/2026-09-08/2026-08-31/<sha>.png
-```
+`TryResumeClipboardRuntimeAfterMaintenance`:
 
-Если exact destination уже существует, source удаляется только после повторной SHA/size validation destination. Иначе используется `File.Move`.
+- снимает только exact owner token;
+- требует original protected session всё ещё current для restart;
+- создаёт **fresh composition** и заново читает persisted global policy;
+- старый `ProtectedClipboardDeliveryServices` не переиспользуется.
 
-Retention purge самого Trash — отдельный future maintenance boundary.
+History sink уже имеет cancellation check непосредственно перед SQLite COMMIT. Поэтому после worker drain already-dequeued capture либо отменён до COMMIT, либо его COMMIT уже durable завершился и будущий cleanup должен увидеть/удалить запись по новой policy. Successful COMMIT не демотируется late cancellation.
 
-## H. Reparse-point containment
+## H. Scope / non-goals
 
-Collector fail-closed запрещает reparse traversal в managed paths:
+Quiescence feature не меняет:
 
-- configured `Files` root;
-- source date directory;
-- source file;
-- существующие `Trash` ancestors/destination;
-- newly created Trash directories после создания.
+- Current/Catalog/Archive schema;
+- global/application policy rows;
+- history rows;
+- external files/Trash;
+- Catalog projections;
+- custom-binary mappings;
+- UI policy editor.
 
-Это закрывает обычные symlink/junction escapes из data root. Hostile kernel-level TOCTOU между userspace check и syscall не заявлен как решённый; для такого threat model нужен отдельный handle-based Windows filesystem contract.
+Обычные `src/Clipensk.App/*.cs` не входят в текущий Native SQLCipher workflow path filter, поэтому этот App-only tranche ожидает official Build после promotion, но сам по себе не должен запускать новый Native workflow. Не заявлять это как PASS до фактического official Build на promoted SHA.
 
-## I. Cancellation/crash semantics
+Manual quiesce во время реального `WM_CLIPBOARDUPDATE`/WinRT read и lock/reopen dispatcher races остаётся UNVERIFIED.
 
-Полный candidate preflight выполняется до filesystem publication.
+## I. Finalize current feature
 
-Для каждого planned object непосредственно перед publication source fingerprint пересчитывается. Cancellation проверяется до каждого individual move/delete.
+1. Получить exact docs-inclusive feature head.
+2. Require feature Build: x64/Restore/Build/Test SUCCESS.
+3. Fresh read `.github/workflows/build.yml`, затем restore canonical bytes/blob `657f1135…`.
+4. Fresh read `main` и feature head.
+5. Compare main→feature; require `behind=0`, merge-base=current main, no workflow diff; intended final files:
+   - `src/Clipensk.App/App.ClipboardWorker.cs`;
+   - `src/Clipensk.App/App.ProtectedClipboardDelivery.cs`;
+   - `src/Clipensk.App/App.xaml.cs`;
+   - lifecycle/policy/composition docs;
+   - this handoff.
+6. Fast-forward `main` with `force:false`.
+7. Fresh fetch main; require exact feature SHA.
+8. Require official Build on exact promoted SHA.
+9. Check whether Native workflow actually triggered. По current path filter для этих App `.cs` changes он не ожидается; не выдумывать run, если GitHub его не создал.
 
-Каждый успешный `File.Move` или duplicate-source `File.Delete` — отдельная durable publication boundary. Late cancellation уже выполненную publication не демотирует и не откатывает.
+## J. Next architecture-safe tranche after quiescence PASS
 
-Batch поэтому может быть partially progressed между objects. Повторный collector pass безопасно продолжает с оставшимися Files objects.
+**Current v7 resumable policy-maintenance foundation**, затем actual cleanup/mutation.
 
-## J. Regression history
+Recommended boundary:
 
-Build #201:
+1. Current v7 добавляет empty-by-default durable pending-maintenance marker; no seed/default policy changes.
+2. v6→v7 migration отдельная atomic step после full Current/Catalog pair validation, с rollback/retry/cancellation tests.
+3. Protected delivery composition fail-closed не запускает resident capture, пока pending marker существует.
+4. Current→Archive transfer должен брать тот же session mutation lease, что policy cleanup DB phase; иначе transfer может вынести запрещённый Current payload в Archive между cleanup phases.
+5. Policy mutation DB phase под mutation lease:
+   - new policy + Current cleanup + pending marker durable publication;
+   - external-format cleanup также idempotently проходит Archive maintenance writes;
+   - обычные non-external Archive DB-data по REQUIREMENTS §18 не удаляются.
+6. После authoritative Current+Archive cleanup rebuild Catalog projection.
+7. Затем existing `ProtectedExternalPayloadTrashCollector` переносит только genuinely unreferenced managed files в Trash.
+8. Clear pending marker только после required durable cleanup/rebuild boundary; crash/reopen должен уметь resume, а не запускать capture по half-finished policy maintenance.
 
-- x64/Restore/Release Build SUCCESS;
-- Test failure был только из-за неверного test assumption, что bootstrap не создаёт корневой `Trash`;
-- product implementation не менялся для этого failure.
+Не добавлять shortcut `UPDATE GlobalCapturePolicy` без cleanup lifecycle.
 
-Build #202 после test-only assertion fix — полный SUCCESS.
+## K. Requirement semantics for disable
 
-Build #203 после reparse-point product hardening — полный SUCCESS.
+По REQUIREMENTS §18:
 
-Build #204 на final runtime/test SHA `a50960f8…` — полный SUCCESS, включая targeted Windows directory-symlink regression, когда runner/OS разрешает symbolic-link creation.
+- отключённые актуальные DB-данные удаляются из Current;
+- DB-данные, уже только в Archive, обычно сохраняются;
+- для external-file formats ссылки удаляются и из Current, и из Archive;
+- physical external file уходит в Trash только когда после cleanup не осталось допустимых ссылок.
 
-Coverage включает:
+Persisted `PayloadKind`, а не догадка по `FormatName`, должен определять external-row handling.
 
-- stale Catalog reservation + orphan object;
-- live Current reference;
-- live Archive reference;
-- wrong canonical bytes fail-closed;
-- noncanonical file ignore;
-- existing exact Trash copy;
-- cancellation before publication;
-- mutation lease serialization;
-- reparse-point containment.
-
-## K. Explicit non-goals
-
-Текущий tranche не реализует:
-
-- удаление history references;
-- global/per-app policy mutation;
-- required Current+Archive cleanup при policy disable;
-- Trash retention purge;
-- missing external payload byte recovery;
-- maintenance/recovery UI.
-
-Особенно запрещён Current-only policy UPDATE shortcut: external-format disable должен сначала удалить соответствующие durable references из Current и Archive, затем выполнить last-reference physical cleanup через этот foundation.
-
-## L. Immediate resume steps
-
-1. Fetch latest docs-inclusive feature head.
-2. Require exact docs-inclusive feature Build: x64/Restore/Build/Test SUCCESS.
-3. Restore `.github/workflows/build.yml` byte-for-byte to blob `657f11356566b459dc46f1639b0d4ea7728083f2`.
-4. Fresh fetch current `main` immediately before promotion.
-5. Compare main→feature; require `behind=0`, merge-base=current main, no workflow diff and only intended product/tests/docs files.
-6. Fast-forward main with `force:false`.
-7. Require official Build on exact promoted SHA.
-8. Feature changes `src/Clipensk.Storage/**`, поэтому require exact promoted-SHA Native SQLCipher SUCCESS before full PASS.
-9. Manual real WinUI/clipboard smoke remains UNVERIFIED.
-
-## M. Recommended next work after Trash GC
-
-Architecture-safe order:
-
-1. multi-DB policy cleanup/mutation boundary across Current + Archive;
-2. invoke last-reference Trash collection only after durable forbidden references are removed;
-3. Trash retention purge (default requirement currently 30 days, product configuration still separate);
-4. quarantine retention/user recovery UI;
-5. archive split/repair/migration;
-6. unified JournalWindow UI/search/FTS;
-7. manual real clipboard/recovery smoke;
-8. installer/packaging and final license decisions.
+Event header не удаляется автоматически при удалении последнего payload row: FK идёт Event→Payload `ON DELETE CASCADE`, не наоборот. Future cleanup должен явно определить/реализовать event-with-zero-payload semantics.
 
 ## Resume rule
 
-Never repeat completed Archive foundation, Current→Archive transfer, Catalog v3, unified history read, external SHA projection rebuild, missing-Catalog recreation or existing-Catalog replacement if canonical `main` already contains the verified tranche.
+Не повторять завершённые Archive, transfer, Catalog v3, unified history, Catalog rebuild/recovery/replacement или Trash GC tranches, если fresh canonical `main` уже содержит их exact promoted commits.
