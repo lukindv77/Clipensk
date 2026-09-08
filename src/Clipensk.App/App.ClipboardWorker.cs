@@ -14,6 +14,10 @@ public partial class App
     private ProtectedClipboardDeliveryServices? _clipboardWorkerServices;
     private CancellationTokenSource? _clipboardWorkerCancellation;
     private long _clipboardWorkerGeneration;
+    private int _clipboardRuntimeSuspended;
+
+    private bool IsClipboardRuntimeSuspended =>
+        Volatile.Read(ref _clipboardRuntimeSuspended) != 0;
 
     private void RequestClipboardWorkerStart(
         JournalWindow window,
@@ -22,7 +26,9 @@ public partial class App
         ProtectedStorageSessionLease session,
         ProtectedClipboardDeliveryServices services)
     {
-        if (!lifecycle.CanAccessProtectedData || !session.IsActive)
+        if (IsClipboardRuntimeSuspended ||
+            !lifecycle.CanAccessProtectedData ||
+            !session.IsActive)
         {
             return;
         }
@@ -35,6 +41,11 @@ public partial class App
 
         lock (_clipboardWorkerGate)
         {
+            if (IsClipboardRuntimeSuspended)
+            {
+                return;
+            }
+
             if (ReferenceEquals(_clipboardWorkerSession, session) &&
                 ReferenceEquals(_clipboardWorkerServices, services) &&
                 !_clipboardWorkerTask.IsCompleted)
@@ -155,7 +166,8 @@ public partial class App
         CancellationToken workerToken,
         long generation)
     {
-        if (generation != Volatile.Read(ref _clipboardWorkerGeneration) ||
+        if (IsClipboardRuntimeSuspended ||
+            generation != Volatile.Read(ref _clipboardWorkerGeneration) ||
             !ReferenceEquals(_window, window) ||
             !ReferenceEquals(_residentWindowsHost, host) ||
             !ReferenceEquals(_lifecycle, lifecycle) ||
@@ -170,19 +182,111 @@ public partial class App
 
         lock (_clipboardWorkerGate)
         {
-            return ReferenceEquals(_clipboardWorkerSession, session) &&
+            return !IsClipboardRuntimeSuspended &&
+                ReferenceEquals(_clipboardWorkerSession, session) &&
                 ReferenceEquals(_clipboardWorkerServices, services) &&
                 ReferenceEquals(_clipboardWorkerCancellation, cancellation);
         }
     }
 
+    /// <summary>
+    /// Stops accepting new clipboard updates, revokes the current worker generation and does not
+    /// return a successful quiesced state until the exact previous worker task has completed.
+    /// The suspended state intentionally remains active until an explicit resume or a protected
+    /// lifecycle reset; future destructive maintenance can therefore fail closed after errors.
+    /// </summary>
+    private async Task<bool> TryQuiesceClipboardRuntimeAsync(
+        JournalWindow window,
+        ResidentWindowsHost host,
+        ProtectedApplicationLifecycle lifecycle,
+        ProtectedStorageSessionLease session,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+        {
+            return false;
+        }
+
+        Interlocked.Exchange(ref _clipboardRuntimeSuspended, 1);
+
+        // Prevent an already-running composition from publishing after suspension. New requests
+        // are rejected by the suspension gate before they can create another worker generation.
+        InvalidateClipboardDeliveryComposition();
+
+        // Stop first so the current capture epoch is invalidated before the worker drain. A Win32
+        // callback racing Stop can at worst leave an old-epoch request, which the queue discards.
+        TrySetClipboardMonitoring(host, start: false);
+
+        Task workerCompletion = InvalidateClipboardWorkerAndGetCompletion();
+        try
+        {
+            await workerCompletion.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Suspension stays asserted. A cancelled maintenance caller must not accidentally
+            // reactivate capture while the old worker completion is still unknown to that caller.
+            throw;
+        }
+        catch
+        {
+            // A faulted previous worker is still completed and therefore drained. Maintenance may
+            // proceed if the same protected session still owns the runtime boundary.
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsCurrentProtectedStorageSession(host, window, lifecycle, session);
+    }
+
+    /// <summary>
+    /// Explicitly leaves maintenance suspension and requests a fresh composition from persisted
+    /// state. No old delivery graph is reused.
+    /// </summary>
+    private bool TryResumeClipboardRuntimeAfterMaintenance(
+        JournalWindow window,
+        ResidentWindowsHost host,
+        ProtectedApplicationLifecycle lifecycle,
+        ProtectedStorageSessionLease session)
+    {
+        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+        {
+            return false;
+        }
+
+        if (Interlocked.Exchange(ref _clipboardRuntimeSuspended, 0) == 0)
+        {
+            return false;
+        }
+
+        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+        {
+            return false;
+        }
+
+        RequestClipboardDeliveryComposition(window, host);
+        return true;
+    }
+
+    private void ResetClipboardRuntimeSuspension()
+    {
+        Interlocked.Exchange(ref _clipboardRuntimeSuspended, 0);
+    }
+
     private void InvalidateClipboardWorker()
+    {
+        _ = InvalidateClipboardWorkerAndGetCompletion();
+    }
+
+    private Task InvalidateClipboardWorkerAndGetCompletion()
     {
         Interlocked.Increment(ref _clipboardWorkerGeneration);
         CancellationTokenSource? cancellation;
+        Task workerCompletion;
 
         lock (_clipboardWorkerGate)
         {
+            workerCompletion = _clipboardWorkerTask;
             cancellation = _clipboardWorkerCancellation;
             _clipboardWorkerCancellation = null;
             _clipboardWorkerSession = null;
@@ -190,6 +294,7 @@ public partial class App
         }
 
         TryCancelClipboardWorker(cancellation);
+        return workerCompletion;
     }
 
     private static void TryCancelClipboardWorker(CancellationTokenSource? cancellation)
