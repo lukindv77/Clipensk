@@ -20,6 +20,7 @@ public sealed class ProtectedExternalPayloadTrashCollector
     private readonly string _filesRootPath;
     private readonly string _filesRootPrefix;
     private readonly string _trashRootPath;
+    private readonly string _trashRootPrefix;
 
     public ProtectedExternalPayloadTrashCollector(
         ProtectedStorageSessionLease session,
@@ -32,7 +33,8 @@ public sealed class ProtectedExternalPayloadTrashCollector
         _catalogDatabasePath = Path.Combine(_dataRootPath, "Current", "storage-catalog.db");
         _filesRootPath = Path.TrimEndingDirectorySeparator(Path.Combine(_dataRootPath, "Files"));
         _filesRootPrefix = _filesRootPath + Path.DirectorySeparatorChar;
-        _trashRootPath = Path.Combine(_dataRootPath, "Trash");
+        _trashRootPath = Path.TrimEndingDirectorySeparator(Path.Combine(_dataRootPath, "Trash"));
+        _trashRootPrefix = _trashRootPath + Path.DirectorySeparatorChar;
     }
 
     public async Task<ExternalPayloadTrashCollectionResult> CollectAsync(
@@ -87,12 +89,14 @@ public sealed class ProtectedExternalPayloadTrashCollector
                 continue;
             }
 
+            ValidateManagedSourcePath(managedFile.FullPath);
             FileFingerprint sourceFingerprint = ReadAndValidateFingerprint(
                 managedFile.FullPath,
                 managedFile.Sha256);
             string destinationPath = GetTrashDestinationPath(
                 deletionDate,
                 managedFile.RelativePath);
+            ValidateExistingTrashPath(destinationPath);
 
             if (File.Exists(destinationPath))
             {
@@ -120,6 +124,7 @@ public sealed class ProtectedExternalPayloadTrashCollector
             cancellationToken.ThrowIfCancellationRequested();
             EnsureActiveSession();
 
+            ValidateManagedSourcePath(plan.Source.FullPath);
             FileFingerprint currentSource = ReadAndValidateFingerprint(
                 plan.Source.FullPath,
                 plan.Source.Sha256);
@@ -134,7 +139,8 @@ public sealed class ProtectedExternalPayloadTrashCollector
             {
                 throw new InvalidDataException("Trash destination directory is invalid.");
             }
-            Directory.CreateDirectory(destinationDirectory);
+            EnsureSafeTrashDirectory(destinationDirectory);
+            ValidateExistingTrashPath(plan.DestinationPath);
 
             cancellationToken.ThrowIfCancellationRequested();
             EnsureActiveSession();
@@ -151,10 +157,14 @@ public sealed class ProtectedExternalPayloadTrashCollector
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
+                ValidateManagedSourcePath(plan.Source.FullPath);
+                ValidateExistingTrashPath(plan.DestinationPath);
                 File.Delete(plan.Source.FullPath);
             }
             else
             {
+                ValidateManagedSourcePath(plan.Source.FullPath);
+                ValidateExistingTrashPath(plan.DestinationPath);
                 File.Move(plan.Source.FullPath, plan.DestinationPath);
             }
 
@@ -223,6 +233,9 @@ public sealed class ProtectedExternalPayloadTrashCollector
         {
             return [];
         }
+        EnsurePathIsNotReparsePoint(
+            _filesRootPath,
+            "Configured Files root is a reparse point during Trash GC.");
 
         var result = new List<ManagedExternalFile>();
         foreach (string dateDirectoryPath in Directory.EnumerateDirectories(
@@ -246,6 +259,10 @@ public sealed class ProtectedExternalPayloadTrashCollector
                 continue;
             }
 
+            EnsurePathIsNotReparsePoint(
+                dateDirectoryPath,
+                "Canonical Files date directory is a reparse point during Trash GC.");
+
             foreach (string filePath in Directory.EnumerateFiles(
                          dateDirectoryPath,
                          "*",
@@ -266,6 +283,7 @@ public sealed class ProtectedExternalPayloadTrashCollector
                         "Managed external payload candidate escapes the configured Files root.");
                 }
 
+                ValidateManagedSourcePath(fullPath);
                 result.Add(new ManagedExternalFile(relativePath, fullPath, sha256));
             }
         }
@@ -326,10 +344,148 @@ public sealed class ProtectedExternalPayloadTrashCollector
         return candidate;
     }
 
+    private void ValidateManagedSourcePath(string fullPath)
+    {
+        if (!fullPath.StartsWith(_filesRootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Managed external payload path escapes the configured Files root.");
+        }
+
+        EnsurePathIsNotReparsePoint(
+            _filesRootPath,
+            "Configured Files root is a reparse point during Trash GC.");
+
+        string? parentDirectory = Path.GetDirectoryName(fullPath);
+        if (string.IsNullOrEmpty(parentDirectory) ||
+            !parentDirectory.StartsWith(_filesRootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Managed external payload parent directory escapes the configured Files root.");
+        }
+
+        EnsurePathIsNotReparsePoint(
+            parentDirectory,
+            "Managed external payload parent directory is a reparse point during Trash GC.");
+        EnsurePathIsNotReparsePoint(
+            fullPath,
+            "Managed external payload file is a reparse point during Trash GC.");
+    }
+
+    private void ValidateExistingTrashPath(string fullPath)
+    {
+        if (!fullPath.StartsWith(_trashRootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Trash destination escapes the configured Trash root.");
+        }
+
+        if (Directory.Exists(_trashRootPath) || File.Exists(_trashRootPath))
+        {
+            EnsurePathIsNotReparsePoint(
+                _trashRootPath,
+                "Configured Trash root is a reparse point during external payload GC.");
+        }
+
+        string relativePath = Path.GetRelativePath(_trashRootPath, fullPath);
+        string currentPath = _trashRootPath;
+        foreach (string part in SplitRelativePath(relativePath))
+        {
+            currentPath = Path.Combine(currentPath, part);
+            if (!Directory.Exists(currentPath) && !File.Exists(currentPath))
+            {
+                break;
+            }
+
+            EnsurePathIsNotReparsePoint(
+                currentPath,
+                "Existing Trash path contains a reparse point during external payload GC.");
+        }
+    }
+
+    private void EnsureSafeTrashDirectory(string directoryPath)
+    {
+        if (!directoryPath.StartsWith(_trashRootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Trash directory escapes the configured Trash root.");
+        }
+
+        EnsureDirectoryExistsWithoutReparsePoint(_trashRootPath);
+        string relativePath = Path.GetRelativePath(_trashRootPath, directoryPath);
+        string currentPath = _trashRootPath;
+        foreach (string part in SplitRelativePath(relativePath))
+        {
+            currentPath = Path.Combine(currentPath, part);
+            EnsureDirectoryExistsWithoutReparsePoint(currentPath);
+        }
+    }
+
+    private static IEnumerable<string> SplitRelativePath(string relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath) || relativePath == ".")
+        {
+            yield break;
+        }
+
+        foreach (string part in relativePath.Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == "." || part == "..")
+            {
+                throw new InvalidDataException(
+                    "Relative managed storage path contains an invalid traversal component.");
+            }
+            yield return part;
+        }
+    }
+
+    private static void EnsureDirectoryExistsWithoutReparsePoint(string path)
+    {
+        if (File.Exists(path) && !Directory.Exists(path))
+        {
+            throw new InvalidDataException(
+                "Managed Trash directory path is occupied by a file.");
+        }
+
+        Directory.CreateDirectory(path);
+        EnsurePathIsNotReparsePoint(
+            path,
+            "Managed Trash directory is a reparse point during external payload GC.");
+    }
+
+    private static void EnsurePathIsNotReparsePoint(
+        string path,
+        string errorMessage)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            throw new InvalidDataException(
+                "Managed external payload filesystem metadata could not be validated safely.",
+                exception);
+        }
+
+        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new InvalidDataException(errorMessage);
+        }
+    }
+
     private FileFingerprint ReadAndValidateFingerprint(
         string path,
         string expectedSha256)
     {
+        EnsurePathIsNotReparsePoint(
+            path,
+            "Managed external payload object is a reparse point during Trash GC.");
+
         using var stream = new FileStream(
             path,
             FileMode.Open,
