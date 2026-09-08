@@ -1,7 +1,7 @@
 using Clipensk.Core.History;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Databases;
-using Clipensk.Storage.Sqlite;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace Clipensk.Storage.Tests;
