@@ -6,7 +6,7 @@
 индивидуальные policy overrides, durable application identity, Catalog-backed external resolver,
 history sink и accepted capture delivery с одной активной `ProtectedStorageSessionLease`.
 
-Latest storage contract — Current v6 / Catalog v2. Current v6 предоставляет storage-scoped
+Latest storage contract — Current v6 / Catalog v3. Current v6 предоставляет storage-scoped
 custom-binary extension configuration; production App использует её через
 `SqliteCustomBinaryFormatConfigurationRepository` и
 `RepositoryClipboardCustomBinaryFileExtensionProvider`.
@@ -57,20 +57,41 @@ application-policy operations и custom-binary extension lookup остаются
 
 После этих проверок App выполняет composition вне UI thread через `Task.Run`. Результат публикуется
 только если совпадают composition generation, window/host/lifecycle references, active session и её
-reference identity. Старый результат после lock, close или нового composition request не принимается.
+reference identity. Старый результат после lock, close, maintenance suspension или нового composition request не принимается.
 
 Clipboard listener **не запускается просто после unlock**. Если global policy отсутствует,
 boundary возвращает `null`; App оставляет monitoring выключенным и worker не создаёт. Ошибка
-composition также не включает fallback capture path.
+composition или active maintenance suspension также не включает fallback capture path.
 
 Если services non-null, App создаёт exact-session worker generation. Новый worker сначала ждёт
-previous worker task, затем повторно проходит generation/session checks и только после этого
+previous worker task, затем повторно проходит generation/session/suspension checks и только после этого
 становится единственным queue reader. Listener запускается через window dispatcher **после** этого
 ready-reader boundary.
 
+## Maintenance suspension и fresh recompose
+
+Future destructive maintenance не должна менять persisted policy, пока старый delivery graph ещё способен завершить capture по закэшированной global policy. App поэтому имеет отдельный quiescence boundary до storage mutation.
+
+`TryQuiesceClipboardRuntimeAsync`:
+
+- атомарно получает unique suspension owner token;
+- блокирует новые composition/worker/listener readiness paths;
+- инвалидирует уже running composition generation;
+- останавливает listener и capture epoch;
+- отменяет current worker generation;
+- ждёт exact предыдущий worker task до полного завершения.
+
+Только после successful quiesce caller получает owner token и может начинать destructive maintenance. После этого runtime **не** возобновляется автоматически при exception/cancellation maintenance: это fail-closed foundation для будущего durable pending-operation contract.
+
+`TryResumeClipboardRuntimeAfterMaintenance` снимает только exact owner token. Если original protected session всё ещё current, App запускает **новую** composition и заново читает persisted global policy; pre-maintenance `ProtectedClipboardDeliveryServices` не переиспользуется.
+
+Owner token также защищает lock/reopen ABA: stale caller старой session не может снять suspension, уже принадлежащую новой session. Lock сбрасывает только in-memory owner для новой protected session; будущая незавершённая durable maintenance должна блокироваться отдельным Current marker после reopen.
+
+Полный порядок listener/worker drain и cancellation semantics описан в `CLIPBOARD_WORKER_LIFECYCLE.md`.
+
 ## Post-COMMIT initial setup handoff
 
-Product initial setup теперь сохраняет global policy и explicit custom-binary extension mappings
+Product initial setup сохраняет global policy и explicit custom-binary extension mappings
 через `SqliteInitialClipboardCaptureConfigurationService` в одной Current v6 transaction.
 
 После successful aggregate COMMIT JournalWindow отправляет внутреннее notification App. Callback
@@ -78,8 +99,8 @@ Product initial setup теперь сохраняет global policy и explicit 
 в UI save failure и не откатывает storage.
 
 App после notification выполняет новый composition request для той же active session. Non-null graph
-проходит обычный worker/readiness lifecycle; если session уже revoked/replaced, generation/session
-guards отбрасывают stale result.
+проходит обычный worker/readiness lifecycle; если session уже revoked/replaced или runtime suspended,
+generation/session/suspension guards отбрасывают stale result.
 
 Low-level `SqliteGlobalClipboardCapturePolicyRepository.InitializeAsync` и
 `SqliteCustomBinaryFormatConfigurationRepository.InitializeAsync` остаются first-write operations,
@@ -89,7 +110,7 @@ Low-level `SqliteGlobalClipboardCapturePolicyRepository.InitializeAsync` и
 
 Для нового custom binary payload resolver выполняет:
 
-1. exact SHA lookup в Catalog v2;
+1. exact SHA lookup в current Catalog v3 `ExternalPayloadAddressIndex`;
 2. existing address используется без provider;
 3. для нового SHA provider читает exact `FormatName → FileExtension` из Current v6;
 4. missing/invalid mapping завершается fail-closed;
@@ -114,7 +135,7 @@ Lock/dispose/reopen не передаёт новый доступ старому
 запуск stale result.
 
 При lock App останавливает listener, инвалидирует worker generation и composition generation.
-Каждая worker generation имеет App-owned CTS, linked с session token; lock/close/replacement явно
+Каждая worker generation имеет App-owned CTS, linked с session token; lock/close/replacement/quiescence явно
 отменяют App CTS, а revoke/dispose session независимо отменяет linked session token. Новая session
 становится reader только после завершения previous worker task, сохраняя single-reader contract
 `ClipboardCaptureQueue`.
@@ -136,9 +157,10 @@ insert failure, rejection partial existing setup и pre-open validation prohibit
 mappings.
 
 Core worker tests покрывают blocked cancellation, продолжение после item failure и serial
-`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle и dynamic initial-policy UI wiring.
+`ProcessNextAsync`. Windows x64 Build компилирует App lifecycle, suspension owner-token wiring и dynamic initial-policy UI wiring.
 
-После successful CI automatic capture runtime остаётся архитектурно связанным end-to-end.
-Однако **manual WinUI/real-clipboard smoke остаётся UNVERIFIED**: unit/CI tests не эмулируют настоящий
-foreground source application, Windows `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView` и пользовательскую
-работу custom-format editor.
+Quiescence tranche не реализует сам policy mutation, durable maintenance marker или cleanup. Однако он устраняет runtime stale-policy race, который должен быть закрыт **до** будущего destructive Current/Archive workflow.
+
+**Manual WinUI/real-clipboard smoke остаётся UNVERIFIED**: unit/CI tests не эмулируют настоящий
+foreground source application, Windows `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView`, dispatcher race
+при suspension и пользовательскую работу custom-format editor.
