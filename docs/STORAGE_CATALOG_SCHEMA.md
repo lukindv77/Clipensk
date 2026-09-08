@@ -182,17 +182,24 @@ Current и Catalog имеют независимые schema versions. Для с�
 
 Catalog остаётся rebuildable. Исторические payload rows сохраняют `ExternalSha256`, `ExternalRelativePath`, `ExternalSizeBytes`; Archive DB сами хранят `DatabaseId` и assigned coverage.
 
-Production recovery теперь имеет три отдельных уровня:
+Production recovery имеет четыре отдельных уровня:
 
 1. `ProtectedArchiveSegmentCatalog.RebuildAsync` перестраивает `ArchiveSegmentIndex` внутри существующего валидного Catalog v3;
 2. `ProtectedExternalPayloadCatalogRebuildService.RebuildAsync` перестраивает `ExternalPayloadAddressIndex` внутри существующего валидного Catalog v3;
-3. `ProtectedStorageCatalogRecoveryService.RecoverMissingCatalogAsync` **pre-session** создаёт отсутствующий `storage-catalog.db` целиком из authoritative Current + Archive state.
+3. `ProtectedStorageCatalogRecoveryService.RecoverMissingCatalogAsync` **pre-session** создаёт отсутствующий `storage-catalog.db` целиком из authoritative Current + Archive state;
+4. `ProtectedStorageCatalogReplacementService.ReplaceExistingCatalogAsync` **pre-session** строит validated replacement существующего Catalog из тех же authoritative sources и затем атомарно replacement-ит final Catalog с quarantine backup старых bytes.
 
-Catalog-file recreation разрешена только при существующем Current и отсутствующем final Catalog. Обычный unlock/`InitializeOrValidateAsync` остаётся fail-closed для partial pair и не запускает repair автоматически.
+Missing-Catalog recreation разрешена только при существующем Current и отсутствующем final Catalog. Existing-Catalog replacement, наоборот, требует существующего Current и существующего Catalog. Эти API намеренно разделены.
 
-Recovery строит полный Catalog v3 во staging file, валидирует его, повторно выводит весь Current+Archive source snapshot и требует exact совпадения, после чего атомарно публикует staging через `File.Move`. Cancellation проверяется до publication; после successful move committed durable result не демотируется.
+Обычный unlock/`InitializeOrValidateAsync` остаётся fail-closed и не запускает ни recreation, ни replacement автоматически.
 
-Physical external files не требуются для восстановления address metadata. Missing Current не восстанавливается из Catalog. Existing повреждённый Catalog не перезаписывается автоматически: quarantine/repair damaged-Catalog и UI recovery flow остаются отдельными explicit contracts.
+Missing-Catalog recovery строит полный Catalog v3 во staging file, валидирует его, повторно выводит весь Current+Archive source snapshot и требует exact совпадения, после чего атомарно публикует staging через `File.Move`.
+
+Existing-Catalog replacement переиспользует тот же recovery builder через shadow root с ReadOnly routing к реальным Current/Archive. До publication повторно проверяются archive filename set и SHA-256 existing Catalog. Fully validated shadow Catalog затем публикуется через Windows `File.Replace`, а фактические bytes прежнего Catalog сохраняются под `Current/CatalogQuarantine/`.
+
+Cancellation проверяется до publication; после successful `File.Move`/`File.Replace` durable result не демотируется.
+
+Physical external files не требуются для восстановления address metadata. Missing Current не восстанавливается из Catalog. Recovery `storage-crypto.json`/MasterKey и user-facing recovery UI остаются отдельными задачами.
 
 Полный contract: `STORAGE_CATALOG_RECOVERY.md`.
 
