@@ -22,7 +22,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
             environment.Session, factory, extensions, environment.Factory);
 
         Assert.Null(services);
-        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly, SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
         Assert.Equal(0, factory.CreateCount);
         Assert.Equal(0, factory.ProcessCount);
         Assert.Equal(0, extensions.CallCount);
@@ -44,7 +44,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
             environment.Session, factory, extensions, environment.Factory);
 
         Assert.NotNull(services);
-        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly, SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
         Assert.Equal(1, factory.CreateCount);
         Assert.Equal(0, factory.ProcessCount);
         Assert.Equal(0, extensions.CallCount);
@@ -55,7 +55,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
         Assert.Equal(rule, policies.GlobalPolicy.Capture);
         Assert.Equal(4096, policies.GlobalPolicy.Formats["Text"].MaxBytes);
         Assert.Null(policies.ApplicationPolicy);
-        Assert.Single(environment.Factory.Modes);
+        Assert.Equal(2, environment.Factory.Modes.Count);
     }
 
     [Fact]
