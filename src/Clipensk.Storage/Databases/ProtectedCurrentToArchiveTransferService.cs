@@ -50,14 +50,6 @@ public sealed class ProtectedCurrentToArchiveTransferService
         CancellationToken token = linked.Token;
         token.ThrowIfCancellationRequested();
 
-        // Serialize the complete transfer publication boundary with capture persistence,
-        // policy maintenance and other protected storage mutations. The lease is acquired
-        // before any Archive/Current observation so a cleanup operation cannot interleave
-        // between the transfer snapshot, Archive publication and exact Current purge.
-        using ProtectedStorageMutationLease mutationLease =
-            await _session.AcquireMutationLeaseAsync(token).ConfigureAwait(false);
-        token.ThrowIfCancellationRequested();
-
         var archiveService = new ProtectedArchiveDatabaseService(_session, _connectionFactory);
         DatabaseIdentity archiveIdentity = await ValidateArchiveSetAsync(
                 archiveService,
@@ -65,6 +57,13 @@ public sealed class ProtectedCurrentToArchiveTransferService
                 token)
             .ConfigureAwait(false);
         EnsureTransferRangeInsideArchiveCoverage(transferRange, archiveIdentity);
+
+        // Archive-set/coverage validation is read-only. Serialize from the first Current
+        // observation through Archive publication, verification and exact Current purge so
+        // policy cleanup and capture persistence cannot interleave with transfer publication.
+        using ProtectedStorageMutationLease mutationLease =
+            await _session.AcquireMutationLeaseAsync(token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
 
         return await Task.Run(
             () => TransferCore(
