@@ -109,14 +109,18 @@ public sealed class ProtectedStorageCatalogReplacementServiceTests
         byte[] damagedCatalog = RandomNumberGenerator.GetBytes(640);
         File.WriteAllBytes(environment.CatalogPath, damagedCatalog);
         DateOnly day = DateOnly.FromDateTime(DateTime.Now).AddDays(-1);
+        int currentReadOnlyOpens = 0;
         bool injected = false;
 
         environment.Factory.OnOpen = (connection, mode) =>
         {
             if (injected ||
                 mode != SqliteOpenMode.ReadOnly ||
-                !Path.GetFileName(connection.DataSource)
-                    .StartsWith(".clipensk-catalog-recovery-", StringComparison.Ordinal))
+                !string.Equals(
+                    Path.GetFileName(connection.DataSource),
+                    "current.db",
+                    StringComparison.OrdinalIgnoreCase) ||
+                Interlocked.Increment(ref currentReadOnlyOpens) != 2)
             {
                 return;
             }
