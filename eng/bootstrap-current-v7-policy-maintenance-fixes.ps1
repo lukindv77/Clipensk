@@ -8,17 +8,17 @@ if (-not (Test-Path $fullPath)) {
 }
 
 $text = [System.IO.File]::ReadAllText($fullPath)
-if (-not $text.Contains('using Clipensk.Core.Storage;')) {
-    $pattern = '(?m)^using Clipensk\.Storage\.Clipboard;\r?$'
+if (-not $text.Contains('using Microsoft.Data.Sqlite;')) {
+    $pattern = '(?m)^using Clipensk\.Storage\.Sqlite;\r?$'
     $matches = [regex]::Matches($text, $pattern)
     if ($matches.Count -ne 1) {
-        throw "Expected exactly one Clipboard import anchor in $path, found $($matches.Count)."
+        throw "Expected exactly one Storage.Sqlite import anchor in $path, found $($matches.Count)."
     }
 
     $text = [regex]::Replace(
         $text,
         $pattern,
-        "using Clipensk.Core.Storage;`r`nusing Clipensk.Storage.Clipboard;",
+        "using Clipensk.Storage.Sqlite;`r`nusing Microsoft.Data.Sqlite;",
         1)
     [System.IO.File]::WriteAllText(
         $fullPath,
