@@ -54,6 +54,14 @@ jobs:
       - name: Build
         run: dotnet build Clipensk.slnx --configuration Release --no-restore --verbosity quiet
 
+      - name: Diagnose parallel suite without Archive maintenance class
+        continue-on-error: true
+        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName!~ProtectedArchiveExternalPolicyMaintenanceServiceTests"
+
+      - name: Diagnose Storage project with Archive maintenance class
+        continue-on-error: true
+        run: dotnet test tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj --configuration Release --no-build
+
       - name: Test
         shell: pwsh
         run: |
