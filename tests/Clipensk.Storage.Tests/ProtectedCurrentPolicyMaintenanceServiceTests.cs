@@ -594,7 +594,7 @@ public sealed class ProtectedCurrentPolicyMaintenanceServiceTests
         using var connection = environment.Factory.Open(
             environment.CurrentPath,
             environment.Key,
-            Clipensk.Storage.Sqlite.SqliteOpenMode.ReadOnly);
+            Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly);
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT CaptureRule FROM GlobalCapturePolicy WHERE SingletonId = 1;";
         return Assert.IsType<string>(command.ExecuteScalar());
