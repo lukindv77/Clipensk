@@ -317,52 +317,53 @@ public sealed class ProtectedArchiveExternalPolicyMaintenanceServiceTests
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         await environment.Repository.InitializeAsync(Policy(
-            ClipboardCapturePolicyRule.Allow,
-            ("PNG", ClipboardCapturePolicyRule.Allow)));
+ClipboardCapturePolicyRule.Allow,
+("PNG", ClipboardCapturePolicyRule.Allow)));
         await CreateArchiveAsync(environment, 12, 1, 31);
         await new ProtectedCurrentPolicyMaintenanceService(environment.Session, environment.Factory)
-            .ApplyAsync(Policy(
-                ClipboardCapturePolicyRule.Allow,
-                ("PNG", ClipboardCapturePolicyRule.Deny)));
+.ApplyAsync(Policy(
+    ClipboardCapturePolicyRule.Allow,
+    ("PNG", ClipboardCapturePolicyRule.Deny)));
 
-        using var entered = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
+        Task<ProtectedStorageMutationLease>? competingAfterAcquire = null;
+        Task<ProtectedStorageMutationLease>? competingBeforeMarkerCommit = null;
         var service = new ProtectedArchiveExternalPolicyMaintenanceService(
-            environment.Session,
-            environment.Factory,
-            checkpoint =>
-            {
-                if (checkpoint == ArchiveExternalPolicyMaintenanceCheckpoint.MutationLeaseAcquired)
-                {
-                    entered.Set();
-                    release.Wait();
-                }
-            });
-
-        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Factory
-            .StartNew(
-                () => service.ApplyAsync(),
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default)
-            .Unwrap();
-        Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
-        Task<ProtectedStorageMutationLease> competingMutation =
-            environment.Session.AcquireMutationLeaseAsync().AsTask();
-
-        try
-        {
-            Assert.False(competingMutation.IsCompleted);
-        }
-        finally
-        {
-            release.Set();
-        }
-
-        await maintenance;
-        using ProtectedStorageMutationLease acquiredAfterMaintenance = await competingMutation;
+environment.Session,
+environment.Factory,
+checkpoint =>
+{
+    if (checkpoint == ArchiveExternalPolicyMaintenanceCheckpoint.MutationLeaseAcquired)
+    {
+        competingAfterAcquire = environment.Session.AcquireMutationLeaseAsync().AsTask();
+        Assert.False(
+            competingAfterAcquire.IsCompleted,
+            "Archive maintenance must own the mutation lease before archive observation.");
     }
+    else if (checkpoint == ArchiveExternalPolicyMaintenanceCheckpoint.BeforeMarkerCommit)
+    {
+        Assert.NotNull(competingAfterAcquire);
+        Assert.False(
+            competingAfterAcquire.IsCompleted,
+            "Archive maintenance must retain the mutation lease through archive observation and writes.");
+        competingBeforeMarkerCommit = environment.Session.AcquireMutationLeaseAsync().AsTask();
+        Assert.False(
+            competingBeforeMarkerCommit.IsCompleted,
+            "Archive maintenance must retain the mutation lease through marker commit preparation.");
+    }
+});
 
+        ArchiveExternalPolicyMaintenanceResult result = await service.ApplyAsync();
+
+        Assert.NotNull(competingAfterAcquire);
+        Assert.NotNull(competingBeforeMarkerCommit);
+        Assert.False(result.WasAlreadyCompleted);
+        using (ProtectedStorageMutationLease acquired = await competingAfterAcquire)
+        {
+        }
+        using (ProtectedStorageMutationLease acquired = await competingBeforeMarkerCommit)
+        {
+        }
+    }
     private static async Task<ArchiveFileName> CreateArchiveAsync(
         GlobalPolicyTestEnvironment environment,
         int baseNumber,
