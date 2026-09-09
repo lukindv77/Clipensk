@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-${{ github.ref }}
@@ -19,39 +19,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Commit deterministic Archive lease test harness
-        shell: pwsh
-        run: |
-          $path = 'tests/Clipensk.Storage.Tests/ProtectedArchiveExternalPolicyMaintenanceServiceTests.cs'
-          $old = '        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Run(() => service.ApplyAsync());'
-          $new = @(
-            '        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Factory'
-            '            .StartNew('
-            '                () => service.ApplyAsync(),'
-            '                CancellationToken.None,'
-            '                TaskCreationOptions.LongRunning,'
-            '                TaskScheduler.Default)'
-            '            .Unwrap();'
-          ) -join "`n"
-
-          $content = [IO.File]::ReadAllText($path)
-          $first = $content.IndexOf($old, [StringComparison]::Ordinal)
-          $last = $content.LastIndexOf($old, [StringComparison]::Ordinal)
-          if ($first -lt 0 -or $first -ne $last) {
-            throw 'Expected exactly one Archive lease Task.Run call to replace.'
-          }
-
-          $updated = $content.Replace($old, $new, [StringComparison]::Ordinal)
-          [IO.File]::WriteAllText($path, $updated, [Text.UTF8Encoding]::new($false))
-          git diff --check
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- $path
-          git diff --cached --check
-          git commit -m 'test: isolate blocking Archive lease checkpoint thread'
-          git push origin "HEAD:$env:GITHUB_REF_NAME"
 
       - name: Verify x64-only implementation scope
         shell: pwsh
@@ -82,10 +49,26 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore Clipensk.slnx --verbosity quiet
+        run: dotnet restore Clipensk.slnx
 
       - name: Build
-        run: dotnet build Clipensk.slnx --configuration Release --no-restore --verbosity quiet
+        run: dotnet build Clipensk.slnx --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test Clipensk.slnx --configuration Release --no-build
+      - name: Test with focused failure diagnostics
+        shell: pwsh
+        run: |
+          & dotnet test Clipensk.slnx --configuration Release --no-build --logger "trx;LogFileName=full.trx"
+          $testExit = $LASTEXITCODE
+
+          Get-ChildItem -Path . -Recurse -Filter full.trx | ForEach-Object {
+            [xml]$trx = Get-Content -Raw $_.FullName
+            foreach ($result in $trx.SelectNodes("//*[local-name()='UnitTestResult' and @outcome='Failed']")) {
+              Write-Host "FAILED: $($result.GetAttribute('testName'))"
+              $message = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='Message']")
+              $stack = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='StackTrace']")
+              if ($null -ne $message) { Write-Host "MESSAGE: $($message.InnerText)" }
+              if ($null -ne $stack) { Write-Host "STACK: $($stack.InnerText)" }
+            }
+          }
+
+          exit $testExit
