@@ -121,6 +121,29 @@ public sealed class SqlitePendingPolicyMaintenanceRepositoryTests
     }
 
     [Fact]
+    public async Task ReadAsync_InvalidPersistedJsonFailsClosed()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        Guid operationId = Guid.NewGuid();
+        environment.Execute($"""
+            INSERT INTO PendingPolicyMaintenance (
+                SingletonId, OperationId, OperationKind, StateJson, CreatedAtUtc, UpdatedAtUtc)
+            VALUES (
+                1,
+                '{operationId:D}',
+                'GlobalCapturePolicyChange',
+                '{{not-json',
+                '2026-09-08T00:00:00.0000000+00:00',
+                '2026-09-08T00:00:00.0000000+00:00');
+            """);
+        var repository = new SqlitePendingPolicyMaintenanceRepository(
+            environment.Session,
+            environment.Factory);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () => await repository.ReadAsync());
+    }
+
+    [Fact]
     public async Task StartAsync_CancellationWhileWaitingForMutationLeaseLeavesMarkerAbsent()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
@@ -156,6 +179,8 @@ public sealed class SqlitePendingPolicyMaintenanceRepositoryTests
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await repository.StartAsync(" ", "{}"));
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await repository.StartAsync("GlobalCapturePolicyChange", "{not-json"));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
             await repository.UpdateStateAsync(Guid.Empty, "{}"));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
