@@ -20,17 +20,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply deterministic Archive lease test fix
+      - name: Normalize deterministic Archive lease test
         shell: pwsh
         run: |
           $path = 'tests/Clipensk.Storage.Tests/ProtectedArchiveExternalPolicyMaintenanceServiceTests.cs'
           $text = [System.IO.File]::ReadAllText($path)
-          if ($text -notmatch 'ManualResetEventSlim') {
-            Write-Host 'Archive lease test is already deterministic.'
-            exit 0
-          }
-
-          $pattern = '(?ms)^    \[Fact\]\r?\n    public async Task ApplyAsync_HoldsSharedMutationLeaseAcrossArchiveObservationAndMarkerCommit\(\)\r?\n    \{.*?^    \}\r?\n(?=\r?\n    private static async Task<ArchiveFileName>)'
+          $pattern = '(?ms)^    \[Fact\]\r?\n    public async Task ApplyAsync_HoldsSharedMutationLeaseAcrossArchiveObservationAndMarkerCommit\(\)\r?\n    \{.*?^    \}\r?\n(?=\r?\n?    private static async Task<ArchiveFileName>)'
           $replacement = @'
               [Fact]
               public async Task ApplyAsync_HoldsSharedMutationLeaseAcrossArchiveObservationAndMarkerCommit()
@@ -84,8 +79,8 @@ jobs:
                   {
                   }
               }
+
           '@
-          $replacement = ($replacement -split "`r?`n" | ForEach-Object { $_ -replace '^            ', '' }) -join "`n"
           $regex = [regex]::new($pattern)
           $matches = $regex.Matches($text)
           if ($matches.Count -ne 1) {
@@ -98,7 +93,7 @@ jobs:
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git add -- $path
-            git commit -m 'test: make Archive mutation lease assertion deterministic'
+            git commit -m 'test: format deterministic Archive mutation lease assertion'
             git push origin HEAD:${{ github.ref_name }}
           }
 
