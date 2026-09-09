@@ -49,26 +49,31 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore Clipensk.slnx
+        run: dotnet restore Clipensk.slnx --verbosity quiet
 
       - name: Build
-        run: dotnet build Clipensk.slnx --configuration Release --no-restore
-
-      - name: Diagnose Storage project
-        continue-on-error: true
-        run: dotnet test tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj --configuration Release --no-build
-
-      - name: Diagnose Core project
-        continue-on-error: true
-        run: dotnet test tests/Clipensk.Core.Tests/Clipensk.Core.Tests.csproj --configuration Release --no-build
-
-      - name: Diagnose Infrastructure project
-        continue-on-error: true
-        run: dotnet test tests/Clipensk.Infrastructure.Tests/Clipensk.Infrastructure.Tests.csproj --configuration Release --no-build
-
-      - name: Diagnose serial full suite
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --maxcpucount:1
+        run: dotnet build Clipensk.slnx --configuration Release --no-restore --verbosity quiet
 
       - name: Test
-        run: dotnet test Clipensk.slnx --configuration Release --no-build
+        shell: pwsh
+        run: |
+          $output = @(& dotnet test Clipensk.slnx --configuration Release --no-build 2>&1)
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -eq 0) {
+            Write-Host 'Full parallel suite passed.'
+            exit 0
+          }
+
+          Write-Host '=== FILTERED PARALLEL TEST FAILURE ==='
+          $matches = @(
+            $output | Select-String `
+              -Pattern 'Failed|Error Message|Stack Trace|Xunit|Exception|Assert\.| at Clipensk\.|Clipensk\..*Tests' `
+              -Context 3,8
+          )
+          if ($matches.Count -gt 0) {
+            $matches | ForEach-Object { Write-Host $_.ToString() }
+          }
+          else {
+            $output | Select-Object -Last 160 | ForEach-Object { Write-Host $_.ToString() }
+          }
+          exit $exitCode
