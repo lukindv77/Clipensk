@@ -339,7 +339,13 @@ public sealed class ProtectedArchiveExternalPolicyMaintenanceServiceTests
                 }
             });
 
-        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Run(() => service.ApplyAsync());
+        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Factory
+            .StartNew(
+                () => service.ApplyAsync(),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default)
+            .Unwrap();
         Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
         Task<ProtectedStorageMutationLease> competingMutation =
             environment.Session.AcquireMutationLeaseAsync().AsTask();
