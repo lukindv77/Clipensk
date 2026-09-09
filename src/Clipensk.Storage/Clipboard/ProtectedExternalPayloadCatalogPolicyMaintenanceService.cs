@@ -88,7 +88,8 @@ public sealed class ProtectedExternalPayloadCatalogPolicyMaintenanceService
         // Rebuild owns the session mutation lease through its Catalog COMMIT. A capture that starts
         // after that COMMIT reserves its SHA under the same shared mutation lease before Current
         // history COMMIT, so the short gap before marker publication cannot make the projection
-        // incomplete. The marker transaction still re-reads the latest state to avoid stale writes.
+        // incomplete. The marker path revalidates policy under its own mutation lease and re-reads
+        // the latest durable marker before publication.
         _checkpoint?.Invoke(ExternalPayloadCatalogPolicyMaintenanceCheckpoint.RebuildCompleted);
         token.ThrowIfCancellationRequested();
 
@@ -152,6 +153,24 @@ public sealed class ProtectedExternalPayloadCatalogPolicyMaintenanceService
             await _session.AcquireMutationLeaseAsync(token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
 
+        ClipboardCapturePolicy persistedGlobal =
+            await new SqliteGlobalClipboardCapturePolicyRepository(_session, _connectionFactory)
+                .ReadAsync(token)
+                .ConfigureAwait(false)
+            ?? throw new InvalidDataException(
+                "Catalog completion requires the committed global capture policy.");
+        if (!string.Equals(
+                GlobalPolicyMaintenanceStateCodec.ComputePolicyFingerprint(persistedGlobal),
+                snapshot.State.PolicyFingerprint,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The global capture policy changed before Catalog completion.");
+        }
+
+        // The same mutation lease is retained through the marker transaction below. Supported
+        // global-policy writers therefore cannot change the policy between this revalidation and
+        // the durable Catalog-phase marker COMMIT.
         return await Task.Run(
                 () => MarkCatalogPhaseCompletedCore(snapshot, token),
                 CancellationToken.None)

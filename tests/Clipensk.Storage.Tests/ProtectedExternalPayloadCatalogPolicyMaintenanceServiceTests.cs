@@ -108,6 +108,38 @@ public sealed class ProtectedExternalPayloadCatalogPolicyMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task ApplyAsync_PolicyTamperAfterRebuildFailsBeforeMarkerCommit()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        await PrepareArchiveCompletedMarkerAsync(environment);
+        SeedStaleCatalogAddress(environment, 'e');
+
+        var service = new ProtectedExternalPayloadCatalogPolicyMaintenanceService(
+            environment.Session,
+            environment.Factory,
+            checkpoint =>
+            {
+                if (checkpoint == ExternalPayloadCatalogPolicyMaintenanceCheckpoint.RebuildCompleted)
+                {
+                    environment.Execute("""
+                        UPDATE GlobalFormatCapturePolicy
+                        SET CaptureRule = 'Allow'
+                        WHERE FormatName = 'Text' COLLATE BINARY;
+                        """);
+                }
+            });
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.ApplyAsync());
+
+        // Catalog replacement committed before the tamper was observed, but the continuation
+        // marker must remain retryable rather than claiming success for a mismatched policy.
+        Assert.Equal(0L, CatalogAddressCount(environment));
+        PendingPolicyMaintenanceOperation? pending = await Pending(environment).ReadAsync();
+        Assert.NotNull(pending);
+        Assert.Equal("pending", ReadState(pending!).GetProperty("catalogRebuild").GetString());
+    }
+
+    [Fact]
     public async Task ApplyAsync_LateCancellationAfterMarkerCommitDoesNotDemoteDurableSuccess()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
