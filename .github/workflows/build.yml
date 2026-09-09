@@ -54,21 +54,5 @@ jobs:
       - name: Build
         run: dotnet build Clipensk.slnx --configuration Release --no-restore
 
-      - name: Test with focused failure diagnostics
-        shell: pwsh
-        run: |
-          & dotnet test Clipensk.slnx --configuration Release --no-build --logger "trx;LogFileName=full.trx"
-          $testExit = $LASTEXITCODE
-
-          Get-ChildItem -Path . -Recurse -Filter full.trx | ForEach-Object {
-            [xml]$trx = Get-Content -Raw $_.FullName
-            foreach ($result in $trx.SelectNodes("//*[local-name()='UnitTestResult' and @outcome='Failed']")) {
-              Write-Host "FAILED: $($result.GetAttribute('testName'))"
-              $message = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='Message']")
-              $stack = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='StackTrace']")
-              if ($null -ne $message) { Write-Host "MESSAGE: $($message.InnerText)" }
-              if ($null -ne $stack) { Write-Host "STACK: $($stack.InnerText)" }
-            }
-          }
-
-          exit $testExit
+      - name: Test
+        run: dotnet test Clipensk.slnx --configuration Release --no-build
