@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/policy-maintenance-operation-store ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
