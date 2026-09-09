@@ -32,7 +32,8 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
         token.ThrowIfCancellationRequested();
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadOnly, token);
-        PendingPolicyMaintenanceOperation? operation = ReadOperation(connection, transaction: null, token);
+        PendingPolicyMaintenanceOperation? operation =
+            ReadInTransaction(connection, transaction: null, token);
         token.ThrowIfCancellationRequested();
         return ValueTask.FromResult(operation);
     }
@@ -55,40 +56,13 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
         using SqliteTransaction transaction = connection.BeginTransaction();
-        if (ReadOperation(connection, transaction, token) is not null)
-        {
-            throw new InvalidOperationException(
-                "A pending policy-maintenance operation already exists.");
-        }
-
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        var operation = new PendingPolicyMaintenanceOperation(
-            Guid.NewGuid(),
+        PendingPolicyMaintenanceOperation operation = StartInTransaction(
+            connection,
+            transaction,
             operationKind,
             stateJson,
-            now,
-            now);
-
-        using (SqliteCommand insert = connection.CreateCommand())
-        {
-            insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO PendingPolicyMaintenance (
-                    SingletonId,
-                    OperationId,
-                    OperationKind,
-                    StateJson,
-                    CreatedAtUtc,
-                    UpdatedAtUtc)
-                VALUES (1, $operationId, $operationKind, $stateJson, $createdAtUtc, $updatedAtUtc);
-                """;
-            insert.Parameters.AddWithValue("$operationId", operation.OperationId.ToString("D"));
-            insert.Parameters.AddWithValue("$operationKind", operation.OperationKind);
-            insert.Parameters.AddWithValue("$stateJson", operation.StateJson);
-            insert.Parameters.AddWithValue("$createdAtUtc", FormatUtc(operation.CreatedAtUtc));
-            insert.Parameters.AddWithValue("$updatedAtUtc", FormatUtc(operation.UpdatedAtUtc));
-            insert.ExecuteNonQuery();
-        }
+            DateTimeOffset.UtcNow,
+            token);
 
         token.ThrowIfCancellationRequested();
         transaction.Commit();
@@ -113,39 +87,13 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
         using SqliteTransaction transaction = connection.BeginTransaction();
-        PendingPolicyMaintenanceOperation current =
-            ReadRequiredExactOperation(connection, transaction, operationId, token);
-
-        DateTimeOffset updatedAtUtc = DateTimeOffset.UtcNow;
-        if (updatedAtUtc < current.UpdatedAtUtc)
-        {
-            updatedAtUtc = current.UpdatedAtUtc;
-        }
-
-        using (SqliteCommand update = connection.CreateCommand())
-        {
-            update.Transaction = transaction;
-            update.CommandText = """
-                UPDATE PendingPolicyMaintenance
-                SET StateJson = $stateJson,
-                    UpdatedAtUtc = $updatedAtUtc
-                WHERE SingletonId = 1 AND OperationId = $operationId COLLATE BINARY;
-                """;
-            update.Parameters.AddWithValue("$stateJson", stateJson);
-            update.Parameters.AddWithValue("$updatedAtUtc", FormatUtc(updatedAtUtc));
-            update.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
-            if (update.ExecuteNonQuery() != 1)
-            {
-                throw new InvalidOperationException(
-                    "Pending policy-maintenance operation changed before state update.");
-            }
-        }
-
-        var updated = current with
-        {
-            StateJson = stateJson,
-            UpdatedAtUtc = updatedAtUtc,
-        };
+        PendingPolicyMaintenanceOperation updated = UpdateStateInTransaction(
+            connection,
+            transaction,
+            operationId,
+            stateJson,
+            DateTimeOffset.UtcNow,
+            token);
 
         token.ThrowIfCancellationRequested();
         transaction.Commit();
@@ -168,55 +116,141 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
         using SqliteTransaction transaction = connection.BeginTransaction();
-        _ = ReadRequiredExactOperation(connection, transaction, operationId, token);
-
-        using (SqliteCommand delete = connection.CreateCommand())
-        {
-            delete.Transaction = transaction;
-            delete.CommandText = """
-                DELETE FROM PendingPolicyMaintenance
-                WHERE SingletonId = 1 AND OperationId = $operationId COLLATE BINARY;
-                """;
-            delete.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
-            if (delete.ExecuteNonQuery() != 1)
-            {
-                throw new InvalidOperationException(
-                    "Pending policy-maintenance operation changed before clear.");
-            }
-        }
+        ClearInTransaction(connection, transaction, operationId, token);
 
         token.ThrowIfCancellationRequested();
         transaction.Commit();
     }
 
-    private PendingPolicyMaintenanceOperation ReadRequiredExactOperation(
+    internal static PendingPolicyMaintenanceOperation StartInTransaction(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string operationKind,
+        string stateJson,
+        DateTimeOffset nowUtc,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+        ValidateRequiredText(operationKind, nameof(operationKind));
+        ValidateStateJson(stateJson, nameof(stateJson));
+        ValidateUtcTimestamp(nowUtc, nameof(nowUtc));
+        token.ThrowIfCancellationRequested();
+
+        if (ReadInTransaction(connection, transaction, token) is not null)
+        {
+            throw new InvalidOperationException(
+                "A pending policy-maintenance operation already exists.");
+        }
+
+        var operation = new PendingPolicyMaintenanceOperation(
+            Guid.NewGuid(),
+            operationKind,
+            stateJson,
+            nowUtc,
+            nowUtc);
+
+        using SqliteCommand insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO PendingPolicyMaintenance (
+                SingletonId,
+                OperationId,
+                OperationKind,
+                StateJson,
+                CreatedAtUtc,
+                UpdatedAtUtc)
+            VALUES (1, $operationId, $operationKind, $stateJson, $createdAtUtc, $updatedAtUtc);
+            """;
+        insert.Parameters.AddWithValue("$operationId", operation.OperationId.ToString("D"));
+        insert.Parameters.AddWithValue("$operationKind", operation.OperationKind);
+        insert.Parameters.AddWithValue("$stateJson", operation.StateJson);
+        insert.Parameters.AddWithValue("$createdAtUtc", FormatUtc(operation.CreatedAtUtc));
+        insert.Parameters.AddWithValue("$updatedAtUtc", FormatUtc(operation.UpdatedAtUtc));
+        insert.ExecuteNonQuery();
+        return operation;
+    }
+
+    internal static PendingPolicyMaintenanceOperation UpdateStateInTransaction(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        string stateJson,
+        DateTimeOffset nowUtc,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+        ValidateOperationId(operationId, nameof(operationId));
+        ValidateStateJson(stateJson, nameof(stateJson));
+        ValidateUtcTimestamp(nowUtc, nameof(nowUtc));
+        token.ThrowIfCancellationRequested();
+
+        PendingPolicyMaintenanceOperation current =
+            ReadRequiredExactOperation(connection, transaction, operationId, token);
+        DateTimeOffset updatedAtUtc = nowUtc < current.UpdatedAtUtc
+            ? current.UpdatedAtUtc
+            : nowUtc;
+
+        using SqliteCommand update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE PendingPolicyMaintenance
+            SET StateJson = $stateJson,
+                UpdatedAtUtc = $updatedAtUtc
+            WHERE SingletonId = 1 AND OperationId = $operationId COLLATE BINARY;
+            """;
+        update.Parameters.AddWithValue("$stateJson", stateJson);
+        update.Parameters.AddWithValue("$updatedAtUtc", FormatUtc(updatedAtUtc));
+        update.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+        if (update.ExecuteNonQuery() != 1)
+        {
+            throw new InvalidOperationException(
+                "Pending policy-maintenance operation changed before state update.");
+        }
+
+        return current with
+        {
+            StateJson = stateJson,
+            UpdatedAtUtc = updatedAtUtc,
+        };
+    }
+
+    internal static void ClearInTransaction(
         SqliteConnection connection,
         SqliteTransaction transaction,
         Guid operationId,
         CancellationToken token)
     {
-        PendingPolicyMaintenanceOperation? current = ReadOperation(connection, transaction, token);
-        if (current is null)
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+        ValidateOperationId(operationId, nameof(operationId));
+        token.ThrowIfCancellationRequested();
+
+        _ = ReadRequiredExactOperation(connection, transaction, operationId, token);
+
+        using SqliteCommand delete = connection.CreateCommand();
+        delete.Transaction = transaction;
+        delete.CommandText = """
+            DELETE FROM PendingPolicyMaintenance
+            WHERE SingletonId = 1 AND OperationId = $operationId COLLATE BINARY;
+            """;
+        delete.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+        if (delete.ExecuteNonQuery() != 1)
         {
             throw new InvalidOperationException(
-                "No pending policy-maintenance operation exists.");
+                "Pending policy-maintenance operation changed before clear.");
         }
-
-        if (current.OperationId != operationId)
-        {
-            throw new InvalidOperationException(
-                "Pending policy-maintenance operation ownership does not match the requested operation.");
-        }
-
-        return current;
     }
 
-    private static PendingPolicyMaintenanceOperation? ReadOperation(
+    internal static PendingPolicyMaintenanceOperation? ReadInTransaction(
         SqliteConnection connection,
         SqliteTransaction? transaction,
         CancellationToken token)
     {
+        ArgumentNullException.ThrowIfNull(connection);
         token.ThrowIfCancellationRequested();
+
         using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -270,6 +304,29 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
             stateJson,
             createdAtUtc,
             updatedAtUtc);
+    }
+
+    private static PendingPolicyMaintenanceOperation ReadRequiredExactOperation(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid operationId,
+        CancellationToken token)
+    {
+        PendingPolicyMaintenanceOperation? current =
+            ReadInTransaction(connection, transaction, token);
+        if (current is null)
+        {
+            throw new InvalidOperationException(
+                "No pending policy-maintenance operation exists.");
+        }
+
+        if (current.OperationId != operationId)
+        {
+            throw new InvalidOperationException(
+                "Pending policy-maintenance operation ownership does not match the requested operation.");
+        }
+
+        return current;
     }
 
     private CancellationTokenSource CreateLinkedCancellation(CancellationToken callerToken) =>
@@ -373,6 +430,16 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
         if (operationId == Guid.Empty)
         {
             throw new ArgumentOutOfRangeException(parameterName, "Operation id cannot be empty.");
+        }
+    }
+
+    private static void ValidateUtcTimestamp(DateTimeOffset value, string parameterName)
+    {
+        if (value.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "Policy-maintenance timestamp must use UTC offset zero.",
+                parameterName);
         }
     }
 
