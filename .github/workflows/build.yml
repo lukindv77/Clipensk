@@ -62,6 +62,10 @@ jobs:
         continue-on-error: true
         run: dotnet test tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj --configuration Release --no-build
 
+      - name: Diagnose full solution without Archive lease test
+        continue-on-error: true
+        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName!~ApplyAsync_HoldsSharedMutationLeaseAcrossArchiveObservationAndMarkerCommit"
+
       - name: Test
         shell: pwsh
         run: |
