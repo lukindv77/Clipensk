@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -42,7 +43,7 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
         CancellationToken cancellationToken = default)
     {
         ValidateRequiredText(operationKind, nameof(operationKind));
-        ValidateRequiredText(stateJson, nameof(stateJson));
+        ValidateStateJson(stateJson, nameof(stateJson));
 
         using CancellationTokenSource linked = CreateLinkedCancellation(cancellationToken);
         CancellationToken token = linked.Token;
@@ -100,7 +101,7 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
         CancellationToken cancellationToken = default)
     {
         ValidateOperationId(operationId, nameof(operationId));
-        ValidateRequiredText(stateJson, nameof(stateJson));
+        ValidateStateJson(stateJson, nameof(stateJson));
 
         using CancellationTokenSource linked = CreateLinkedCancellation(cancellationToken);
         CancellationToken token = linked.Token;
@@ -246,6 +247,7 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
             throw new InvalidDataException(
                 "Pending policy-maintenance operation contains empty required state.");
         }
+        ValidatePersistedStateJson(stateJson);
 
         DateTimeOffset createdAtUtc = ParseUtc(reader.GetString(4), "CreatedAtUtc");
         DateTimeOffset updatedAtUtc = ParseUtc(reader.GetString(5), "UpdatedAtUtc");
@@ -371,6 +373,36 @@ public sealed class SqlitePendingPolicyMaintenanceRepository
         if (operationId == Guid.Empty)
         {
             throw new ArgumentOutOfRangeException(parameterName, "Operation id cannot be empty.");
+        }
+    }
+
+    private static void ValidateStateJson(string value, string parameterName)
+    {
+        ValidateRequiredText(value, parameterName);
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(value);
+        }
+        catch (JsonException exception)
+        {
+            throw new ArgumentException(
+                "Policy-maintenance state must be valid JSON.",
+                parameterName,
+                exception);
+        }
+    }
+
+    private static void ValidatePersistedStateJson(string value)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(value);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "Pending policy-maintenance state contains invalid JSON.",
+                exception);
         }
     }
 
