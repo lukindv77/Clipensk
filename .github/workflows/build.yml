@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/policy-maintenance-catalog-rebuild ]
   workflow_dispatch:
 
 permissions:
