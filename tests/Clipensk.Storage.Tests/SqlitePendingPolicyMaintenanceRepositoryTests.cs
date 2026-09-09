@@ -132,7 +132,7 @@ public sealed class SqlitePendingPolicyMaintenanceRepositoryTests
                 1,
                 '{operationId:D}',
                 'GlobalCapturePolicyChange',
-                '{{not-json',
+                'not-json',
                 '2026-09-08T00:00:00.0000000+00:00',
                 '2026-09-08T00:00:00.0000000+00:00');
             """);
