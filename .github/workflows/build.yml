@@ -54,45 +54,17 @@ jobs:
       - name: Build
         run: dotnet build Clipensk.slnx --configuration Release --no-restore
 
-      - name: Diagnose Archive - denied external references
+      - name: Diagnose non-Archive suite
         continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_RemovesDeniedExternalReferencesButPreservesOrdinaryArchivePayloadsAndEventHeaders"
+        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName!~ProtectedArchiveExternalPolicyMaintenanceServiceTests"
 
-      - name: Diagnose Archive - application override and binary names
+      - name: Diagnose Archive class as group
         continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_ApplicationOverrideNullSourceAndBinaryFormatNamesUseExactEffectivePolicy"
+        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ProtectedArchiveExternalPolicyMaintenanceServiceTests"
 
-      - name: Diagnose Archive - MaxBytes
+      - name: Diagnose Current maintenance class
         continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_ReducedMaxBytesDoesNotRetroactivelyPurgeAllowedArchiveExternalPayload"
-
-      - name: Diagnose Archive - malformed later archive
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_MalformedLaterArchiveFailsPreflightBeforeAnyArchiveMutation"
-
-      - name: Diagnose Archive - cancellation and resume
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_CancellationAfterFirstArchiveCommitIsResumableAndRetryCompletesRemainingArchive"
-
-      - name: Diagnose Archive - late cancellation
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_LateCancellationAfterMarkerCommitDoesNotDemoteDurableSuccess"
-
-      - name: Diagnose Archive - idempotent retry
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_ExactRetryAfterCompletedArchivePhaseIsIdempotent"
-
-      - name: Diagnose Archive - malformed marker
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_MalformedMarkerStateFailsClosedBeforeArchiveWrites"
-
-      - name: Diagnose Archive - missing marker
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_WithoutGlobalMaintenanceMarkerRejectsBeforeArchiveWrites"
-
-      - name: Diagnose Archive - mutation lease
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ApplyAsync_HoldsSharedMutationLeaseAcrossArchiveObservationAndMarkerCommit"
+        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName~ProtectedCurrentPolicyMaintenanceServiceTests"
 
       - name: Test
         run: dotnet test Clipensk.slnx --configuration Release --no-build
