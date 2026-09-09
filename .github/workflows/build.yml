@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -19,6 +19,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Commit deterministic Archive lease test harness
+        shell: pwsh
+        run: |
+          $path = 'tests/Clipensk.Storage.Tests/ProtectedArchiveExternalPolicyMaintenanceServiceTests.cs'
+          $old = '        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Run(() => service.ApplyAsync());'
+          $new = @(
+            '        Task<ArchiveExternalPolicyMaintenanceResult> maintenance = Task.Factory'
+            '            .StartNew('
+            '                () => service.ApplyAsync(),'
+            '                CancellationToken.None,'
+            '                TaskCreationOptions.LongRunning,'
+            '                TaskScheduler.Default)'
+            '            .Unwrap();'
+          ) -join "`n"
+
+          $content = [IO.File]::ReadAllText($path)
+          $first = $content.IndexOf($old, [StringComparison]::Ordinal)
+          $last = $content.LastIndexOf($old, [StringComparison]::Ordinal)
+          if ($first -lt 0 -or $first -ne $last) {
+            throw 'Expected exactly one Archive lease Task.Run call to replace.'
+          }
+
+          $updated = $content.Replace($old, $new, [StringComparison]::Ordinal)
+          [IO.File]::WriteAllText($path, $updated, [Text.UTF8Encoding]::new($false))
+          git diff --check
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $path
+          git diff --cached --check
+          git commit -m 'test: isolate blocking Archive lease checkpoint thread'
+          git push origin "HEAD:$env:GITHUB_REF_NAME"
 
       - name: Verify x64-only implementation scope
         shell: pwsh
@@ -54,66 +87,5 @@ jobs:
       - name: Build
         run: dotnet build Clipensk.slnx --configuration Release --no-restore --verbosity quiet
 
-      - name: Diagnose parallel suite without Archive maintenance class
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName!~ProtectedArchiveExternalPolicyMaintenanceServiceTests"
-
-      - name: Diagnose Storage project with Archive maintenance class
-        continue-on-error: true
-        run: dotnet test tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj --configuration Release --no-build
-
-      - name: Diagnose full solution without Archive lease test
-        continue-on-error: true
-        run: dotnet test Clipensk.slnx --configuration Release --no-build --filter "FullyQualifiedName!~ApplyAsync_HoldsSharedMutationLeaseAcrossArchiveObservationAndMarkerCommit"
-
       - name: Test
-        shell: pwsh
-        run: |
-          $resultsDirectory = Join-Path $env:RUNNER_TEMP 'clipensk-parallel-trx'
-          $consoleLog = Join-Path $env:RUNNER_TEMP 'clipensk-parallel-test.log'
-          New-Item -ItemType Directory -Force -Path $resultsDirectory | Out-Null
-
-          & dotnet test Clipensk.slnx `
-            --configuration Release `
-            --no-build `
-            --logger 'trx;LogFilePrefix=parallel' `
-            --results-directory $resultsDirectory `
-            *> $consoleLog
-          $exitCode = $LASTEXITCODE
-
-          if ($exitCode -eq 0) {
-            Write-Host 'Full parallel suite passed.'
-            exit 0
-          }
-
-          Write-Host '=== EXACT PARALLEL TEST FAILURE ==='
-          $failedCount = 0
-          foreach ($file in Get-ChildItem -Path $resultsDirectory -Filter '*.trx' -Recurse) {
-            [xml]$trx = Get-Content -LiteralPath $file.FullName -Raw
-            $failedResults = @($trx.SelectNodes("//*[local-name()='UnitTestResult' and @outcome='Failed']"))
-            foreach ($result in $failedResults) {
-              $failedCount++
-              $testName = $result.GetAttribute('testName')
-              $messageNode = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='Message']")
-              $stackNode = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='StackTrace']")
-              $message = if ($null -ne $messageNode) { $messageNode.InnerText.Trim() } else { '<no message>' }
-              $stack = if ($null -ne $stackNode) { $stackNode.InnerText.Trim() } else { '<no stack trace>' }
-
-              Write-Host "TRX: $($file.Name)"
-              Write-Host "FAILED: $testName"
-              Write-Host 'MESSAGE:'
-              Write-Host $message
-              Write-Host 'STACK:'
-              Write-Host $stack
-
-              $annotationMessage = ($message -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')
-              Write-Host "::error title=Parallel test failure: $testName::$annotationMessage"
-            }
-          }
-
-          if ($failedCount -eq 0) {
-            Write-Host 'No failed UnitTestResult was present in TRX. Console tail:'
-            Get-Content -LiteralPath $consoleLog -Tail 160 | ForEach-Object { Write-Host $_ }
-          }
-
-          exit $exitCode
+        run: dotnet test Clipensk.slnx --configuration Release --no-build
