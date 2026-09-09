@@ -188,7 +188,8 @@ public sealed class ProtectedArchiveExternalPolicyMaintenanceServiceTests
 
         Assert.Equal(0L, ArchivePayloadCount(environment, first, firstEvent));
         Assert.Equal(1L, ArchivePayloadCount(environment, second, secondEvent));
-        PendingPolicyMaintenanceOperation pending = Assert.NotNull(await Pending(environment).ReadAsync());
+        PendingPolicyMaintenanceOperation? pending = await Pending(environment).ReadAsync();
+        Assert.NotNull(pending);
         Assert.Equal("pending", ReadState(pending).GetProperty("archiveExternalReferenceCleanup").GetString());
 
         ArchiveExternalPolicyMaintenanceResult retry = await new ProtectedArchiveExternalPolicyMaintenanceService(
