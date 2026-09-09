@@ -67,7 +67,7 @@ public sealed class ProtectedArchiveExternalPolicyMaintenanceServiceTests
             environment,
             ClipboardCapturePolicyRule.Inherit,
             ("Binary", ClipboardCapturePolicyRule.Allow));
-        ArchiveFileName archive = await CreateArchiveAsync(environment, 2, 1, 28);
+        ArchiveFileName archive = await CreateArchiveAsync(environment, 2, 2, 28);
         InsertArchiveApplicationIdentity(environment, archive, applicationId);
         Guid appExact = InsertArchiveExternalPayload(environment, archive, "Binary", "CustomBinary", applicationId, 'c');
         Guid nullSource = InsertArchiveExternalPayload(environment, archive, "Binary", "CustomBinary", null, 'd');
@@ -128,7 +128,7 @@ public sealed class ProtectedArchiveExternalPolicyMaintenanceServiceTests
             ClipboardCapturePolicyRule.Allow,
             ("PNG", ClipboardCapturePolicyRule.Allow)));
         ArchiveFileName first = await CreateArchiveAsync(environment, 4, 1, 31);
-        ArchiveFileName second = await CreateArchiveAsync(environment, 5, 1, 28);
+        ArchiveFileName second = await CreateArchiveAsync(environment, 5, 2, 28);
         Guid firstEvent = InsertArchiveExternalPayload(environment, first, "PNG", "PngImage", null, '1');
         Guid secondEvent = InsertArchiveExternalPayload(environment, second, "PNG", "PngImage", null, '2');
 
@@ -161,7 +161,7 @@ public sealed class ProtectedArchiveExternalPolicyMaintenanceServiceTests
             ClipboardCapturePolicyRule.Allow,
             ("PNG", ClipboardCapturePolicyRule.Allow)));
         ArchiveFileName first = await CreateArchiveAsync(environment, 6, 1, 31);
-        ArchiveFileName second = await CreateArchiveAsync(environment, 7, 1, 28);
+        ArchiveFileName second = await CreateArchiveAsync(environment, 7, 2, 28);
         Guid firstEvent = InsertArchiveExternalPayload(environment, first, "PNG", "PngImage", null, '3');
         Guid secondEvent = InsertArchiveExternalPayload(environment, second, "PNG", "PngImage", null, '4');
         await new ProtectedCurrentPolicyMaintenanceService(environment.Session, environment.Factory)
