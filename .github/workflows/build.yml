@@ -57,23 +57,51 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          $output = @(& dotnet test Clipensk.slnx --configuration Release --no-build 2>&1)
+          $resultsDirectory = Join-Path $env:RUNNER_TEMP 'clipensk-parallel-trx'
+          $consoleLog = Join-Path $env:RUNNER_TEMP 'clipensk-parallel-test.log'
+          New-Item -ItemType Directory -Force -Path $resultsDirectory | Out-Null
+
+          & dotnet test Clipensk.slnx `
+            --configuration Release `
+            --no-build `
+            --logger 'trx;LogFilePrefix=parallel' `
+            --results-directory $resultsDirectory `
+            *> $consoleLog
           $exitCode = $LASTEXITCODE
+
           if ($exitCode -eq 0) {
             Write-Host 'Full parallel suite passed.'
             exit 0
           }
 
-          Write-Host '=== FILTERED PARALLEL TEST FAILURE ==='
-          $matches = @(
-            $output | Select-String `
-              -Pattern 'Failed|Error Message|Stack Trace|Xunit|Exception|Assert\.| at Clipensk\.|Clipensk\..*Tests' `
-              -Context 3,8
-          )
-          if ($matches.Count -gt 0) {
-            $matches | ForEach-Object { Write-Host $_.ToString() }
+          Write-Host '=== EXACT PARALLEL TEST FAILURE ==='
+          $failedCount = 0
+          foreach ($file in Get-ChildItem -Path $resultsDirectory -Filter '*.trx' -Recurse) {
+            [xml]$trx = Get-Content -LiteralPath $file.FullName -Raw
+            $failedResults = @($trx.SelectNodes("//*[local-name()='UnitTestResult' and @outcome='Failed']"))
+            foreach ($result in $failedResults) {
+              $failedCount++
+              $testName = $result.GetAttribute('testName')
+              $messageNode = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='Message']")
+              $stackNode = $result.SelectSingleNode("./*[local-name()='Output']/*[local-name()='ErrorInfo']/*[local-name()='StackTrace']")
+              $message = if ($null -ne $messageNode) { $messageNode.InnerText.Trim() } else { '<no message>' }
+              $stack = if ($null -ne $stackNode) { $stackNode.InnerText.Trim() } else { '<no stack trace>' }
+
+              Write-Host "TRX: $($file.Name)"
+              Write-Host "FAILED: $testName"
+              Write-Host 'MESSAGE:'
+              Write-Host $message
+              Write-Host 'STACK:'
+              Write-Host $stack
+
+              $annotationMessage = ($message -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')
+              Write-Host "::error title=Parallel test failure: $testName::$annotationMessage"
+            }
           }
-          else {
-            $output | Select-Object -Last 160 | ForEach-Object { Write-Host $_.ToString() }
+
+          if ($failedCount -eq 0) {
+            Write-Host 'No failed UnitTestResult was present in TRX. Console tail:'
+            Get-Content -LiteralPath $consoleLog -Tail 160 | ForEach-Object { Write-Host $_ }
           }
+
           exit $exitCode
