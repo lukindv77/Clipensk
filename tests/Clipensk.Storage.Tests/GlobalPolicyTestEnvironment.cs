@@ -75,6 +75,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     }
 
     public void DowngradeToV4() => Execute("""
+        DROP TABLE ApplicationDiscoveredFormat;
         DROP TABLE PendingPolicyMaintenance;
         DROP TABLE CustomBinaryFormatConfiguration;
         DROP TABLE GlobalFormatCapturePolicy;
@@ -84,6 +85,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV5() => Execute("""
+        DROP TABLE ApplicationDiscoveredFormat;
         DROP TABLE PendingPolicyMaintenance;
         DROP TABLE CustomBinaryFormatConfiguration;
         UPDATE DatabaseIdentity SET SchemaVersion = 5;
@@ -91,9 +93,16 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV6() => Execute("""
+        DROP TABLE ApplicationDiscoveredFormat;
         DROP TABLE PendingPolicyMaintenance;
         UPDATE DatabaseIdentity SET SchemaVersion = 6;
         PRAGMA user_version = 6;
+        """);
+
+    public void DowngradeToV7() => Execute("""
+        DROP TABLE ApplicationDiscoveredFormat;
+        UPDATE DatabaseIdentity SET SchemaVersion = 7;
+        PRAGMA user_version = 7;
         """);
 
     public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>
