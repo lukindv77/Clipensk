@@ -32,6 +32,7 @@ public sealed class ProtectedClipboardCaptureServicesTests
             factory);
 
         Assert.NotNull(services.ApplicationIdentityRegistry);
+        Assert.NotNull(services.ApplicationDiscoveredFormatObserver);
         Assert.NotNull(services.PolicyRepository);
         Assert.NotNull(services.PolicyProvider);
         Assert.Equal(0, factory.OpenCallCount);
