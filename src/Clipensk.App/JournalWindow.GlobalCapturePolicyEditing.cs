@@ -170,7 +170,7 @@ public sealed partial class JournalWindow
             rule.SelectionChanged += (_, _) => UpdateLimitAvailability(editor);
             limit.SelectionChanged += (_, _) => UpdateLimitAvailability(editor);
 
-            if (currentPolicy.Formats.TryGetValue(name, out ClipboardFormatCapturePolicy? currentFormat))
+            if (currentPolicy.Formats.TryGetValue(name, out ClipboardFormatCapturePolicy currentFormat))
             {
                 PopulateStandardPolicyEditor(editor, currentFormat);
             }
