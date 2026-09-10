@@ -89,7 +89,7 @@ public partial class App
 
     internal async Task<bool> TryApplyGlobalCapturePolicyChangeAsync(
         ProtectedStorageSessionLease session,
-        ClipboardCapturePolicy policy,
+        global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -177,10 +177,9 @@ public partial class App
             bool markerExists = true;
             try
             {
-                PendingPolicyMaintenanceOperation? pending =
-                    await new SqlitePendingPolicyMaintenanceRepository(session)
-                        .ReadAsync(session.CancellationToken);
-                markerExists = pending is not null;
+                markerExists = (await new global::Clipensk.Storage.Clipboard.SqlitePendingPolicyMaintenanceRepository(session)
+                        .ReadAsync(session.CancellationToken)
+                        .ConfigureAwait(false)) is not null;
             }
             catch
             {
