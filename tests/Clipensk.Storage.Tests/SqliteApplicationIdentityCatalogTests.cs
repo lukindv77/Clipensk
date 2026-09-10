@@ -6,6 +6,7 @@ using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
+using ClipenskApplicationId = Clipensk.Core.Applications.ApplicationId;
 using Xunit;
 
 namespace Clipensk.Storage.Tests;
@@ -16,8 +17,8 @@ public sealed class SqliteApplicationIdentityCatalogTests
     public async Task ReadAllAsync_ReturnsGroupedAliasesAndIdentitiesWithoutAliasesInStableOrder()
     {
         using TestDatabase database = TestDatabase.Create();
-        var olderId = new ApplicationId(Guid.Parse("11111111-1111-1111-1111-111111111111"));
-        var newerId = new ApplicationId(Guid.Parse("22222222-2222-2222-2222-222222222222"));
+        var olderId = new ClipenskApplicationId(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var newerId = new ClipenskApplicationId(Guid.Parse("22222222-2222-2222-2222-222222222222"));
         DateTimeOffset olderCreated = new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero);
         DateTimeOffset newerCreated = new(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
 
@@ -63,7 +64,7 @@ public sealed class SqliteApplicationIdentityCatalogTests
     public async Task ReadAllAsync_RejectsEmptyPersistedAliasValue()
     {
         using TestDatabase database = TestDatabase.Create();
-        ApplicationId id = ApplicationId.New();
+        ClipenskApplicationId id = ClipenskApplicationId.New();
         DateTimeOffset created = new(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
         database.SeedIdentity(id, created);
         database.InsertRawAlias(
@@ -162,7 +163,7 @@ public sealed class SqliteApplicationIdentityCatalogTests
             new(Session, _factory);
 
         public void SeedIdentity(
-            ApplicationId applicationId,
+            ClipenskApplicationId applicationId,
             DateTimeOffset createdAtUtc,
             params (string AliasType, string AliasValue)[] aliases)
         {
