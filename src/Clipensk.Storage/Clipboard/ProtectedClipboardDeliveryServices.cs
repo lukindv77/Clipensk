@@ -61,7 +61,10 @@ public sealed class ProtectedClipboardDeliveryServices
             session, customBinaryExtensionProvider, connectionFactory);
         EnsureActive(session, token);
         IClipboardAcceptedCaptureDelivery inner = deliveryFactory.Create(
-            capture.PolicyProvider, history.HistorySink, capture.ApplicationIdentityRegistry)
+            capture.PolicyProvider,
+            history.HistorySink,
+            capture.ApplicationIdentityRegistry,
+            capture.ApplicationDiscoveredFormatObserver)
             ?? throw new InvalidOperationException("Delivery factory returned no delivery graph.");
         EnsureActive(session, token);
 
