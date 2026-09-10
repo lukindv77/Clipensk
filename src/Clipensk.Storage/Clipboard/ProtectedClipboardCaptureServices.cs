@@ -10,15 +10,19 @@ public sealed class ProtectedClipboardCaptureServices
 {
     private ProtectedClipboardCaptureServices(
         IApplicationIdentityRegistry applicationIdentityRegistry,
+        IApplicationDiscoveredFormatObserver applicationDiscoveredFormatObserver,
         SqliteClipboardCapturePolicyRepository policyRepository,
         IClipboardCapturePolicyProvider policyProvider)
     {
         ApplicationIdentityRegistry = applicationIdentityRegistry;
+        ApplicationDiscoveredFormatObserver = applicationDiscoveredFormatObserver;
         PolicyRepository = policyRepository;
         PolicyProvider = policyProvider;
     }
 
     public IApplicationIdentityRegistry ApplicationIdentityRegistry { get; }
+
+    public IApplicationDiscoveredFormatObserver ApplicationDiscoveredFormatObserver { get; }
 
     public SqliteClipboardCapturePolicyRepository PolicyRepository { get; }
 
@@ -41,6 +45,9 @@ public sealed class ProtectedClipboardCaptureServices
             session,
             connectionFactory);
         var identityRegistry = new RepositoryApplicationIdentityRegistry(identityRepository);
+        var discoveredFormatRepository = new SqliteApplicationDiscoveredFormatRepository(
+            session,
+            connectionFactory);
         var policyRepository = new SqliteClipboardCapturePolicyRepository(
             session,
             globalPolicy,
@@ -49,6 +56,7 @@ public sealed class ProtectedClipboardCaptureServices
 
         return new ProtectedClipboardCaptureServices(
             identityRegistry,
+            discoveredFormatRepository,
             policyRepository,
             policyProvider);
     }
