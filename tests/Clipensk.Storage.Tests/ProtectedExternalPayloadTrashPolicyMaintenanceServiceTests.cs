@@ -4,6 +4,7 @@ using System.Text.Json;
 using Clipensk.Core.Clipboard;
 using Clipensk.Storage.Clipboard;
 using Clipensk.Storage.Sqlite;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace Clipensk.Storage.Tests;
