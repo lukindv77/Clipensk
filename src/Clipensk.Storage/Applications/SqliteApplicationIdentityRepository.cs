@@ -7,7 +7,9 @@ using SQLitePCL;
 
 namespace Clipensk.Storage.Applications;
 
-public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRepository
+public sealed class SqliteApplicationIdentityRepository :
+    IApplicationIdentityRepository,
+    IApplicationIdentityReadRepository
 {
     private readonly ProtectedStorageSessionLease _session;
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
@@ -35,6 +37,19 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadOnly, token);
         ApplicationIdentityAliasLookup result = FindAliases(connection, observation, token);
+        token.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(result);
+    }
+
+    public ValueTask<IReadOnlyList<ApplicationIdentitySummary>> ListAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using CancellationTokenSource linkedCancellation = CreateLinkedCancellation(cancellationToken);
+        CancellationToken token = linkedCancellation.Token;
+        token.ThrowIfCancellationRequested();
+
+        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadOnly, token);
+        IReadOnlyList<ApplicationIdentitySummary> result = List(connection, token);
         token.ThrowIfCancellationRequested();
         return ValueTask.FromResult(result);
     }
@@ -256,6 +271,93 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
         command.ExecuteNonQuery();
     }
 
+    private static IReadOnlyList<ApplicationIdentitySummary> List(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT i.ApplicationId, i.CreatedAtUtc, a.AliasType, a.AliasValue
+            FROM ApplicationIdentity AS i
+            LEFT JOIN ApplicationIdentityAlias AS a
+              ON a.ApplicationId = i.ApplicationId
+            ORDER BY i.ApplicationId COLLATE BINARY,
+                     a.AliasType COLLATE BINARY,
+                     a.AliasValue COLLATE BINARY;
+            """;
+
+        var builders = new List<ApplicationIdentitySummaryBuilder>();
+        string? currentApplicationIdText = null;
+        ApplicationIdentitySummaryBuilder? current = null;
+
+        using SqliteDataReader reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string applicationIdText = reader.GetString(0);
+            ApplicationId applicationId = ParsePersistedApplicationId(applicationIdText);
+            DateTimeOffset createdAtUtc = ParsePersistedCreatedAtUtc(reader.GetString(1));
+
+            if (!string.Equals(
+                    currentApplicationIdText,
+                    applicationIdText,
+                    StringComparison.Ordinal))
+            {
+                currentApplicationIdText = applicationIdText;
+                current = new ApplicationIdentitySummaryBuilder(applicationId, createdAtUtc);
+                builders.Add(current);
+            }
+            else if (current is null || current.CreatedAtUtc != createdAtUtc)
+            {
+                throw new InvalidDataException(
+                    "Application identity rows contain inconsistent creation timestamps.");
+            }
+
+            bool hasAliasType = !reader.IsDBNull(2);
+            bool hasAliasValue = !reader.IsDBNull(3);
+            if (hasAliasType != hasAliasValue)
+            {
+                throw new InvalidDataException(
+                    "Application identity alias contains incomplete persisted data.");
+            }
+            if (!hasAliasType)
+            {
+                continue;
+            }
+
+            string aliasType = reader.GetString(2);
+            string aliasValue = reader.GetString(3);
+            if (string.IsNullOrWhiteSpace(aliasValue))
+            {
+                throw new InvalidDataException(
+                    "Application identity alias contains an empty value.");
+            }
+
+            switch (aliasType)
+            {
+                case ApplicationIdentitySqlSchema.AumidAliasType:
+                    current!.ApplicationUserModelIds.Add(aliasValue);
+                    break;
+                case ApplicationIdentitySqlSchema.ExecutablePathAliasType:
+                    current!.ExecutablePaths.Add(aliasValue);
+                    break;
+                default:
+                    throw new InvalidDataException(
+                        "Application identity alias contains an unknown alias type.");
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return builders
+            .Select(builder => new ApplicationIdentitySummary(
+                builder.ApplicationId,
+                builder.CreatedAtUtc,
+                builder.ApplicationUserModelIds.ToArray(),
+                builder.ExecutablePaths.ToArray()))
+            .ToArray();
+    }
+
     private static ApplicationIdentityAliasLookup FindAliases(
         SqliteConnection connection,
         ApplicationIdentityObservation observation,
@@ -312,6 +414,36 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
         }
 
         return new ApplicationId(applicationId);
+    }
+
+    private static ApplicationId ParsePersistedApplicationId(string value)
+    {
+        if (!Guid.TryParseExact(value, "D", out Guid parsed) ||
+            parsed == Guid.Empty ||
+            !string.Equals(value, parsed.ToString("D"), StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Application identity contains a non-canonical durable ApplicationId.");
+        }
+
+        return new ApplicationId(parsed);
+    }
+
+    private static DateTimeOffset ParsePersistedCreatedAtUtc(string value)
+    {
+        if (!DateTimeOffset.TryParseExact(
+                value,
+                "O",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out DateTimeOffset parsed) ||
+            parsed.Offset != TimeSpan.Zero)
+        {
+            throw new InvalidDataException(
+                "Application identity contains an invalid UTC creation timestamp.");
+        }
+
+        return parsed;
     }
 
     private static void InsertApplication(
@@ -398,5 +530,24 @@ public sealed class SqliteApplicationIdentityRepository : IApplicationIdentityRe
             observation,
             lookup.ApplicationUserModelIdApplicationId,
             lookup.ExecutablePathApplicationId);
+    }
+
+    private sealed class ApplicationIdentitySummaryBuilder
+    {
+        public ApplicationIdentitySummaryBuilder(
+            ApplicationId applicationId,
+            DateTimeOffset createdAtUtc)
+        {
+            ApplicationId = applicationId;
+            CreatedAtUtc = createdAtUtc;
+        }
+
+        public ApplicationId ApplicationId { get; }
+
+        public DateTimeOffset CreatedAtUtc { get; }
+
+        public List<string> ApplicationUserModelIds { get; } = [];
+
+        public List<string> ExecutablePaths { get; } = [];
     }
 }
