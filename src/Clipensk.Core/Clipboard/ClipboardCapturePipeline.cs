@@ -6,6 +6,7 @@ public sealed class ClipboardCapturePipeline
     private readonly ClipboardCaptureApplicationIdentityStage? _applicationIdentityStage;
     private readonly ClipboardCapturePolicyResolutionStage _policyStage;
     private readonly ClipboardFormatDiscoveryStage _formatDiscoveryStage;
+    private readonly ClipboardApplicationDiscoveredFormatObservationStage? _applicationDiscoveredFormatObservationStage;
     private readonly ClipboardFormatSelectionStage _formatSelectionStage;
 
     public ClipboardCapturePipeline(
@@ -18,6 +19,7 @@ public sealed class ClipboardCapturePipeline
         _applicationIdentityStage = null;
         _policyStage = policyStage ?? throw new ArgumentNullException(nameof(policyStage));
         _formatDiscoveryStage = formatDiscoveryStage ?? throw new ArgumentNullException(nameof(formatDiscoveryStage));
+        _applicationDiscoveredFormatObservationStage = null;
         _formatSelectionStage = formatSelectionStage ?? throw new ArgumentNullException(nameof(formatSelectionStage));
     }
 
@@ -33,6 +35,25 @@ public sealed class ClipboardCapturePipeline
             ?? throw new ArgumentNullException(nameof(applicationIdentityStage));
         _policyStage = policyStage ?? throw new ArgumentNullException(nameof(policyStage));
         _formatDiscoveryStage = formatDiscoveryStage ?? throw new ArgumentNullException(nameof(formatDiscoveryStage));
+        _applicationDiscoveredFormatObservationStage = null;
+        _formatSelectionStage = formatSelectionStage ?? throw new ArgumentNullException(nameof(formatSelectionStage));
+    }
+
+    public ClipboardCapturePipeline(
+        ClipboardCaptureSourceStage sourceStage,
+        ClipboardCaptureApplicationIdentityStage applicationIdentityStage,
+        ClipboardCapturePolicyResolutionStage policyStage,
+        ClipboardFormatDiscoveryStage formatDiscoveryStage,
+        ClipboardApplicationDiscoveredFormatObservationStage applicationDiscoveredFormatObservationStage,
+        ClipboardFormatSelectionStage formatSelectionStage)
+    {
+        _sourceStage = sourceStage ?? throw new ArgumentNullException(nameof(sourceStage));
+        _applicationIdentityStage = applicationIdentityStage
+            ?? throw new ArgumentNullException(nameof(applicationIdentityStage));
+        _policyStage = policyStage ?? throw new ArgumentNullException(nameof(policyStage));
+        _formatDiscoveryStage = formatDiscoveryStage ?? throw new ArgumentNullException(nameof(formatDiscoveryStage));
+        _applicationDiscoveredFormatObservationStage = applicationDiscoveredFormatObservationStage
+            ?? throw new ArgumentNullException(nameof(applicationDiscoveredFormatObservationStage));
         _formatSelectionStage = formatSelectionStage ?? throw new ArgumentNullException(nameof(formatSelectionStage));
     }
 
@@ -54,6 +75,13 @@ public sealed class ClipboardCapturePipeline
             .ResolveAsync(captureContext, cancellationToken)
             .ConfigureAwait(false);
         ClipboardFormatSnapshot formatSnapshot = _formatDiscoveryStage.Discover(policyContext);
+
+        if (_applicationDiscoveredFormatObservationStage is not null)
+        {
+            await _applicationDiscoveredFormatObservationStage
+                .ObserveAsync(formatSnapshot, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return _formatSelectionStage.Select(formatSnapshot);
     }
