@@ -73,6 +73,7 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["CapturePolicy.ExternalHelp"] = "Изображения и пользовательские бинарные payload сохраняются отдельными файлами и не защищаются паролем базы данных. Для нового custom-binary SHA требуется заранее сохранённое точное соответствие FormatName → расширение файла.",
         ["CapturePolicy.SetupHelp"] = "Первоначальное сохранение создаёт policy и custom-binary mappings атомарно. После настройки можно безопасно менять базовое правило и стандартные форматы; существующие custom-binary правила и mappings при таком изменении сохраняются без изменений.",
         ["CapturePolicy.Save"] = "Сохранить первоначальные правила",
+        ["CapturePolicy.Edit"] = "Изменить правила",
         ["CapturePolicy.Reload"] = "Перечитать правила и сбросить ввод",
         ["CapturePolicy.Open"] = "Открыть правила сбора",
         ["CapturePolicy.ValidationFailed"] = "Выберите базовое правило и действие для каждого формата. Для разрешённых форматов выберите «Без лимита» либо задайте положительное целое число байт. Для разрешённого пользовательского бинарного формата укажите допустимое расширение файла и не используйте запрещённые WaveAudio, RiffAudio или FileContents.",
