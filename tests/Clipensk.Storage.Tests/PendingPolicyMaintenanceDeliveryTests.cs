@@ -47,7 +47,8 @@ public sealed class PendingPolicyMaintenanceDeliveryTests
         public IClipboardAcceptedCaptureDelivery Create(
             IClipboardCapturePolicyProvider policyProvider,
             IClipboardAcceptedCaptureSink sink,
-            IApplicationIdentityRegistry identityRegistry)
+            IApplicationIdentityRegistry identityRegistry,
+            IApplicationDiscoveredFormatObserver discoveredFormatObserver)
         {
             CreateCount++;
             throw new InvalidOperationException("Factory must not run while maintenance is pending.");
