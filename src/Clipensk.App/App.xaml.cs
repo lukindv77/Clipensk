@@ -119,10 +119,10 @@ public partial class App : Application
         }
 
         // CompleteUnlock raises ProtectedDataAccessChanged before JournalWindow finishes
-        // establishing ProtectedStorageSessionLease. Defer composition until the current
-        // unlock handler returns, then re-check lifecycle, host, and session readiness.
-        // The clipboard listener stays disabled until composition finds a persisted policy
-        // and the worker for that exact protected session has been scheduled.
+        // establishing ProtectedStorageSessionLease. Defer recovery until the current unlock
+        // handler returns, then re-check lifecycle, host, and session readiness. The clipboard
+        // listener stays disabled while any durable policy maintenance is resumed and is only
+        // recomposed from persisted state after that recovery succeeds.
         window.DispatcherQueue.TryEnqueue(() =>
         {
             if (!ReferenceEquals(_residentWindowsHost, host) ||
@@ -133,7 +133,7 @@ public partial class App : Application
                 return;
             }
 
-            RequestClipboardDeliveryComposition(window, host);
+            RequestPolicyMaintenanceRecovery(window, host);
         });
     }
 
