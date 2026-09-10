@@ -91,8 +91,6 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <Separator />
-
                     <TextBlock x:Name="GlobalPolicyTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
                     <TextBlock x:Name="GlobalPolicyBody" TextWrapping="Wrap" />
                     <InfoBar x:Name="GlobalPolicyInfo" IsOpen="True" IsClosable="False" />
