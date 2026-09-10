@@ -12,10 +12,75 @@ public sealed partial class JournalWindow
 {
     private long _applicationPoliciesGeneration;
     private bool _applicationPolicyEditInProgress;
+    private ContentDialog? _applicationPolicyDialog;
 
-    private async void OnApplicationPoliciesPanelLoaded(object sender, RoutedEventArgs e)
+    private void OnApplicationPoliciesPanelLoaded(object sender, RoutedEventArgs e)
     {
+        ShellNavigation.SelectionChanged -= OnApplicationPoliciesNavigationSelectionChanged;
+        ShellNavigation.SelectionChanged += OnApplicationPoliciesNavigationSelectionChanged;
+        _lifecycle.ProtectedDataAccessChanged -= OnApplicationPoliciesProtectedAccessChanged;
+        _lifecycle.ProtectedDataAccessChanged += OnApplicationPoliciesProtectedAccessChanged;
+        Closed -= OnApplicationPoliciesWindowClosed;
+        Closed += OnApplicationPoliciesWindowClosed;
+
+        if (ReferenceEquals(ShellNavigation.SelectedItem, ApplicationsItem))
+        {
+            _ = LoadApplicationPoliciesAsync();
+        }
+    }
+
+    private async void OnApplicationPoliciesNavigationSelectionChanged(
+        NavigationView sender,
+        NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItemContainer?.Tag is not string tag ||
+            !string.Equals(tag, "applications", StringComparison.Ordinal))
+        {
+            return;
+        }
+
         await LoadApplicationPoliciesAsync();
+    }
+
+    private void OnApplicationPoliciesProtectedAccessChanged(bool allowed)
+    {
+        if (allowed)
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref _applicationPoliciesGeneration);
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            ClearApplicationPoliciesUi();
+        }
+        else
+        {
+            DispatcherQueue.TryEnqueue(ClearApplicationPoliciesUi);
+        }
+    }
+
+    private void OnApplicationPoliciesWindowClosed(object sender, WindowEventArgs e)
+    {
+        ShellNavigation.SelectionChanged -= OnApplicationPoliciesNavigationSelectionChanged;
+        _lifecycle.ProtectedDataAccessChanged -= OnApplicationPoliciesProtectedAccessChanged;
+        Closed -= OnApplicationPoliciesWindowClosed;
+        Interlocked.Increment(ref _applicationPoliciesGeneration);
+        ClearApplicationPoliciesUi();
+    }
+
+    private void ClearApplicationPoliciesUi()
+    {
+        _applicationPolicyDialog?.Hide();
+        _applicationPolicyDialog = null;
+        ApplicationPoliciesList.SelectedItem = null;
+        ApplicationPoliciesList.ItemsSource = null;
+        ApplicationPoliciesInfo.IsOpen = false;
+        ApplicationPoliciesProgress.IsActive = false;
+        ApplicationPoliciesProgress.Visibility = Visibility.Collapsed;
+        EditApplicationPolicyButton.IsEnabled = false;
+        SelectedApplicationIdentity.Text = string.Empty;
+        SelectedApplicationPolicySummary.Text = string.Empty;
     }
 
     private async void OnReloadApplicationPoliciesClicked(object sender, RoutedEventArgs e)
@@ -244,7 +309,20 @@ public sealed partial class JournalWindow
                 }
             };
 
-            ContentDialogResult result = await dialog.ShowAsync();
+            _applicationPolicyDialog = dialog;
+            ContentDialogResult result;
+            try
+            {
+                result = await dialog.ShowAsync();
+            }
+            finally
+            {
+                if (ReferenceEquals(_applicationPolicyDialog, dialog))
+                {
+                    _applicationPolicyDialog = null;
+                }
+            }
+
             if (result == ContentDialogResult.Primary &&
                 appliedPolicy is not null &&
                 IsCurrentApplicationPolicyOperation(session, generation))
