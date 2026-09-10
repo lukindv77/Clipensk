@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/policy-maintenance-runtime-resume ]
   workflow_dispatch:
 
 permissions:
