@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/application-policy-maintenance-trash ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -52,14 +52,7 @@ jobs:
         run: dotnet restore Clipensk.slnx
 
       - name: Build
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          & dotnet build Clipensk.slnx --configuration Release --no-restore 2>&1 | Tee-Object -FilePath artifacts/build-output.txt
-          $buildExitCode = $LASTEXITCODE
-          if ($buildExitCode -ne 0) {
-            exit $buildExitCode
-          }
+        run: dotnet build Clipensk.slnx --configuration Release --no-restore
 
       - name: Test
         shell: pwsh
@@ -71,13 +64,11 @@ jobs:
             exit $testExitCode
           }
 
-      - name: Upload diagnostics
+      - name: Upload test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-test-output-${{ github.sha }}
-          path: |
-            artifacts/build-output.txt
-            artifacts/test-output.txt
+          name: test-output-${{ github.sha }}
+          path: artifacts/test-output.txt
           if-no-files-found: warn
           retention-days: 7
