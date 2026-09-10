@@ -1,3 +1,4 @@
+using System.Globalization;
 using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
@@ -16,6 +17,11 @@ public sealed partial class JournalWindow
 
     private void OnApplicationPoliciesPanelLoaded(object sender, RoutedEventArgs e)
     {
+        ApplicationPoliciesTitle.Text = ApplicationPolicyText("Title");
+        ApplicationPoliciesBody.Text = ApplicationPolicyText("Body");
+        EditApplicationPolicyButton.Content = ApplicationPolicyText("Edit");
+        ReloadApplicationPoliciesButton.Content = ApplicationPolicyText("Reload");
+
         ShellNavigation.SelectionChanged -= OnApplicationPoliciesNavigationSelectionChanged;
         ShellNavigation.SelectionChanged += OnApplicationPoliciesNavigationSelectionChanged;
         _lifecycle.ProtectedDataAccessChanged -= OnApplicationPoliciesProtectedAccessChanged;
@@ -126,7 +132,7 @@ public sealed partial class JournalWindow
             if (items.Length == 0)
             {
                 ApplicationPoliciesInfo.Severity = InfoBarSeverity.Informational;
-                ApplicationPoliciesInfo.Message = "Обнаруженных приложений пока нет. Они появятся после успешного определения источника захвата.";
+                ApplicationPoliciesInfo.Message = ApplicationPolicyText("Empty");
                 ApplicationPoliciesInfo.IsOpen = true;
             }
         }
@@ -138,7 +144,7 @@ public sealed partial class JournalWindow
             if (IsCurrentApplicationPolicyOperation(session, generation))
             {
                 ApplicationPoliciesInfo.Severity = InfoBarSeverity.Error;
-                ApplicationPoliciesInfo.Message = "Не удалось загрузить список приложений из защищённого хранилища.";
+                ApplicationPoliciesInfo.Message = ApplicationPolicyText("LoadFailed");
                 ApplicationPoliciesInfo.IsOpen = true;
             }
         }
@@ -193,7 +199,7 @@ public sealed partial class JournalWindow
             if (IsCurrentApplicationPolicyOperation(session, generation))
             {
                 ApplicationPoliciesInfo.Severity = InfoBarSeverity.Error;
-                ApplicationPoliciesInfo.Message = "Не удалось прочитать индивидуальное правило выбранного приложения.";
+                ApplicationPoliciesInfo.Message = ApplicationPolicyText("ReadFailed");
                 ApplicationPoliciesInfo.IsOpen = true;
             }
         }
@@ -228,12 +234,12 @@ public sealed partial class JournalWindow
 
             var rule = new ComboBox
             {
-                Header = "Базовое правило приложения",
+                Header = ApplicationPolicyText("BaseRule"),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 DisplayMemberPath = nameof(ApplicationRuleOption.Label),
                 ItemsSource = new[]
                 {
-                    new ApplicationRuleOption("Наследовать глобальное правило", ClipboardCapturePolicyRule.Inherit),
+                    new ApplicationRuleOption(ApplicationPolicyText("Inherit"), ClipboardCapturePolicyRule.Inherit),
                     new ApplicationRuleOption(PolicyText("Allow"), ClipboardCapturePolicyRule.Allow),
                     new ApplicationRuleOption(PolicyText("Deny"), ClipboardCapturePolicyRule.Deny),
                 },
@@ -254,7 +260,7 @@ public sealed partial class JournalWindow
             var content = new StackPanel { Spacing = 12 };
             content.Children.Add(new TextBlock
             {
-                Text = "Изменяется только базовое правило приложения. Существующие форматные переопределения сохраняются без изменений.",
+                Text = ApplicationPolicyText("EditHelp"),
                 TextWrapping = TextWrapping.Wrap,
             });
             content.Children.Add(error);
@@ -263,8 +269,8 @@ public sealed partial class JournalWindow
             var dialog = new ContentDialog
             {
                 Title = selected.DisplayName,
-                PrimaryButtonText = "Применить",
-                CloseButtonText = "Отмена",
+                PrimaryButtonText = ApplicationPolicyText("Apply"),
+                CloseButtonText = ApplicationPolicyText("Cancel"),
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = ShellNavigation.XamlRoot,
                 Content = content,
@@ -279,7 +285,7 @@ public sealed partial class JournalWindow
                     if (!IsCurrentApplicationPolicyOperation(session, generation) ||
                         rule.SelectedItem is not ApplicationRuleOption selectedRule)
                     {
-                        error.Message = "Защищённая сессия изменилась. Закройте диалог и повторите после разблокировки.";
+                        error.Message = ApplicationPolicyText("SessionChanged");
                         error.IsOpen = true;
                         args.Cancel = true;
                         return;
@@ -295,7 +301,7 @@ public sealed partial class JournalWindow
                             requested,
                             session.CancellationToken))
                     {
-                        error.Message = "Изменение не завершено. Если durable-операция уже началась, сбор оставлен безопасно приостановленным и будет продолжен при следующей разблокировке.";
+                        error.Message = ApplicationPolicyText("ApplyFailed");
                         error.IsOpen = true;
                         args.Cancel = true;
                         return;
@@ -329,7 +335,7 @@ public sealed partial class JournalWindow
             {
                 SelectedApplicationPolicySummary.Text = BuildApplicationPolicySummary(appliedPolicy);
                 ApplicationPoliciesInfo.Severity = InfoBarSeverity.Success;
-                ApplicationPoliciesInfo.Message = "Индивидуальное базовое правило приложения сохранено.";
+                ApplicationPoliciesInfo.Message = ApplicationPolicyText("Saved");
                 ApplicationPoliciesInfo.IsOpen = true;
             }
         }
@@ -341,7 +347,7 @@ public sealed partial class JournalWindow
             if (IsCurrentApplicationPolicyOperation(session, generation))
             {
                 ApplicationPoliciesInfo.Severity = InfoBarSeverity.Error;
-                ApplicationPoliciesInfo.Message = "Не удалось подготовить или применить индивидуальное правило приложения.";
+                ApplicationPoliciesInfo.Message = ApplicationPolicyText("PrepareFailed");
                 ApplicationPoliciesInfo.IsOpen = true;
             }
         }
@@ -387,6 +393,9 @@ public sealed partial class JournalWindow
         session.IsActive &&
         _lifecycle.CanAccessProtectedData;
 
+    private string ApplicationPolicyText(string key) =>
+        _localization.GetString("ApplicationPolicy." + key);
+
     private static string BuildApplicationDisplayName(ApplicationIdentitySummary summary)
     {
         string? executable = summary.ExecutablePaths.FirstOrDefault();
@@ -403,7 +412,7 @@ public sealed partial class JournalWindow
         return string.IsNullOrWhiteSpace(aumid) ? summary.ApplicationId.ToString() : aumid;
     }
 
-    private static string BuildApplicationIdentitySummary(ApplicationIdentitySummary summary)
+    private string BuildApplicationIdentitySummary(ApplicationIdentitySummary summary)
     {
         string aumids = summary.ApplicationUserModelIds.Count == 0
             ? "—"
@@ -411,24 +420,29 @@ public sealed partial class JournalWindow
         string paths = summary.ExecutablePaths.Count == 0
             ? "—"
             : string.Join(Environment.NewLine, summary.ExecutablePaths);
-        return $"ApplicationId: {summary.ApplicationId}{Environment.NewLine}AUMID: {aumids}{Environment.NewLine}Пути: {paths}";
+        return $"ApplicationId: {summary.ApplicationId}{Environment.NewLine}AUMID: {aumids}{Environment.NewLine}{ApplicationPolicyText("Paths")}: {paths}";
     }
 
     private string BuildApplicationPolicySummary(ClipboardCapturePolicy? policy)
     {
         if (policy is null)
         {
-            return "Индивидуальное правило не задано; используется глобальная политика.";
+            return ApplicationPolicyText("NoOverride");
         }
 
         string rule = policy.Capture switch
         {
-            ClipboardCapturePolicyRule.Inherit => "Наследовать глобальное правило",
+            ClipboardCapturePolicyRule.Inherit => ApplicationPolicyText("Inherit"),
             ClipboardCapturePolicyRule.Allow => PolicyText("Allow"),
             ClipboardCapturePolicyRule.Deny => PolicyText("Deny"),
             _ => policy.Capture.ToString(),
         };
-        return $"Базовое правило: {rule}. Форматных переопределений: {policy.Formats.Count}.";
+        return ApplicationPolicyText("Summary")
+            .Replace("{0}", rule, StringComparison.Ordinal)
+            .Replace(
+                "{1}",
+                policy.Formats.Count.ToString(CultureInfo.CurrentCulture),
+                StringComparison.Ordinal);
     }
 
     private sealed record ApplicationPolicyListItem(
