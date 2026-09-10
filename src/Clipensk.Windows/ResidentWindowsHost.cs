@@ -86,7 +86,10 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(policyProvider);
 
-        return CreateCapturePipelineCore(policyProvider, identityRegistry: null);
+        return CreateCapturePipelineCore(
+            policyProvider,
+            identityRegistry: null,
+            discoveredFormatObserver: null);
     }
 
     public ClipboardCapturePipeline CreateCapturePipeline(
@@ -97,7 +100,26 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
         ArgumentNullException.ThrowIfNull(policyProvider);
         ArgumentNullException.ThrowIfNull(identityRegistry);
 
-        return CreateCapturePipelineCore(policyProvider, identityRegistry);
+        return CreateCapturePipelineCore(
+            policyProvider,
+            identityRegistry,
+            discoveredFormatObserver: null);
+    }
+
+    public ClipboardCapturePipeline CreateCapturePipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry identityRegistry,
+        IApplicationDiscoveredFormatObserver discoveredFormatObserver)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+        ArgumentNullException.ThrowIfNull(discoveredFormatObserver);
+
+        return CreateCapturePipelineCore(
+            policyProvider,
+            identityRegistry,
+            discoveredFormatObserver);
     }
 
     public ClipboardCaptureReadPlanningPipeline CreateCaptureReadPlanningPipeline(
@@ -124,6 +146,24 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
             ContentReadPlanStage);
     }
 
+    public ClipboardCaptureReadPlanningPipeline CreateCaptureReadPlanningPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry identityRegistry,
+        IApplicationDiscoveredFormatObserver discoveredFormatObserver)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+        ArgumentNullException.ThrowIfNull(discoveredFormatObserver);
+
+        return new ClipboardCaptureReadPlanningPipeline(
+            CreateCapturePipeline(
+                policyProvider,
+                identityRegistry,
+                discoveredFormatObserver),
+            ContentReadPlanStage);
+    }
+
     public ClipboardCaptureReadExecutionPipeline CreateCaptureReadExecutionPipeline(
         IClipboardCapturePolicyProvider policyProvider)
     {
@@ -145,6 +185,24 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
 
         return new ClipboardCaptureReadExecutionPipeline(
             CreateCaptureReadPlanningPipeline(policyProvider, identityRegistry),
+            ContentReadExecutionStage);
+    }
+
+    public ClipboardCaptureReadExecutionPipeline CreateCaptureReadExecutionPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IApplicationIdentityRegistry identityRegistry,
+        IApplicationDiscoveredFormatObserver discoveredFormatObserver)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+        ArgumentNullException.ThrowIfNull(discoveredFormatObserver);
+
+        return new ClipboardCaptureReadExecutionPipeline(
+            CreateCaptureReadPlanningPipeline(
+                policyProvider,
+                identityRegistry,
+                discoveredFormatObserver),
             ContentReadExecutionStage);
     }
 
@@ -180,12 +238,39 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
                 sink));
     }
 
+    public ClipboardAcceptedCaptureDeliveryPipeline CreateAcceptedCaptureDeliveryPipeline(
+        IClipboardCapturePolicyProvider policyProvider,
+        IClipboardAcceptedCaptureSink sink,
+        IApplicationIdentityRegistry identityRegistry,
+        IApplicationDiscoveredFormatObserver discoveredFormatObserver)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(policyProvider);
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(identityRegistry);
+        ArgumentNullException.ThrowIfNull(discoveredFormatObserver);
+
+        return new ClipboardAcceptedCaptureDeliveryPipeline(
+            CreateCaptureReadExecutionPipeline(
+                policyProvider,
+                identityRegistry,
+                discoveredFormatObserver),
+            new ClipboardAcceptedCaptureSinkStage(
+                new ClipboardAcceptedCaptureStage(),
+                sink));
+    }
+
     IClipboardAcceptedCaptureDelivery IClipboardAcceptedCaptureDeliveryFactory.Create(
         IClipboardCapturePolicyProvider policyProvider,
         IClipboardAcceptedCaptureSink sink,
-        IApplicationIdentityRegistry identityRegistry)
+        IApplicationIdentityRegistry identityRegistry,
+        IApplicationDiscoveredFormatObserver discoveredFormatObserver)
     {
-        return CreateAcceptedCaptureDeliveryPipeline(policyProvider, sink, identityRegistry);
+        return CreateAcceptedCaptureDeliveryPipeline(
+            policyProvider,
+            sink,
+            identityRegistry,
+            discoveredFormatObserver);
     }
 
     public IClipboardAcceptedCaptureDelivery CreateProtectedAcceptedCaptureDelivery(
@@ -285,23 +370,36 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
 
     private ClipboardCapturePipeline CreateCapturePipelineCore(
         IClipboardCapturePolicyProvider policyProvider,
-        IApplicationIdentityRegistry? identityRegistry)
+        IApplicationIdentityRegistry? identityRegistry,
+        IApplicationDiscoveredFormatObserver? discoveredFormatObserver)
     {
         var policyStage = new ClipboardCapturePolicyResolutionStage(
             policyProvider,
             new ClipboardCapturePolicyEvaluator());
 
-        return identityRegistry is null
+        if (identityRegistry is null)
+        {
+            return new ClipboardCapturePipeline(
+                CaptureSourceStage,
+                policyStage,
+                FormatDiscoveryStage,
+                FormatSelectionStage);
+        }
+
+        var identityStage = new ClipboardCaptureApplicationIdentityStage(identityRegistry);
+        return discoveredFormatObserver is null
             ? new ClipboardCapturePipeline(
                 CaptureSourceStage,
+                identityStage,
                 policyStage,
                 FormatDiscoveryStage,
                 FormatSelectionStage)
             : new ClipboardCapturePipeline(
                 CaptureSourceStage,
-                new ClipboardCaptureApplicationIdentityStage(identityRegistry),
+                identityStage,
                 policyStage,
                 FormatDiscoveryStage,
+                new ClipboardApplicationDiscoveredFormatObservationStage(discoveredFormatObserver),
                 FormatSelectionStage);
     }
 }
