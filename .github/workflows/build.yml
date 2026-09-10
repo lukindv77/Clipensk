@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/application-policy-maintenance-app-orchestration ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
