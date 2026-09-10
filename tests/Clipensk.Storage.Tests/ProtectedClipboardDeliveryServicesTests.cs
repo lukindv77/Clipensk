@@ -1,6 +1,7 @@
 using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
+using Clipensk.Storage.Applications;
 using Clipensk.Storage.Clipboard;
 using Clipensk.Storage.History;
 using Microsoft.Data.Sqlite;
@@ -50,6 +51,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
         Assert.Equal(0, extensions.CallCount);
         Assert.Same(services.CaptureServices.PolicyProvider, factory.PolicyProvider);
         Assert.Same(services.CaptureServices.ApplicationIdentityRegistry, factory.IdentityRegistry);
+        Assert.Same(services.CaptureServices.ApplicationDiscoveredFormatObserver, factory.DiscoveredFormatObserver);
         Assert.Same(services.HistoryServices.HistorySink, factory.Sink);
         ClipboardCapturePolicySet policies = await factory.PolicyProvider!.GetPoliciesAsync(Context());
         Assert.Equal(rule, policies.GlobalPolicy.Capture);
@@ -59,7 +61,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
     }
 
     [Fact]
-    public async Task ComposedIdentityAndPolicyRepositoriesResolveDurableApplicationOverrides()
+    public async Task ComposedApplicationDependenciesShareDurableIdentityPolicyAndDiscoveredFormats()
     {
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
         await environment.Repository.InitializeAsync(new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny));
@@ -76,6 +78,24 @@ public sealed class ProtectedClipboardDeliveryServicesTests
             Context() with { SourceApplicationId = identity.ApplicationId });
         Assert.Equal(ClipboardCapturePolicyRule.Deny, policies.GlobalPolicy.Capture);
         Assert.Equal(ClipboardCapturePolicyRule.Allow, policies.ApplicationPolicy!.Capture);
+
+        var observedAtUtc = new DateTimeOffset(2026, 9, 11, 0, 30, 0, TimeSpan.Zero);
+        await factory.DiscoveredFormatObserver!.ObserveAsync(
+            identity.ApplicationId,
+            ["Text", "Contoso.Custom"],
+            observedAtUtc);
+        var discoveredRepository = new SqliteApplicationDiscoveredFormatRepository(
+            environment.Session,
+            environment.Factory);
+        IReadOnlyList<ApplicationDiscoveredFormat> discovered =
+            await discoveredRepository.ListAsync(identity.ApplicationId);
+        Assert.Equal(new[] { "Contoso.Custom", "Text" }, discovered.Select(item => item.FormatName));
+        Assert.All(discovered, item =>
+        {
+            Assert.Equal(identity.ApplicationId, item.ApplicationId);
+            Assert.Equal(observedAtUtc, item.FirstSeenAtUtc);
+            Assert.Equal(observedAtUtc, item.LastSeenAtUtc);
+        });
     }
 
     [Theory]
@@ -199,18 +219,23 @@ public sealed class ProtectedClipboardDeliveryServicesTests
         public int ProcessCount { get; private set; }
         public IClipboardCapturePolicyProvider? PolicyProvider { get; private set; }
         public IApplicationIdentityRegistry? IdentityRegistry { get; private set; }
+        public IApplicationDiscoveredFormatObserver? DiscoveredFormatObserver { get; private set; }
         public IClipboardAcceptedCaptureSink? Sink { get; private set; }
         public Action? OnCreate { get; init; }
         public Action? AfterStore { get; init; }
         public ClipboardAcceptedCapture? NextCapture { get; init; }
 
-        public IClipboardAcceptedCaptureDelivery Create(IClipboardCapturePolicyProvider policyProvider,
-            IClipboardAcceptedCaptureSink sink, IApplicationIdentityRegistry identityRegistry)
+        public IClipboardAcceptedCaptureDelivery Create(
+            IClipboardCapturePolicyProvider policyProvider,
+            IClipboardAcceptedCaptureSink sink,
+            IApplicationIdentityRegistry identityRegistry,
+            IApplicationDiscoveredFormatObserver discoveredFormatObserver)
         {
             CreateCount++;
             PolicyProvider = policyProvider;
             Sink = sink;
             IdentityRegistry = identityRegistry;
+            DiscoveredFormatObserver = discoveredFormatObserver;
             OnCreate?.Invoke();
             return this;
         }
