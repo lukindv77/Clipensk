@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/application-identity-read-model ]
   workflow_dispatch:
 
 permissions:
