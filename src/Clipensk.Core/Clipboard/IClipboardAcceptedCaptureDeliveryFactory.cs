@@ -2,7 +2,7 @@ using Clipensk.Core.Applications;
 
 namespace Clipensk.Core.Clipboard;
 
-/// <summary>Builds an inert delivery graph from explicit policy, sink and durable identity dependencies.</summary>
+/// <summary>Builds an inert delivery graph from explicit policy, sink and durable application dependencies.</summary>
 public interface IClipboardAcceptedCaptureDeliveryFactory
 {
     /// <summary>
@@ -12,5 +12,6 @@ public interface IClipboardAcceptedCaptureDeliveryFactory
     IClipboardAcceptedCaptureDelivery Create(
         IClipboardCapturePolicyProvider policyProvider,
         IClipboardAcceptedCaptureSink sink,
-        IApplicationIdentityRegistry identityRegistry);
+        IApplicationIdentityRegistry identityRegistry,
+        IApplicationDiscoveredFormatObserver discoveredFormatObserver);
 }
