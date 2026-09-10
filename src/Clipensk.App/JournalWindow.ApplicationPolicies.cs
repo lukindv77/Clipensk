@@ -281,7 +281,7 @@ public sealed partial class JournalWindow
 
     private async Task<ClipboardCapturePolicy?> ReadApplicationPolicyAsync(
         ProtectedStorageSessionLease session,
-        ApplicationId applicationId)
+        global::Clipensk.Core.Applications.ApplicationId applicationId)
     {
         return await Task.Run(
             async () =>
