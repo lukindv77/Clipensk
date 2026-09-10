@@ -36,8 +36,10 @@ public sealed class SqliteApplicationIdentityCatalogTests
         Assert.Equal(2, result.Count);
         Assert.Equal(newerId, result[0].ApplicationId);
         Assert.Equal(newerCreated, result[0].CreatedAtUtc);
-        Assert.Equal(["Contoso.App_123!App"], result[0].ApplicationUserModelIds);
-        Assert.Equal(["C:\\Apps\\Alpha.exe", "C:\\Apps\\Zulu.exe"], result[0].ExecutablePaths);
+        Assert.Equal(new[] { "Contoso.App_123!App" }, result[0].ApplicationUserModelIds);
+        Assert.Equal(
+            new[] { "C:\\Apps\\Alpha.exe", "C:\\Apps\\Zulu.exe" },
+            result[0].ExecutablePaths);
         Assert.Equal(olderId, result[1].ApplicationId);
         Assert.Equal(olderCreated, result[1].CreatedAtUtc);
         Assert.Empty(result[1].ApplicationUserModelIds);
