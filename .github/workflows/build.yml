@@ -52,7 +52,23 @@ jobs:
         run: dotnet restore Clipensk.slnx
 
       - name: Build
-        run: dotnet build Clipensk.slnx --configuration Release --no-restore
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          & dotnet build Clipensk.slnx --configuration Release --no-restore 2>&1 | Tee-Object -FilePath artifacts/build-output.txt
+          $buildExitCode = $LASTEXITCODE
+          if ($buildExitCode -ne 0) {
+            exit $buildExitCode
+          }
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-${{ github.sha }}
+          path: artifacts/build-output.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Test
         shell: pwsh
