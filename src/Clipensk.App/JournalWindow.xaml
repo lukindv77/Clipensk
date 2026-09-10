@@ -71,8 +71,8 @@
                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="20" MaxWidth="760" HorizontalAlignment="Stretch">
                     <StackPanel x:Name="ApplicationPoliciesPanel" Spacing="12" Loaded="OnApplicationPoliciesPanelLoaded">
-                        <TextBlock x:Name="ApplicationPoliciesTitle" Text="Приложения" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
-                        <TextBlock x:Name="ApplicationPoliciesBody" Text="Выберите обнаруженное приложение, чтобы посмотреть его индивидуальное правило сбора. Базовое правило приложения можно изменить безопасным обслуживанием; форматные переопределения сохраняются без изменений." TextWrapping="Wrap" />
+                        <TextBlock x:Name="ApplicationPoliciesTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ApplicationPoliciesBody" TextWrapping="Wrap" />
                         <InfoBar x:Name="ApplicationPoliciesInfo" IsOpen="False" IsClosable="True" />
                         <ProgressRing x:Name="ApplicationPoliciesProgress" IsActive="False" Visibility="Collapsed"
                                       Width="28" Height="28" HorizontalAlignment="Left" />
@@ -84,10 +84,9 @@
                         <TextBlock x:Name="SelectedApplicationPolicySummary" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <Button x:Name="EditApplicationPolicyButton"
-                                    Content="Изменить базовое правило"
                                     IsEnabled="False"
                                     Click="OnEditApplicationPolicyClicked" />
-                            <Button x:Name="ReloadApplicationPoliciesButton" Content="Перечитать приложения" Click="OnReloadApplicationPoliciesClicked" />
+                            <Button x:Name="ReloadApplicationPoliciesButton" Click="OnReloadApplicationPoliciesClicked" />
                         </StackPanel>
                     </StackPanel>
 
