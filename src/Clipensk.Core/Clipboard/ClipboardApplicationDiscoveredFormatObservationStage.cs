@@ -1,4 +1,5 @@
 using Clipensk.Core.Applications;
+using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.Core.Clipboard;
 
@@ -24,7 +25,7 @@ public sealed class ClipboardApplicationDiscoveredFormatObservationStage
         }
 
         ClipboardCaptureContext captureContext = formatSnapshot.PolicyContext.CaptureContext;
-        ApplicationId? applicationId = captureContext.SourceApplicationId;
+        DurableApplicationId? applicationId = captureContext.SourceApplicationId;
         if (applicationId is null)
         {
             return;
