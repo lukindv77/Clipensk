@@ -1,4 +1,5 @@
 using Clipensk.Core.Application;
+using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Clipboard;
 using Clipensk.Windows;
@@ -84,5 +85,121 @@ public partial class App
             lifecycle,
             session,
             suspensionOwner.Value);
+    }
+
+    internal async Task<bool> TryApplyGlobalCapturePolicyChangeAsync(
+        ProtectedStorageSessionLease session,
+        ClipboardCapturePolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(policy);
+
+        JournalWindow? window = _window;
+        ResidentWindowsHost? host = _residentWindowsHost;
+        ProtectedApplicationLifecycle? lifecycle = _lifecycle;
+        if (window is null || host is null || lifecycle is null)
+        {
+            return false;
+        }
+
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
+            session.CancellationToken,
+            cancellationToken);
+        CancellationToken token = linked.Token;
+
+        Task recoveryTask;
+        lock (_policyMaintenanceRecoveryGate)
+        {
+            recoveryTask = ReferenceEquals(_policyMaintenanceRecoverySession, session)
+                ? _policyMaintenanceRecoveryTask
+                : Task.CompletedTask;
+        }
+
+        try
+        {
+            await recoveryTask.WaitAsync(token);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (!IsCurrentProtectedStorageSession(host, window, lifecycle, session))
+        {
+            return false;
+        }
+
+        long? suspensionOwner;
+        try
+        {
+            suspensionOwner = await TryQuiesceClipboardRuntimeAsync(
+                window,
+                host,
+                lifecycle,
+                session,
+                token);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (!suspensionOwner.HasValue)
+        {
+            return false;
+        }
+
+        try
+        {
+            DateOnly deletionDate = DateOnly.FromDateTime(DateTime.Now);
+            await Task.Run(
+                async () =>
+                {
+                    await new ProtectedCurrentPolicyMaintenanceService(session)
+                        .ApplyAsync(policy, token)
+                        .ConfigureAwait(false);
+                    await new ProtectedGlobalPolicyMaintenanceResumeCoordinator(session)
+                        .ResumeAsync(deletionDate, token)
+                        .ConfigureAwait(false);
+                },
+                token);
+
+            return TryResumeClipboardRuntimeAfterMaintenance(
+                window,
+                host,
+                lifecycle,
+                session,
+                suspensionOwner.Value);
+        }
+        catch
+        {
+            bool markerExists = true;
+            try
+            {
+                PendingPolicyMaintenanceOperation? pending =
+                    await new SqlitePendingPolicyMaintenanceRepository(session)
+                        .ReadAsync(session.CancellationToken);
+                markerExists = pending is not null;
+            }
+            catch
+            {
+                // If durable state cannot be established, remain fail-closed. Releasing the
+                // listener while a continuation may be pending would violate the maintenance
+                // boundary.
+            }
+
+            if (!markerExists)
+            {
+                TryResumeClipboardRuntimeAfterMaintenance(
+                    window,
+                    host,
+                    lifecycle,
+                    session,
+                    suspensionOwner.Value);
+            }
+
+            return false;
+        }
     }
 }
