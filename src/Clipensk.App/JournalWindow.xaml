@@ -69,7 +69,30 @@
 
             <ScrollViewer x:Name="GlobalPolicyPanel" Visibility="Collapsed"
                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="20" MaxWidth="760" HorizontalAlignment="Stretch">
+                    <StackPanel x:Name="ApplicationPoliciesPanel" Spacing="12" Loaded="OnApplicationPoliciesPanelLoaded">
+                        <TextBlock Text="Приложения" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock Text="Выберите обнаруженное приложение, чтобы посмотреть его индивидуальное правило сбора. Базовое правило приложения можно изменить безопасным обслуживанием; форматные переопределения сохраняются без изменений." TextWrapping="Wrap" />
+                        <InfoBar x:Name="ApplicationPoliciesInfo" IsOpen="False" IsClosable="True" />
+                        <ProgressRing x:Name="ApplicationPoliciesProgress" IsActive="False" Visibility="Collapsed"
+                                      Width="28" Height="28" HorizontalAlignment="Left" />
+                        <ListView x:Name="ApplicationPoliciesList"
+                                  SelectionChanged="OnApplicationPolicySelectionChanged"
+                                  DisplayMemberPath="DisplayName"
+                                  MaxHeight="280" />
+                        <TextBlock x:Name="SelectedApplicationIdentity" TextWrapping="Wrap" />
+                        <TextBlock x:Name="SelectedApplicationPolicySummary" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="EditApplicationPolicyButton"
+                                    Content="Изменить базовое правило"
+                                    IsEnabled="False"
+                                    Click="OnEditApplicationPolicyClicked" />
+                            <Button Content="Перечитать приложения" Click="OnReloadApplicationPoliciesClicked" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Separator />
+
                     <TextBlock x:Name="GlobalPolicyTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
                     <TextBlock x:Name="GlobalPolicyBody" TextWrapping="Wrap" />
                     <InfoBar x:Name="GlobalPolicyInfo" IsOpen="True" IsClosable="False" />
