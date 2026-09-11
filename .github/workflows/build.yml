@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/application-custom-format-maintenance ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
