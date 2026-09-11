@@ -202,11 +202,40 @@ public partial class App
         }
     }
 
-    internal async Task<bool> TryApplyApplicationCapturePolicyChangeAsync(
+    internal Task<bool> TryApplyApplicationCapturePolicyChangeAsync(
         ProtectedStorageSessionLease session,
         global::Clipensk.Core.Applications.ApplicationId applicationId,
         global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
+        CancellationToken cancellationToken = default) =>
+        TryApplyApplicationCapturePolicyChangeCoreAsync(
+            session,
+            applicationId,
+            policy,
+            customBinaryConfigurations: null,
+            cancellationToken);
+
+    internal Task<bool> TryApplyApplicationCapturePolicyChangeAsync(
+        ProtectedStorageSessionLease session,
+        global::Clipensk.Core.Applications.ApplicationId applicationId,
+        global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration> customBinaryConfigurations,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(customBinaryConfigurations);
+        return TryApplyApplicationCapturePolicyChangeCoreAsync(
+            session,
+            applicationId,
+            policy,
+            customBinaryConfigurations,
+            cancellationToken);
+    }
+
+    private async Task<bool> TryApplyApplicationCapturePolicyChangeCoreAsync(
+        ProtectedStorageSessionLease session,
+        global::Clipensk.Core.Applications.ApplicationId applicationId,
+        global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(applicationId);
@@ -273,9 +302,22 @@ public partial class App
             await Task.Run(
                 async () =>
                 {
-                    await new ProtectedCurrentApplicationPolicyMaintenanceService(session)
-                        .ApplyAsync(applicationId, policy, token)
-                        .ConfigureAwait(false);
+                    var current = new ProtectedCurrentApplicationPolicyMaintenanceService(session);
+                    if (customBinaryConfigurations is null)
+                    {
+                        await current.ApplyAsync(applicationId, policy, token)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await current.ApplyAsync(
+                                applicationId,
+                                policy,
+                                customBinaryConfigurations,
+                                token)
+                            .ConfigureAwait(false);
+                    }
+
                     await new ProtectedApplicationPolicyMaintenanceResumeCoordinator(session)
                         .ResumeAsync(deletionDate, token)
                         .ConfigureAwait(false);
