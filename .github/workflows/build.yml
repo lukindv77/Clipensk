@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/rtf-search-text ]
   workflow_dispatch:
 
 permissions:
