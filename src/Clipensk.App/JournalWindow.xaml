@@ -65,6 +65,49 @@
                 <TextBlock x:Name="PageBody" TextWrapping="Wrap" />
                 <TextBlock x:Name="JournalPolicyStatus" TextWrapping="Wrap" />
                 <Button x:Name="OpenGlobalPolicyButton" HorizontalAlignment="Left" Click="OnOpenGlobalPolicyClicked" />
+
+                <StackPanel x:Name="JournalContentPanel"
+                            Spacing="12"
+                            Visibility="Collapsed"
+                            Loaded="OnJournalContentPanelLoaded">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <CalendarDatePicker x:Name="JournalStartDate"
+                                            DateChanged="OnJournalPeriodChanged" />
+                        <CalendarDatePicker x:Name="JournalEndDate"
+                                            DateChanged="OnJournalPeriodChanged" />
+                        <Button x:Name="JournalLoadButton"
+                                VerticalAlignment="Bottom"
+                                Click="OnJournalLoadClicked" />
+                    </StackPanel>
+                    <InfoBar x:Name="JournalInfo"
+                             IsOpen="False"
+                             IsClosable="True" />
+                    <ProgressRing x:Name="JournalProgress"
+                                  IsActive="False"
+                                  Visibility="Collapsed"
+                                  Width="28"
+                                  Height="28"
+                                  HorizontalAlignment="Left" />
+                    <ListView x:Name="JournalEntriesList"
+                              SelectionMode="None"
+                              MaxHeight="520"
+                              HorizontalContentAlignment="Stretch">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Spacing="4" Margin="0,8">
+                                    <TextBlock Text="{Binding TimestampText}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding SourceText}" Opacity="0.72" />
+                                    <TextBlock Text="{Binding PreviewText}" TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding DetailsText}" TextWrapping="Wrap" Opacity="0.65" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <Button x:Name="JournalLoadMoreButton"
+                            HorizontalAlignment="Left"
+                            Visibility="Collapsed"
+                            Click="OnJournalLoadMoreClicked" />
+                </StackPanel>
             </StackPanel>
 
             <ScrollViewer x:Name="GlobalPolicyPanel" Visibility="Collapsed"
