@@ -1,6 +1,7 @@
 using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
+using ApplicationId = Clipensk.Core.Applications.ApplicationId;
 using Xunit;
 
 namespace Clipensk.Core.Tests;
