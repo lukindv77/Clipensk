@@ -35,7 +35,6 @@ public sealed partial class JournalWindow
 
         _applicationPolicyEditInProgress = true;
         EditApplicationPolicyButton.IsEnabled = false;
-        EnableDiscoveredFormatButton.IsEnabled = false;
         try
         {
             ClipboardCapturePolicy? currentPolicy = await ReadApplicationPolicyAsync(
@@ -288,7 +287,6 @@ public sealed partial class JournalWindow
                 ApplicationPoliciesList.SelectedItem is ApplicationPolicyListItem)
             {
                 EditApplicationPolicyButton.IsEnabled = true;
-                EnableDiscoveredFormatButton.IsEnabled = true;
             }
         }
     }
