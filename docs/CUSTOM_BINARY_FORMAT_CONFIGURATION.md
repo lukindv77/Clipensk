@@ -85,7 +85,29 @@ Individual repository остаётся доступным как низкоур�
 
 После reload read-only summary показывает extension для каждого non-standard allowed format. Если policy была создана старым/ручным путём без mapping, UI показывает отсутствие mapping как fail-closed состояние; оно не заменяется `.bin` или эвристикой.
 
-Раздел «Приложения» теперь показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName` как read-only список. Discovery не добавляет format в policy, не включает его автоматически и не создаёт `FormatName → FileExtension` mapping; enable/cleanup/rebind/update остаются отдельным будущим contract.
+Раздел «Приложения» показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName` как read-only список. Discovery не добавляет format в policy и не включает его автоматически. Storage maintenance уже умеет атомарно публиковать **новые** exact `FormatName → FileExtension` mappings вместе с изменением application policy, но product UI для enable discovered format к этому contract пока не подключён. Rebind/update/delete mapping остаются отдельным cleanup contract.
+
+## Application policy maintenance + mappings
+
+`ProtectedCurrentApplicationPolicyMaintenanceService` имеет backward-compatible legacy path и mapping-aware overload с `ApplicationCustomBinaryFormatConfiguration`.
+
+Mapping-aware path до mutation:
+
+- требует exact non-empty `FormatName` без silent normalization;
+- блокирует prohibited clipboard formats через capture guard;
+- требует, чтобы соответствующее правило application policy было explicit `Allow`;
+- нормализует extension через `ExternalPayloadAddressFactory.NormalizeCustomBinaryExtension`;
+- отклоняет duplicate exact mapping names;
+- разрешает reuse уже существующего mapping только при том же canonical extension;
+- отклоняет попытку rebind на другое extension без mutation.
+
+После validation service открывает Current и в **одной immediate transaction** публикует новые mappings, application policy, относящийся к Current cleanup и durable `PendingPolicyMaintenance` marker. Поэтому failure/cancellation до COMMIT не оставляет split state между mapping, policy, cleanup и marker.
+
+Legacy operation сохраняет v1 marker и policy-only fingerprint. Mapping-aware operation создаёт v2 marker с отдельным `customBinaryConfigurationFingerprint`, рассчитанным по полному storage-wide mapping snapshot после планируемых inserts. Смысл существующего `policyFingerprint` не меняется, поэтому уже записанные v1 markers остаются совместимыми.
+
+Continuation phases Archive → Catalog → Trash → Completion сохраняют versioned state и fingerprint при сериализации. Exact mapping-aware retry сравнивает application target, policy fingerprint, marker version и custom-binary configuration fingerprint; legacy retry не считается тем же v2 request.
+
+Этот contract только безопасно добавляет отсутствующие mappings. Он намеренно не предоставляет rebind/update/delete mapping и не делает discovered formats автоматически разрешёнными.
 
 ## App composition и runtime
 
@@ -130,8 +152,12 @@ Storage tests покрывают:
 - aggregate initial setup policy + mapping;
 - rollback всей aggregate transaction при injected custom-mapping insert failure;
 - отказ от aggregate setup поверх partial existing mapping без записи policy;
-- validation prohibited/custom-not-allowed mappings до открытия БД.
+- validation prohibited/custom-not-allowed mappings до открытия БД;
+- atomic application-policy maintenance + normalized mapping + v2 marker;
+- rollback mapping/policy/marker одной transaction при injected failure;
+- same-extension reuse, different-extension rebind rejection и exact mapping-aware retry;
+- полный v2 Resume flow через Archive → Catalog → Trash → Completion с очисткой marker и сохранением durable mapping.
 
-Текущий read-only discovered-format UI tranche меняет обычные App UI/localization paths и не затрагивает `src/Clipensk.Storage/**`; exact feature Build подтверждает App wiring и full test suite. По текущему Native SQLCipher workflow path scope этот tranche не требует отдельного native gate; после продвижения final tree official main Build остаётся обязательным.
+Текущий application custom-format maintenance tranche затрагивает `src/Clipensk.Storage/**`; feature Build обязан подтверждать Restore/Build/Test на exact feature SHA. После продвижения final tree обязательны exact-main Build и Native SQLCipher, потому что native workflow path scope включает `src/Clipensk.Storage/**`.
 
 Manual WinUI/real-clipboard smoke остаётся отдельным UNVERIFIED evidence.
