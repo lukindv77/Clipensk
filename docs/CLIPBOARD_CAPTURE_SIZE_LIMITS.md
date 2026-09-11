@@ -35,7 +35,7 @@ CanonicalByteCount = UTF8.GetByteCount(originalRepresentation)
 
 `Windows.Data.Html.HtmlUtilities` намеренно не используется: для WinUI 3 packaged applications Windows App SDK документирует этот legacy Trident-based API как неподдерживаемый. Managed HTML parser сохраняет одинаковую capture semantics для unpackaged и возможного packaged delivery.
 
-Для RTF исходное representation уже может проходить capture/MaxBytes, но безопасный non-UI `RTF -> SearchText` boundary пока не реализован; до этого `SearchText` для RTF остаётся `null`. Raw RTF control syntax нельзя индексировать как подмену пользовательского текста.
+Для RTF сохраняется исходная строка RTF, а `SearchText` после canonical MaxBytes gate строится отдельным managed parser-ом без `RichEditBox` и UI-thread dependency. Parser извлекает только видимый текст, поддерживает Unicode control words `\\uN`/`\\ucN`, escaped literal characters и структурные separators, пропускает metadata/ignorable destinations и hidden text, а последовательности whitespace нормализует до одного пробела. Malformed group/control structure, `\\bin` и non-ASCII legacy `\\'hh`, для которых нет безопасной Unicode representation, завершают projection fail-closed с `SearchText = null`; raw RTF control syntax никогда не индексируется как подмена пользовательского текста.
 
 ## 3. WebLink / ApplicationLink
 
