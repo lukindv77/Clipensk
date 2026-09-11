@@ -400,7 +400,7 @@ public sealed partial class JournalWindow
 
     private async Task<IReadOnlyList<ApplicationDiscoveredFormat>> ReadApplicationDiscoveredFormatsAsync(
         ProtectedStorageSessionLease session,
-        ApplicationId applicationId)
+        global::Clipensk.Core.Applications.ApplicationId applicationId)
     {
         return await Task.Run(
             async () => await new SqliteApplicationDiscoveredFormatRepository(session)
