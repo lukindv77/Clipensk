@@ -85,7 +85,7 @@ Individual repository остаётся доступным как низкоур�
 
 После reload read-only summary показывает extension для каждого non-standard allowed format. Если policy была создана старым/ручным путём без mapping, UI показывает отсутствие mapping как fail-closed состояние; оно не заменяется `.bin` или эвристикой.
 
-UI всё ещё не выполняет clipboard-format discovery и не предлагает automatic enable. Cleanup/rebind/update после initial setup остаётся отдельным будущим contract.
+Раздел «Приложения» теперь показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName` как read-only список. Discovery не добавляет format в policy, не включает его автоматически и не создаёт `FormatName → FileExtension` mapping; enable/cleanup/rebind/update остаются отдельным будущим contract.
 
 ## App composition и runtime
 
@@ -132,6 +132,6 @@ Storage tests покрывают:
 - отказ от aggregate setup поверх partial existing mapping без записи policy;
 - validation prohibited/custom-not-allowed mappings до открытия БД.
 
-Windows feature Build должен заново подтвердить App UI wiring и aggregate storage service на exact feature SHA. После продвижения final tree official main Build и, поскольку изменяется `src/Clipensk.Storage/**`, Native SQLCipher должны быть подтверждены на exact новом main SHA.
+Текущий read-only discovered-format UI tranche меняет обычные App UI/localization paths и не затрагивает `src/Clipensk.Storage/**`; exact feature Build подтверждает App wiring и full test suite. По текущему Native SQLCipher workflow path scope этот tranche не требует отдельного native gate; после продвижения final tree official main Build остаётся обязательным.
 
 Manual WinUI/real-clipboard smoke остаётся отдельным UNVERIFIED evidence.
