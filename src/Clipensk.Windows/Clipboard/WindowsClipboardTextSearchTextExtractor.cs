@@ -6,10 +6,14 @@ namespace Clipensk.Windows.Clipboard;
 internal sealed class WindowsClipboardTextSearchTextExtractor : IClipboardTextSearchTextExtractor
 {
     private readonly IClipboardHtmlSearchTextConverter _htmlConverter;
+    private readonly IClipboardRtfSearchTextConverter _rtfConverter;
 
-    public WindowsClipboardTextSearchTextExtractor(IClipboardHtmlSearchTextConverter htmlConverter)
+    public WindowsClipboardTextSearchTextExtractor(
+        IClipboardHtmlSearchTextConverter htmlConverter,
+        IClipboardRtfSearchTextConverter rtfConverter)
     {
         _htmlConverter = htmlConverter ?? throw new ArgumentNullException(nameof(htmlConverter));
+        _rtfConverter = rtfConverter ?? throw new ArgumentNullException(nameof(rtfConverter));
     }
 
     public ValueTask<string?> TryExtractAsync(
@@ -33,8 +37,13 @@ internal sealed class WindowsClipboardTextSearchTextExtractor : IClipboardTextSe
             return ValueTask.FromResult(searchText);
         }
 
-        // RTF remains an explicit implementation blocker: do not fake searchable text
-        // by indexing raw RTF control syntax.
+        if (string.Equals(formatName, StandardDataFormats.Rtf, StringComparison.Ordinal))
+        {
+            string? searchText = _rtfConverter.TryConvert(value);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(searchText);
+        }
+
         return ValueTask.FromResult<string?>(null);
     }
 }
