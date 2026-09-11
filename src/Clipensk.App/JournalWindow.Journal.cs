@@ -380,7 +380,7 @@ public sealed partial class JournalWindow
                 string normalized = NormalizeJournalPreview(candidate);
                 if (normalized.Length > JournalPreviewLength)
                 {
-                    return string.Concat(normalized.AsSpan(0, JournalPreviewLength), "…");
+                    return normalized[..JournalPreviewLength] + "…";
                 }
                 return normalized;
             }
