@@ -98,6 +98,7 @@ repository/provider, protected composition и worker lifecycle реализов�
 
 - HTML и RTF хранятся только в БД;
 - для HTML `SearchText` строится отдельной managed projection после MaxBytes gate; raw `CF_HTML` остаётся неизменным canonical payload;
+- для RTF `SearchText` строится отдельной conservative managed projection после MaxBytes gate, без `RichEditBox`/UI-thread dependency; raw RTF остаётся неизменным canonical payload, а malformed/unsafe parser cases завершаются fail-closed с `SearchText = null`;
 - для `CF_HDROP` canonical representation v1 фиксирует version, исходный item order, full path, name, extension, directory flag и preferred Copy/Move/Link/Unknown operation; file contents не читаются;
 - изображения нормализуются в PNG и хранятся как external files;
 - explicitly allowed registered/private binary payload читается только как `IRandomAccessStream`, измеряется по exact bytes и остаётся выключенным по умолчанию;
@@ -109,8 +110,6 @@ repository/provider, protected composition и worker lifecycle реализов�
 - CF_WAVE, CF_RIFF и virtual file contents не сохраняются и блокируются до reader routing.
 
 Manual WinUI/real-clipboard smoke для полного runtime остаётся отдельным неполученным evidence; unit/CI tests не эмулируют настоящий `WM_CLIPBOARDUPDATE`, foreground source application и WinRT `DataPackageView`.
-
-Открытым остаётся безопасный `RTF -> SearchText` boundary. Raw RTF control syntax не может использоваться как поисковый текст. Нельзя вводить скрытый `RichEditBox`/UI-thread dependency либо непроверенный RTF parser без отдельного lifecycle/parser contract.
 
 ## 7. Период журнала по умолчанию
 
