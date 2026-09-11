@@ -4,6 +4,7 @@ using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Databases;
+using Clipensk.Storage.ExternalFiles;
 using Clipensk.Storage.History;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -15,10 +16,15 @@ public sealed record CurrentApplicationPolicyMaintenanceResult(
     int DeletedPayloadCount,
     bool WasAlreadyCompleted);
 
+public sealed record ApplicationCustomBinaryFormatConfiguration(
+    string FormatName,
+    string FileExtension);
+
 internal enum CurrentApplicationPolicyMaintenanceCheckpoint
 {
     MutationLeaseAcquired,
     MarkerStarted,
+    CustomBinaryConfigurationPublished,
     ApplicationPolicyPublished,
     CurrentCleanupCompleted,
     BeforeCommit,
@@ -60,17 +66,41 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
             "current.db");
     }
 
-    public async Task<CurrentApplicationPolicyMaintenanceResult> ApplyAsync(
+    public Task<CurrentApplicationPolicyMaintenanceResult> ApplyAsync(
         ApplicationId applicationId,
         ClipboardCapturePolicy newApplicationPolicy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ApplyAsyncCore(
+            applicationId,
+            newApplicationPolicy,
+            customBinaryConfigurations: null,
+            cancellationToken);
+
+    public Task<CurrentApplicationPolicyMaintenanceResult> ApplyAsync(
+        ApplicationId applicationId,
+        ClipboardCapturePolicy newApplicationPolicy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration> customBinaryConfigurations,
+        CancellationToken cancellationToken = default) =>
+        ApplyAsyncCore(
+            applicationId,
+            newApplicationPolicy,
+            customBinaryConfigurations,
+            cancellationToken);
+
+    private async Task<CurrentApplicationPolicyMaintenanceResult> ApplyAsyncCore(
+        ApplicationId applicationId,
+        ClipboardCapturePolicy newApplicationPolicy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(applicationId);
         ValidateApplicationPolicy(newApplicationPolicy);
-        ApplicationPolicyMaintenanceState state =
-            ApplicationPolicyMaintenanceStateCodec.CreateCurrentCompleted(
-                applicationId,
-                newApplicationPolicy);
+        Dictionary<string, string>? requestedCustomBinaryConfigurations =
+            customBinaryConfigurations is null
+                ? null
+                : NormalizeCustomBinaryConfigurations(
+                    newApplicationPolicy,
+                    customBinaryConfigurations);
 
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
             _session.CancellationToken,
@@ -83,7 +113,11 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
         token.ThrowIfCancellationRequested();
 
         return await Task.Run(
-                () => ApplyCore(applicationId, newApplicationPolicy, state, token),
+                () => ApplyCore(
+                    applicationId,
+                    newApplicationPolicy,
+                    requestedCustomBinaryConfigurations,
+                    token),
                 CancellationToken.None)
             .ConfigureAwait(false);
     }
@@ -91,14 +125,40 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
     private CurrentApplicationPolicyMaintenanceResult ApplyCore(
         ApplicationId applicationId,
         ClipboardCapturePolicy newApplicationPolicy,
-        ApplicationPolicyMaintenanceState state,
+        IReadOnlyDictionary<string, string>? requestedCustomBinaryConfigurations,
         CancellationToken token)
     {
         _checkpoint?.Invoke(CurrentApplicationPolicyMaintenanceCheckpoint.MutationLeaseAcquired);
         token.ThrowIfCancellationRequested();
 
-        using SqliteConnection connection = OpenValidatedCurrent(token);
+        bool mappingAware = requestedCustomBinaryConfigurations is not null;
+        using SqliteConnection connection = OpenValidatedCurrent(token, mappingAware);
         using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
+
+        Dictionary<string, string>? persistedCustomBinaryConfigurations = null;
+        ApplicationPolicyMaintenanceState state;
+        if (mappingAware)
+        {
+            persistedCustomBinaryConfigurations = ReadCustomBinaryConfigurations(
+                connection,
+                transaction,
+                token);
+            Dictionary<string, string> desiredCustomBinaryConfigurations =
+                BuildDesiredCustomBinaryConfigurations(
+                    persistedCustomBinaryConfigurations,
+                    requestedCustomBinaryConfigurations!);
+            state = ApplicationPolicyMaintenanceStateCodec.CreateCurrentCompleted(
+                applicationId,
+                newApplicationPolicy,
+                ApplicationPolicyMaintenanceStateCodec.ComputeCustomBinaryConfigurationFingerprint(
+                    desiredCustomBinaryConfigurations));
+        }
+        else
+        {
+            state = ApplicationPolicyMaintenanceStateCodec.CreateCurrentCompleted(
+                applicationId,
+                newApplicationPolicy);
+        }
 
         PendingPolicyMaintenanceOperation? pending =
             SqlitePendingPolicyMaintenanceRepository.ReadInTransaction(
@@ -142,6 +202,19 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
         _checkpoint?.Invoke(CurrentApplicationPolicyMaintenanceCheckpoint.MarkerStarted);
         token.ThrowIfCancellationRequested();
 
+        if (mappingAware)
+        {
+            InsertMissingCustomBinaryConfigurations(
+                connection,
+                transaction,
+                persistedCustomBinaryConfigurations!,
+                requestedCustomBinaryConfigurations!,
+                token);
+            _checkpoint?.Invoke(
+                CurrentApplicationPolicyMaintenanceCheckpoint.CustomBinaryConfigurationPublished);
+            token.ThrowIfCancellationRequested();
+        }
+
         ReplaceApplicationPolicy(
             connection,
             transaction,
@@ -155,9 +228,6 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
         _checkpoint?.Invoke(CurrentApplicationPolicyMaintenanceCheckpoint.CurrentCleanupCompleted);
 
         _checkpoint?.Invoke(CurrentApplicationPolicyMaintenanceCheckpoint.BeforeCommit);
-
-        // Once COMMIT succeeds, marker, application policy and Current cleanup are one durable
-        // authoritative state. Late cancellation must not demote that success.
         token.ThrowIfCancellationRequested();
         transaction.Commit();
 
@@ -185,17 +255,21 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
 
         ApplicationPolicyMaintenanceState persistedState =
             ApplicationPolicyMaintenanceStateCodec.Parse(pending.StateJson);
-        if (!string.Equals(
-                persistedState.ApplicationId,
-                requestedApplicationId.ToString(),
-                StringComparison.Ordinal) ||
-            !string.Equals(
-                persistedState.PolicyFingerprint,
-                requestedState.PolicyFingerprint,
-                StringComparison.Ordinal))
+        if (!ApplicationPolicyMaintenanceStateCodec.TargetsEqual(
+                persistedState,
+                requestedState))
         {
             throw new InvalidOperationException(
                 "The pending application policy-maintenance operation belongs to a different policy change.");
+        }
+
+        if (!string.Equals(
+                persistedState.ApplicationId,
+                requestedApplicationId.ToString(),
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The pending application policy-maintenance operation belongs to a different application.");
         }
 
         ClipboardCapturePolicy persistedPolicy =
@@ -219,7 +293,9 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
             WasAlreadyCompleted: true);
     }
 
-    private SqliteConnection OpenValidatedCurrent(CancellationToken token)
+    private SqliteConnection OpenValidatedCurrent(
+        CancellationToken token,
+        bool requireCustomBinaryConfiguration)
     {
         token.ThrowIfCancellationRequested();
         if (!_session.IsActive)
@@ -246,6 +322,10 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
             ClipboardHistorySqlSchema.ValidateTables(connection);
             GlobalCapturePolicySqlSchema.ValidateTables(connection);
             PendingPolicyMaintenanceSqlSchema.ValidateTable(connection);
+            if (requireCustomBinaryConfiguration)
+            {
+                CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
+            }
             ValidateForeignKeys(connection);
             token.ThrowIfCancellationRequested();
             return connection;
@@ -277,7 +357,7 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
             reader.Read())
         {
             throw new InvalidDataException(
-                "Application policy maintenance requires the exact Current v7 identity.");
+                "Application policy maintenance requires the exact Current schema identity.");
         }
 
         using SqliteCommand userVersion = connection.CreateCommand();
@@ -286,7 +366,7 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
             ProtectedStorageDatabaseService.CurrentSchemaVersion)
         {
             throw new InvalidDataException(
-                "Application policy maintenance requires matching Current v7 user_version.");
+                "Application policy maintenance requires matching Current user_version.");
         }
     }
 
@@ -465,6 +545,92 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
         return new ClipboardCapturePolicy(captureRule, formats);
     }
 
+    private static Dictionary<string, string> ReadCustomBinaryConfigurations(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken token)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT FormatName, FileExtension
+            FROM CustomBinaryFormatConfiguration
+            ORDER BY FormatName COLLATE BINARY;
+            """;
+        using SqliteDataReader reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            token.ThrowIfCancellationRequested();
+            string formatName = reader.GetString(0);
+            string fileExtension = reader.GetString(1);
+            if (string.IsNullOrWhiteSpace(formatName))
+            {
+                throw new InvalidDataException(
+                    "Custom binary format configuration contains an empty format name.");
+            }
+
+            string normalized = ExternalPayloadAddressFactory.NormalizeCustomBinaryExtension(
+                fileExtension);
+            if (!string.Equals(normalized, fileExtension, StringComparison.Ordinal) ||
+                !result.TryAdd(formatName, fileExtension))
+            {
+                throw new InvalidDataException(
+                    "Custom binary format configuration contains invalid or duplicate persisted data.");
+            }
+        }
+        return result;
+    }
+
+    private static Dictionary<string, string> BuildDesiredCustomBinaryConfigurations(
+        IReadOnlyDictionary<string, string> persisted,
+        IReadOnlyDictionary<string, string> requested)
+    {
+        var desired = new Dictionary<string, string>(persisted, StringComparer.Ordinal);
+        foreach ((string formatName, string fileExtension) in requested)
+        {
+            if (desired.TryGetValue(formatName, out string? existing))
+            {
+                if (!string.Equals(existing, fileExtension, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Custom binary format '{formatName}' is already mapped to a different extension; rebind requires cleanup.");
+                }
+                continue;
+            }
+            desired.Add(formatName, fileExtension);
+        }
+        return desired;
+    }
+
+    private static void InsertMissingCustomBinaryConfigurations(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        IReadOnlyDictionary<string, string> persisted,
+        IReadOnlyDictionary<string, string> requested,
+        CancellationToken token)
+    {
+        foreach ((string formatName, string fileExtension) in
+                 requested.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            token.ThrowIfCancellationRequested();
+            if (persisted.ContainsKey(formatName))
+            {
+                continue;
+            }
+
+            using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO CustomBinaryFormatConfiguration (FormatName, FileExtension)
+                VALUES ($formatName, $fileExtension);
+                """;
+            command.Parameters.AddWithValue("$formatName", formatName);
+            command.Parameters.AddWithValue("$fileExtension", fileExtension);
+            command.ExecuteNonQuery();
+        }
+    }
+
     private static List<PayloadKey> ReadDisallowedPayloads(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -540,8 +706,6 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
                     out ClipboardFormatCapturePolicy formatPolicy) &&
                 formatPolicy.Capture == ClipboardCapturePolicyRule.Allow;
 
-            // MaxBytes remains a capture-time gate and is intentionally not a retroactive purge
-            // criterion. Archive continuation will use persisted PayloadKind for external refs.
             if (!isAllowed)
             {
                 result.Add(new PayloadKey(eventId, payloadOrder));
@@ -632,6 +796,49 @@ public sealed class ProtectedCurrentApplicationPolicyMaintenanceService
                     "Current clipboard payload changed during application policy maintenance.");
             }
         }
+    }
+
+    private static Dictionary<string, string> NormalizeCustomBinaryConfigurations(
+        ClipboardCapturePolicy policy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration> configurations)
+    {
+        ArgumentNullException.ThrowIfNull(configurations);
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (ApplicationCustomBinaryFormatConfiguration configuration in configurations)
+        {
+            ArgumentNullException.ThrowIfNull(configuration);
+            if (string.IsNullOrWhiteSpace(configuration.FormatName))
+            {
+                throw new ArgumentException(
+                    "Application custom binary format name cannot be empty.",
+                    nameof(configurations));
+            }
+            if (!ClipboardCaptureFormatGuard.IsCaptureAllowed(configuration.FormatName))
+            {
+                throw new ArgumentException(
+                    $"Clipboard format '{configuration.FormatName}' is prohibited by the capture guard.",
+                    nameof(configurations));
+            }
+            if (!policy.Formats.TryGetValue(
+                    configuration.FormatName,
+                    out ClipboardFormatCapturePolicy configuredPolicy) ||
+                configuredPolicy.Capture != ClipboardCapturePolicyRule.Allow)
+            {
+                throw new ArgumentException(
+                    $"Custom binary mapping '{configuration.FormatName}' requires an explicit application Allow rule.",
+                    nameof(configurations));
+            }
+
+            string normalized = ExternalPayloadAddressFactory.NormalizeCustomBinaryExtension(
+                configuration.FileExtension);
+            if (!result.TryAdd(configuration.FormatName, normalized))
+            {
+                throw new ArgumentException(
+                    $"Duplicate custom binary mapping '{configuration.FormatName}' is not allowed.",
+                    nameof(configurations));
+            }
+        }
+        return result;
     }
 
     private static void ValidateApplicationPolicy(ClipboardCapturePolicy policy)
