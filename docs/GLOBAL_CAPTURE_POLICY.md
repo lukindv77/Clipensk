@@ -89,7 +89,7 @@ Extension нормализуется через `ExternalPayloadAddressFactory.N
 
 Read-only summary для non-standard Allow дополнительно читает exact extension mapping. Если policy была создана старым/ручным путём без mapping, UI показывает missing mapping как fail-closed состояние; fallback extension не подставляется.
 
-Для выбранного приложения UI теперь показывает persisted runtime-discovered exact format names как read-only список. Product не выводит эвристические format names, не добавляет обнаруженные форматы в policy и не включает неизвестные formats автоматически.
+Для выбранного приложения UI показывает persisted runtime-discovered exact format names как read-only список. Product не выводит эвристические format names, не добавляет обнаруженные форматы в policy и не включает неизвестные formats автоматически. Storage maintenance уже поддерживает mapping-aware application-policy changes, но discovered-format enable UI пока к этому path не подключён.
 
 ## Composition, worker lifecycle и maintenance quiescence
 
@@ -101,11 +101,13 @@ App выполняет composition после active protected session и пуб
 
 Для non-null composition App создаёт exact-session single-reader `ClipboardAcceptedCaptureWorker`. Новый worker ждёт завершения previous generation; Windows listener запускается только после ready-reader gate. Lock останавливает listener, инвалидирует capture epoch, worker generation и composition; linked App/session cancellation завершает blocked/active worker.
 
-Перед будущим **изменением уже настроенной policy** App теперь имеет отдельный runtime-quiescence foundation. `TryQuiesceClipboardRuntimeAsync` атомарно захватывает unique suspension owner token, блокирует новые composition/worker/listener paths, останавливает listener, отменяет current worker и ждёт завершения exact worker task до возврата caller'у. Это закрывает stale-global-policy race: старый delivery graph не может оставаться активным во время destructive cleanup/policy publication.
+Перед изменением уже настроенного application override App имеет отдельный runtime-quiescence boundary. `TryQuiesceClipboardRuntimeAsync` атомарно захватывает unique suspension owner token, блокирует новые composition/worker/listener paths, останавливает listener, отменяет current worker и ждёт завершения exact worker task до возврата caller'у. Это закрывает stale-policy race: старый delivery graph не может оставаться активным во время destructive cleanup/policy publication.
 
-После successful quiesce auto-resume отсутствует. Future maintenance должна явно передать exact owner token в `TryResumeClipboardRuntimeAfterMaintenance`; только тогда App снимает suspension и для всё ещё current protected session строит **fresh composition**, заново читая persisted global policy. Lock/reopen ABA защищён owner-token semantics: stale old-session caller не может снять suspension новой session.
+После successful quiesce maintenance caller обязан передать exact owner token в `TryResumeClipboardRuntimeAfterMaintenance`; только тогда App снимает suspension и для всё ещё current protected session строит **fresh composition**, заново читая persisted policy. Lock/reopen ABA защищён owner-token semantics: stale old-session caller не может снять suspension новой session.
 
-Сам policy cleanup/update этим tranche **ещё не реализован**. Нет Current/Archive history deletion, durable maintenance marker, policy UPDATE API или maintenance UI. Quiescence — только обязательный runtime safety boundary перед ними.
+Application-policy maintenance уже реализован как durable workflow Current → Archive → Catalog → Trash → Completion с `PendingPolicyMaintenance` marker. Текущий custom-format tranche расширяет Current phase mapping-aware path: новые exact custom mappings, application policy, Current cleanup и v2 marker публикуются одной transaction. Legacy operations продолжают использовать v1 marker; v2 отдельно фиксирует fingerprint полного custom-binary configuration snapshot. Rebind/update/delete mapping не входят в этот contract.
+
+Global-policy update/cleanup остаётся отдельным maintenance contract. Product UI для enable runtime-discovered custom format также пока не подключён к mapping-aware storage path.
 
 Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md` и `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
 
@@ -134,8 +136,10 @@ Aggregate initial-configuration tests дополнительно покрыва�
 - prohibited format validation до DB open;
 - требование, чтобы mapping относился к explicit allowed format.
 
-Runtime-quiescence feature не меняет `src/Clipensk.Storage/**`; Windows feature Build компилирует App suspension/owner-token wiring и выполняет существующий full test suite. По текущему Native SQLCipher workflow path scope обычные `src/Clipensk.App/*.cs` сами по себе не запускают новый native gate.
+Application-maintenance tests дополнительно покрывают atomic custom mapping + application policy publication, v2 marker/fingerprint, transaction rollback, exact retry, same-extension reuse, different-extension rebind rejection и полный v2 Resume flow через Archive → Catalog → Trash → Completion.
+
+Текущий tranche меняет `src/Clipensk.Storage/**`, поэтому feature Build должен подтверждать full test suite на exact SHA, а после promotion Native SQLCipher является обязательным exact-main gate по workflow path scope.
 
 **Manual WinUI/real-clipboard smoke остаётся UNVERIFIED.** Unit/CI tests не эмулируют настоящий foreground application, `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView`, suspension во время active capture и пользовательскую работу dynamic custom rows.
 
-Policy cleanup/update для последующего изменения остаётся отдельным этапом. Format/size defaults по-прежнему не назначены.
+Global-policy cleanup/update, discovered-format enable UI и mapping rebind/update/delete остаются отдельными этапами. Format/size defaults по-прежнему не назначены.
