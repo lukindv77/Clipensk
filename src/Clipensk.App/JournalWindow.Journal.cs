@@ -30,8 +30,8 @@ public sealed partial class JournalWindow
         ShellNavigation.SelectionChanged += OnJournalNavigationSelectionChanged;
         _lifecycle.ProtectedDataAccessChanged -= OnJournalProtectedAccessChanged;
         _lifecycle.ProtectedDataAccessChanged += OnJournalProtectedAccessChanged;
-        Closed -= OnJournalWindowClosed;
-        Closed += OnJournalWindowClosed;
+        Closed -= OnJournalContentWindowClosed;
+        Closed += OnJournalContentWindowClosed;
 
         EnsureJournalInitialPeriod();
         if (ReferenceEquals(ShellNavigation.SelectedItem, JournalItem) &&
@@ -101,11 +101,11 @@ public sealed partial class JournalWindow
         }
     }
 
-    private void OnJournalWindowClosed(object sender, WindowEventArgs e)
+    private void OnJournalContentWindowClosed(object sender, WindowEventArgs e)
     {
         ShellNavigation.SelectionChanged -= OnJournalNavigationSelectionChanged;
         _lifecycle.ProtectedDataAccessChanged -= OnJournalProtectedAccessChanged;
-        Closed -= OnJournalWindowClosed;
+        Closed -= OnJournalContentWindowClosed;
         Interlocked.Increment(ref _journalGeneration);
         ClearJournalUi();
     }
