@@ -19,6 +19,7 @@ public sealed partial class JournalWindow
     {
         ApplicationPoliciesTitle.Text = ApplicationPolicyText("Title");
         ApplicationPoliciesBody.Text = ApplicationPolicyText("Body");
+        SelectedApplicationDiscoveredFormatsTitle.Text = ApplicationPolicyText("DiscoveredFormats");
         EditApplicationPolicyButton.Content = ApplicationPolicyText("Edit");
         ReloadApplicationPoliciesButton.Content = ApplicationPolicyText("Reload");
 
@@ -87,6 +88,8 @@ public sealed partial class JournalWindow
         EditApplicationPolicyButton.IsEnabled = false;
         SelectedApplicationIdentity.Text = string.Empty;
         SelectedApplicationPolicySummary.Text = string.Empty;
+        SelectedApplicationDiscoveredFormats.Text = string.Empty;
+        SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Collapsed;
     }
 
     private async void OnReloadApplicationPoliciesClicked(object sender, RoutedEventArgs e)
@@ -104,6 +107,8 @@ public sealed partial class JournalWindow
         EditApplicationPolicyButton.IsEnabled = false;
         SelectedApplicationIdentity.Text = string.Empty;
         SelectedApplicationPolicySummary.Text = string.Empty;
+        SelectedApplicationDiscoveredFormats.Text = string.Empty;
+        SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Collapsed;
 
         if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
         {
@@ -163,6 +168,8 @@ public sealed partial class JournalWindow
         EditApplicationPolicyButton.IsEnabled = false;
         SelectedApplicationIdentity.Text = string.Empty;
         SelectedApplicationPolicySummary.Text = string.Empty;
+        SelectedApplicationDiscoveredFormats.Text = string.Empty;
+        SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Collapsed;
 
         if (ApplicationPoliciesList.SelectedItem is not ApplicationPolicyListItem selected)
         {
@@ -181,6 +188,10 @@ public sealed partial class JournalWindow
             ClipboardCapturePolicy? applicationPolicy = await ReadApplicationPolicyAsync(
                 session,
                 selected.Summary.ApplicationId);
+            IReadOnlyList<ApplicationDiscoveredFormat> discoveredFormats =
+                await ReadApplicationDiscoveredFormatsAsync(
+                    session,
+                    selected.Summary.ApplicationId);
             if (!IsCurrentApplicationPolicyOperation(session, generation) ||
                 !ReferenceEquals(ApplicationPoliciesList.SelectedItem, selected))
             {
@@ -189,6 +200,8 @@ public sealed partial class JournalWindow
 
             SelectedApplicationIdentity.Text = BuildApplicationIdentitySummary(selected.Summary);
             SelectedApplicationPolicySummary.Text = BuildApplicationPolicySummary(applicationPolicy);
+            SelectedApplicationDiscoveredFormats.Text = BuildApplicationDiscoveredFormatsSummary(discoveredFormats);
+            SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Visible;
             EditApplicationPolicyButton.IsEnabled = true;
         }
         catch (OperationCanceledException)
@@ -385,6 +398,17 @@ public sealed partial class JournalWindow
             session.CancellationToken);
     }
 
+    private async Task<IReadOnlyList<ApplicationDiscoveredFormat>> ReadApplicationDiscoveredFormatsAsync(
+        ProtectedStorageSessionLease session,
+        ApplicationId applicationId)
+    {
+        return await Task.Run(
+            async () => await new SqliteApplicationDiscoveredFormatRepository(session)
+                .ListAsync(applicationId, session.CancellationToken)
+                .ConfigureAwait(false),
+            session.CancellationToken);
+    }
+
     private bool IsCurrentApplicationPolicyOperation(
         ProtectedStorageSessionLease session,
         long generation) =>
@@ -443,6 +467,17 @@ public sealed partial class JournalWindow
                 "{1}",
                 policy.Formats.Count.ToString(CultureInfo.CurrentCulture),
                 StringComparison.Ordinal);
+    }
+
+    private string BuildApplicationDiscoveredFormatsSummary(
+        IReadOnlyList<ApplicationDiscoveredFormat> formats)
+    {
+        if (formats.Count == 0)
+        {
+            return ApplicationPolicyText("DiscoveredFormatsEmpty");
+        }
+
+        return string.Join(Environment.NewLine, formats.Select(static format => format.FormatName));
     }
 
     private sealed record ApplicationPolicyListItem(
