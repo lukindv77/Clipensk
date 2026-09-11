@@ -15,7 +15,7 @@ Current v6 добавляет таблицу `CustomBinaryFormatConfiguration`:
 
 Конфигурация хранится в зашифрованном `Current/current.db`, принадлежит выбранному storage и не переносится в JSON settings или rebuildable Catalog.
 
-Catalog v2 продолжает хранить уже зарезервированный SHA → relative path. Если custom payload с тем же SHA уже известен Catalog, его первый persisted address используется повторно, и extension configuration для duplicate не переопределяет физический путь.
+Catalog v3 продолжает хранить уже зарезервированный SHA → relative path. Если custom payload с тем же SHA уже известен Catalog, его первый persisted address используется повторно, и extension configuration для duplicate не переопределяет физический путь.
 
 ## Canonical extension
 
@@ -74,7 +74,7 @@ Individual repository остаётся доступным как низкоур�
 
 ## Initial custom-format UI
 
-Первичный global-policy editor теперь позволяет пользователю **явно** добавлять custom binary rows. Никакие discovered/private formats не добавляются и не включаются автоматически.
+Первичный global-policy editor позволяет пользователю **явно** добавлять custom binary rows. Никакие discovered/private formats не добавляются и не включаются автоматически.
 
 Для каждой добавленной строки пользователь задаёт exact `FormatName` и explicit `Allow`/`Deny`. Для `Allow` обязательны:
 
@@ -85,7 +85,7 @@ Individual repository остаётся доступным как низкоур�
 
 После reload read-only summary показывает extension для каждого non-standard allowed format. Если policy была создана старым/ручным путём без mapping, UI показывает отсутствие mapping как fail-closed состояние; оно не заменяется `.bin` или эвристикой.
 
-Раздел «Приложения» показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName` как read-only список. Discovery не добавляет format в policy и не включает его автоматически. Storage maintenance уже умеет атомарно публиковать **новые** exact `FormatName → FileExtension` mappings вместе с изменением application policy, но product UI для enable discovered format к этому contract пока не подключён. Rebind/update/delete mapping остаются отдельным cleanup contract.
+Раздел «Приложения» показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName`. Сам discovery остаётся только наблюдением: он не добавляет формат в policy и не включает его автоматически. В application formats editor non-standard discovered rows можно явно перевести в `Allow`, `Deny` или оставить `Inherit`; explicit `Allow` требует canonicalizable extension, после чего UI вызывает mapping-aware application maintenance. Уже существующий exact mapping показывается и переиспользуется без UI-rebind, а `Inherit`/`Deny` новый mapping не создают. Prohibited formats по-прежнему блокируются capture guard. Rebind/update/delete mapping остаются отдельным cleanup contract.
 
 ## Application policy maintenance + mappings
 
@@ -117,9 +117,11 @@ Production App создаёт `SqliteCustomBinaryFormatConfigurationRepository` 
 
 После успешного aggregate setup JournalWindow отправляет App post-COMMIT notification; App пересобирает protected composition для той же active session. Ошибка callback не демотирует committed initial configuration.
 
+Mapping-aware application edit использует тот же runtime-quiescence boundary, что application-policy maintenance: listener/worker останавливаются до durable workflow, а после успешного Resume App строит fresh composition для той же active protected session.
+
 ## Migration
 
-Latest Current schema — v6; Catalog остаётся v2.
+Latest Current schema — v6; Catalog — v3.
 
 Migration `Current v5 → v6`:
 
@@ -131,7 +133,7 @@ Migration `Current v5 → v6`:
 
 Ошибка или отмена оставляет полноценный v5 и позволяет повторить migration. Existing global policy, history, identities, per-application policies и Catalog addresses не переписываются.
 
-Новый storage создаётся сразу Current v6 / Catalog v2 с пустой custom-binary configuration table.
+Новый storage создаётся сразу Current v6 / Catalog v3 с пустой custom-binary configuration table.
 
 ## Проверки
 
@@ -158,6 +160,6 @@ Storage tests покрывают:
 - same-extension reuse, different-extension rebind rejection и exact mapping-aware retry;
 - полный v2 Resume flow через Archive → Catalog → Trash → Completion с очисткой marker и сохранением durable mapping.
 
-Текущий application custom-format maintenance tranche затрагивает `src/Clipensk.Storage/**`; feature Build обязан подтверждать Restore/Build/Test на exact feature SHA. После продвижения final tree обязательны exact-main Build и Native SQLCipher, потому что native workflow path scope включает `src/Clipensk.Storage/**`.
+Application discovered-format UI tranche меняет App/UI/localization/docs поверх уже принятого storage mapping contract и не изменяет `src/Clipensk.Storage/**`. Feature Build обязан подтверждать Restore/Build/Test на exact feature SHA; после promotion exact-main Build остаётся обязательным. Native SQLCipher запускается по своим workflow path filters и не считается автоматически требуемым только из-за этого UI tranche.
 
 Manual WinUI/real-clipboard smoke остаётся отдельным UNVERIFIED evidence.
