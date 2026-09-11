@@ -89,7 +89,7 @@ Extension нормализуется через `ExternalPayloadAddressFactory.N
 
 Read-only summary для non-standard Allow дополнительно читает exact extension mapping. Если policy была создана старым/ручным путём без mapping, UI показывает missing mapping как fail-closed состояние; fallback extension не подставляется.
 
-Для выбранного приложения UI показывает persisted runtime-discovered exact format names как read-only список. Product не выводит эвристические format names, не добавляет обнаруженные форматы в policy и не включает неизвестные formats автоматически. Storage maintenance уже поддерживает mapping-aware application-policy changes, но discovered-format enable UI пока к этому path не подключён.
+Для выбранного приложения UI показывает persisted runtime-discovered exact format names без эвристического переименования. Discovery сам по себе остаётся read-only observation и не включает неизвестный формат. В application formats editor discovered non-standard rows доступны для explicit `Inherit`/`Allow`/`Deny`; explicit `Allow` требует canonicalizable extension и проходит через mapping-aware application maintenance. Existing exact mapping переиспользуется и не может быть rebound через этот UI; `Inherit`/`Deny` новый mapping не создают. Таким образом enable всегда является отдельным явным действием пользователя, а не следствием discovery.
 
 ## Composition, worker lifecycle и maintenance quiescence
 
@@ -105,9 +105,9 @@ App выполняет composition после active protected session и пуб
 
 После successful quiesce maintenance caller обязан передать exact owner token в `TryResumeClipboardRuntimeAfterMaintenance`; только тогда App снимает suspension и для всё ещё current protected session строит **fresh composition**, заново читая persisted policy. Lock/reopen ABA защищён owner-token semantics: stale old-session caller не может снять suspension новой session.
 
-Application-policy maintenance уже реализован как durable workflow Current → Archive → Catalog → Trash → Completion с `PendingPolicyMaintenance` marker. Текущий custom-format tranche расширяет Current phase mapping-aware path: новые exact custom mappings, application policy, Current cleanup и v2 marker публикуются одной transaction. Legacy operations продолжают использовать v1 marker; v2 отдельно фиксирует fingerprint полного custom-binary configuration snapshot. Rebind/update/delete mapping не входят в этот contract.
+Application-policy maintenance реализован как durable workflow Current → Archive → Catalog → Trash → Completion с `PendingPolicyMaintenance` marker. Mapping-aware Current phase публикует новые exact custom mappings, application policy, Current cleanup и v2 marker одной transaction. Legacy operations продолжают использовать v1 marker; v2 отдельно фиксирует fingerprint полного custom-binary configuration snapshot. Rebind/update/delete mapping не входят в этот contract.
 
-Global-policy update/cleanup остаётся отдельным maintenance contract. Product UI для enable runtime-discovered custom format также пока не подключён к mapping-aware storage path.
+Application discovered-format editor подключён к этому mapping-aware path через отдельный App boundary с теми же recovery, quiescence и resume semantics. Global-policy update/cleanup остаётся отдельным maintenance contract.
 
 Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md` и `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
 
@@ -138,8 +138,8 @@ Aggregate initial-configuration tests дополнительно покрыва�
 
 Application-maintenance tests дополнительно покрывают atomic custom mapping + application policy publication, v2 marker/fingerprint, transaction rollback, exact retry, same-extension reuse, different-extension rebind rejection и полный v2 Resume flow через Archive → Catalog → Trash → Completion.
 
-Текущий tranche меняет `src/Clipensk.Storage/**`, поэтому feature Build должен подтверждать full test suite на exact SHA, а после promotion Native SQLCipher является обязательным exact-main gate по workflow path scope.
+Application discovered-format UI tranche меняет `src/Clipensk.App/**`, localization и contract docs, но не `src/Clipensk.Storage/**`. Feature Build должен подтверждать full test suite на exact feature SHA, а после promotion обязателен exact-main Build. Native SQLCipher остаётся path-filtered workflow и не становится отдельным обязательным gate только из-за UI-only changes.
 
 **Manual WinUI/real-clipboard smoke остаётся UNVERIFIED.** Unit/CI tests не эмулируют настоящий foreground application, `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView`, suspension во время active capture и пользовательскую работу dynamic custom rows.
 
-Global-policy cleanup/update, discovered-format enable UI и mapping rebind/update/delete остаются отдельными этапами. Format/size defaults по-прежнему не назначены.
+Global-policy cleanup/update и mapping rebind/update/delete остаются отдельными этапами. Format/size defaults по-прежнему не назначены.
