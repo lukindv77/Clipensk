@@ -13,9 +13,12 @@ internal sealed record ApplicationPolicyMaintenanceState(
     string ArchiveExternalReferenceCleanup,
     string CatalogRebuild,
     string ExternalTrashCollection,
-    string Completion)
+    string Completion,
+    int StateVersion = LegacyVersion,
+    string? CustomBinaryConfigurationFingerprint = null)
 {
-    public const int Version = 1;
+    public const int LegacyVersion = 1;
+    public const int CustomBinaryConfigurationVersion = 2;
     public const string Pending = "pending";
     public const string Completed = "completed";
 
@@ -39,6 +42,28 @@ internal static class ApplicationPolicyMaintenanceStateCodec
             ApplicationPolicyMaintenanceState.Pending,
             ApplicationPolicyMaintenanceState.Pending,
             ApplicationPolicyMaintenanceState.Pending);
+    }
+
+    public static ApplicationPolicyMaintenanceState CreateCurrentCompleted(
+        ApplicationId applicationId,
+        ClipboardCapturePolicy policy,
+        string customBinaryConfigurationFingerprint)
+    {
+        ArgumentNullException.ThrowIfNull(applicationId);
+        ArgumentNullException.ThrowIfNull(policy);
+        ValidateFingerprint(
+            customBinaryConfigurationFingerprint,
+            "Application policy-maintenance custom binary configuration fingerprint is invalid.");
+        return new ApplicationPolicyMaintenanceState(
+            applicationId.ToString(),
+            ComputePolicyFingerprint(policy),
+            ApplicationPolicyMaintenanceState.Completed,
+            ApplicationPolicyMaintenanceState.Pending,
+            ApplicationPolicyMaintenanceState.Pending,
+            ApplicationPolicyMaintenanceState.Pending,
+            ApplicationPolicyMaintenanceState.Pending,
+            ApplicationPolicyMaintenanceState.CustomBinaryConfigurationVersion,
+            customBinaryConfigurationFingerprint);
     }
 
     public static ApplicationPolicyMaintenanceState Parse(string stateJson)
@@ -69,29 +94,45 @@ internal static class ApplicationPolicyMaintenanceStateCodec
                 }
             }
 
-            string[] expectedNames =
-            [
-                "version",
-                "applicationId",
-                "policyFingerprint",
-                "currentPhase",
-                "archiveExternalReferenceCleanup",
-                "catalogRebuild",
-                "externalTrashCollection",
-                "completion",
-            ];
+            if (!root.TryGetProperty("version", out JsonElement versionElement) ||
+                !versionElement.TryGetInt32(out int version) ||
+                version is not (
+                    ApplicationPolicyMaintenanceState.LegacyVersion or
+                    ApplicationPolicyMaintenanceState.CustomBinaryConfigurationVersion))
+            {
+                throw new InvalidDataException(
+                    "Application policy-maintenance state version is unsupported.");
+            }
+
+            string[] expectedNames = version == ApplicationPolicyMaintenanceState.LegacyVersion
+                ?
+                [
+                    "version",
+                    "applicationId",
+                    "policyFingerprint",
+                    "currentPhase",
+                    "archiveExternalReferenceCleanup",
+                    "catalogRebuild",
+                    "externalTrashCollection",
+                    "completion",
+                ]
+                :
+                [
+                    "version",
+                    "applicationId",
+                    "policyFingerprint",
+                    "customBinaryConfigurationFingerprint",
+                    "currentPhase",
+                    "archiveExternalReferenceCleanup",
+                    "catalogRebuild",
+                    "externalTrashCollection",
+                    "completion",
+                ];
             if (names.Count != expectedNames.Length ||
                 expectedNames.Any(name => !names.Contains(name)))
             {
                 throw new InvalidDataException(
                     "Application policy-maintenance state has an unexpected shape.");
-            }
-
-            if (!root.GetProperty("version").TryGetInt32(out int version) ||
-                version != ApplicationPolicyMaintenanceState.Version)
-            {
-                throw new InvalidDataException(
-                    "Application policy-maintenance state version is unsupported.");
             }
 
             var state = new ApplicationPolicyMaintenanceState(
@@ -101,7 +142,11 @@ internal static class ApplicationPolicyMaintenanceStateCodec
                 ReadRequiredStateString(root, "archiveExternalReferenceCleanup"),
                 ReadRequiredStateString(root, "catalogRebuild"),
                 ReadRequiredStateString(root, "externalTrashCollection"),
-                ReadRequiredStateString(root, "completion"));
+                ReadRequiredStateString(root, "completion"),
+                version,
+                version == ApplicationPolicyMaintenanceState.CustomBinaryConfigurationVersion
+                    ? ReadRequiredStateString(root, "customBinaryConfigurationFingerprint")
+                    : null);
             Validate(state);
             return state;
         }
@@ -122,9 +167,15 @@ internal static class ApplicationPolicyMaintenanceStateCodec
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("version", ApplicationPolicyMaintenanceState.Version);
+            writer.WriteNumber("version", state.StateVersion);
             writer.WriteString("applicationId", state.ApplicationId);
             writer.WriteString("policyFingerprint", state.PolicyFingerprint);
+            if (state.StateVersion == ApplicationPolicyMaintenanceState.CustomBinaryConfigurationVersion)
+            {
+                writer.WriteString(
+                    "customBinaryConfigurationFingerprint",
+                    state.CustomBinaryConfigurationFingerprint);
+            }
             writer.WriteString("currentPhase", state.CurrentPhase);
             writer.WriteString(
                 "archiveExternalReferenceCleanup",
@@ -176,6 +227,40 @@ internal static class ApplicationPolicyMaintenanceStateCodec
         return Convert.ToHexString(SHA256.HashData(stream.ToArray()));
     }
 
+    public static string ComputeCustomBinaryConfigurationFingerprint(
+        IReadOnlyDictionary<string, string> configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartArray();
+            foreach ((string formatName, string fileExtension) in
+                     configuration.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("formatName", formatName);
+                writer.WriteString("fileExtension", fileExtension);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+
+        return Convert.ToHexString(SHA256.HashData(stream.ToArray()));
+    }
+
+    public static bool TargetsEqual(
+        ApplicationPolicyMaintenanceState left,
+        ApplicationPolicyMaintenanceState right) =>
+        string.Equals(left.ApplicationId, right.ApplicationId, StringComparison.Ordinal) &&
+        string.Equals(left.PolicyFingerprint, right.PolicyFingerprint, StringComparison.Ordinal) &&
+        left.StateVersion == right.StateVersion &&
+        string.Equals(
+            left.CustomBinaryConfigurationFingerprint,
+            right.CustomBinaryConfigurationFingerprint,
+            StringComparison.Ordinal);
+
     private static void Validate(ApplicationPolicyMaintenanceState state)
     {
         if (!Guid.TryParseExact(state.ApplicationId, "D", out Guid applicationId) ||
@@ -189,12 +274,28 @@ internal static class ApplicationPolicyMaintenanceStateCodec
                 "Application policy-maintenance application id is invalid.");
         }
 
-        if (state.PolicyFingerprint.Length != 64 ||
-            !state.PolicyFingerprint.All(static character =>
-                character is >= '0' and <= '9' or >= 'A' and <= 'F'))
+        ValidateFingerprint(
+            state.PolicyFingerprint,
+            "Application policy-maintenance policy fingerprint is invalid.");
+
+        if (state.StateVersion == ApplicationPolicyMaintenanceState.LegacyVersion)
+        {
+            if (state.CustomBinaryConfigurationFingerprint is not null)
+            {
+                throw new InvalidDataException(
+                    "Legacy application policy-maintenance state cannot contain a custom binary configuration fingerprint.");
+            }
+        }
+        else if (state.StateVersion == ApplicationPolicyMaintenanceState.CustomBinaryConfigurationVersion)
+        {
+            ValidateFingerprint(
+                state.CustomBinaryConfigurationFingerprint,
+                "Application policy-maintenance custom binary configuration fingerprint is invalid.");
+        }
+        else
         {
             throw new InvalidDataException(
-                "Application policy-maintenance policy fingerprint is invalid.");
+                "Application policy-maintenance state version is unsupported.");
         }
 
         if (!string.Equals(
@@ -237,6 +338,17 @@ internal static class ApplicationPolicyMaintenanceStateCodec
         {
             throw new InvalidDataException(
                 "Application policy-maintenance continuation phases are out of order.");
+        }
+    }
+
+    private static void ValidateFingerprint(string? value, string errorMessage)
+    {
+        if (value is null ||
+            value.Length != 64 ||
+            !value.All(static character =>
+                character is >= '0' and <= '9' or >= 'A' and <= 'F'))
+        {
+            throw new InvalidDataException(errorMessage);
         }
     }
 
