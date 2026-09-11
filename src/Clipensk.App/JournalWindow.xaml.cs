@@ -67,8 +67,16 @@ public sealed partial class JournalWindow : Window
         }
         else
         {
+            bool journalWasSelected = ReferenceEquals(ShellNavigation.SelectedItem, JournalItem);
             ShellNavigation.SelectedItem = JournalItem;
             ShowPage("journal");
+
+            if (journalWasSelected)
+            {
+                ShowJournalContent();
+                EnsureJournalInitialPeriod();
+                _ = LoadJournalAsync(reset: true);
+            }
         }
 
         AppWindow.Show();
