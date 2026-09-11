@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/application-discovered-format-ui ]
   workflow_dispatch:
 
 permissions:
