@@ -88,6 +88,11 @@
                             <TextBlock x:Name="SelectedApplicationDiscoveredFormatsTitle"
                                        Style="{StaticResource SubtitleTextBlockStyle}" />
                             <TextBlock x:Name="SelectedApplicationDiscoveredFormats" TextWrapping="Wrap" />
+                            <Button x:Name="EnableDiscoveredFormatButton"
+                                    HorizontalAlignment="Left"
+                                    IsEnabled="{Binding IsEnabled, ElementName=EditApplicationPolicyButton}"
+                                    Loaded="OnEnableDiscoveredFormatButtonLoaded"
+                                    Click="OnEnableDiscoveredFormatClicked" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <Button x:Name="EditApplicationPolicyButton"
@@ -97,10 +102,6 @@
                                     IsEnabled="{Binding IsEnabled, ElementName=EditApplicationPolicyButton}"
                                     Loaded="OnEditApplicationFormatsButtonLoaded"
                                     Click="OnEditApplicationFormatsClicked" />
-                            <Button x:Name="EnableDiscoveredFormatButton"
-                                    IsEnabled="{Binding IsEnabled, ElementName=EditApplicationPolicyButton}"
-                                    Loaded="OnEnableDiscoveredFormatButtonLoaded"
-                                    Click="OnEnableDiscoveredFormatClicked" />
                             <Button x:Name="ReloadApplicationPoliciesButton" Click="OnReloadApplicationPoliciesClicked" />
                         </StackPanel>
                     </StackPanel>
