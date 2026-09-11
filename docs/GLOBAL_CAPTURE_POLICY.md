@@ -89,7 +89,7 @@ Extension нормализуется через `ExternalPayloadAddressFactory.N
 
 Read-only summary для non-standard Allow дополнительно читает exact extension mapping. Если policy была создана старым/ручным путём без mapping, UI показывает missing mapping как fail-closed состояние; fallback extension не подставляется.
 
-Clipboard format discovery UI пока отсутствует. Product не предлагает эвристические format names и не включает неизвестные formats автоматически.
+Для выбранного приложения UI теперь показывает persisted runtime-discovered exact format names как read-only список. Product не выводит эвристические format names, не добавляет обнаруженные форматы в policy и не включает неизвестные formats автоматически.
 
 ## Composition, worker lifecycle и maintenance quiescence
 
