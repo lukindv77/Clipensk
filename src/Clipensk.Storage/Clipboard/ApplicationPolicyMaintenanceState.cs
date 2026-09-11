@@ -14,7 +14,7 @@ internal sealed record ApplicationPolicyMaintenanceState(
     string CatalogRebuild,
     string ExternalTrashCollection,
     string Completion,
-    int StateVersion = LegacyVersion,
+    int StateVersion = 1,
     string? CustomBinaryConfigurationFingerprint = null)
 {
     public const int LegacyVersion = 1;
