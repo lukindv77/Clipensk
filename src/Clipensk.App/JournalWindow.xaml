@@ -97,6 +97,10 @@
                                     IsEnabled="{Binding IsEnabled, ElementName=EditApplicationPolicyButton}"
                                     Loaded="OnEditApplicationFormatsButtonLoaded"
                                     Click="OnEditApplicationFormatsClicked" />
+                            <Button x:Name="EnableDiscoveredFormatButton"
+                                    IsEnabled="{Binding IsEnabled, ElementName=EditApplicationPolicyButton}"
+                                    Loaded="OnEnableDiscoveredFormatButtonLoaded"
+                                    Click="OnEnableDiscoveredFormatClicked" />
                             <Button x:Name="ReloadApplicationPoliciesButton" Click="OnReloadApplicationPoliciesClicked" />
                         </StackPanel>
                     </StackPanel>
