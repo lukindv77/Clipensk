@@ -56,7 +56,8 @@ public partial class App : Application
         }
 
         _residentWindowsHost = new ResidentWindowsHost(
-            new HtmlAgilityPackClipboardHtmlSearchTextConverter());
+            new HtmlAgilityPackClipboardHtmlSearchTextConverter(),
+            new ManagedClipboardRtfSearchTextConverter());
         _hotKeyService = _residentWindowsHost.HotKeyService;
         _lifecycle.ProtectedDataAccessChanged += OnProtectedDataAccessChanged;
         _window = new JournalWindow(
