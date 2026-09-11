@@ -15,9 +15,12 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
     private readonly ClipboardUpdateMonitor _clipboardMonitor;
     private bool _disposed;
 
-    public ResidentWindowsHost(IClipboardHtmlSearchTextConverter htmlSearchTextConverter)
+    public ResidentWindowsHost(
+        IClipboardHtmlSearchTextConverter htmlSearchTextConverter,
+        IClipboardRtfSearchTextConverter rtfSearchTextConverter)
     {
         ArgumentNullException.ThrowIfNull(htmlSearchTextConverter);
+        ArgumentNullException.ThrowIfNull(rtfSearchTextConverter);
 
         _messageWindow = new ResidentMessageWindow();
         CaptureQueue = new ClipboardCaptureQueue();
@@ -32,7 +35,9 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
         LinkContentReader = new WindowsClipboardLinkContentReader();
         StorageItemsContentReader = new WindowsClipboardStorageItemsContentReader();
         CustomBinaryContentReader = new WindowsClipboardCustomBinaryContentReader();
-        TextSearchTextExtractor = new WindowsClipboardTextSearchTextExtractor(htmlSearchTextConverter);
+        TextSearchTextExtractor = new WindowsClipboardTextSearchTextExtractor(
+            htmlSearchTextConverter,
+            rtfSearchTextConverter);
         ContentReaderRouter = new ClipboardContentReaderRouter(
             TextContentReader,
             PngImageContentReader,
