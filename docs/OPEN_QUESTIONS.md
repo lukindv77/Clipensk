@@ -56,7 +56,8 @@
 - ARM64 не поддерживается и не является будущим native target;
 - production умеет перестраивать обе Catalog v3 projections внутри существующего валидного Catalog;
 - explicit pre-session recovery умеет атомарно пересоздать **отсутствующий** `storage-catalog.db` из валидного Current + Archive state, не ослабляя normal unlock fail-closed semantics;
-- explicit pre-session replacement умеет полностью построить replacement **существующего** Catalog из authoritative Current + Archive state и атомарно опубликовать его с сохранением старых Catalog bytes в `Current/CatalogQuarantine`.
+- explicit pre-session replacement умеет полностью построить replacement **существующего** Catalog из authoritative Current + Archive state и атомарно опубликовать его с сохранением старых Catalog bytes в `Current/CatalogQuarantine`;
+- пользовательский pre-session recovery UI реализует явный confirmation flow и различает missing-Catalog recreation и existing-Catalog replacement, не ослабляя обычный unlock path.
 
 Остаётся определить/реализовать:
 
@@ -65,7 +66,6 @@
 - процедуру смены пароля и/или MasterKey;
 - recovery procedure при потере/повреждении crypto metadata;
 - recovery strategy при потере `current.db` (Catalog не является source of truth и сам по себе не может восстановить Current);
-- пользовательский recovery UI/confirmation flow и явный выбор между missing-Catalog recreation и existing-Catalog replacement;
 - retention/удаление Catalog quarantine backups.
 
 ## 5. Hot backup / snapshot
