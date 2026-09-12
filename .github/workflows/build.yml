@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, chore/builtin-russian-maintenance-localization ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
