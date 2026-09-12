@@ -89,4 +89,62 @@ public sealed class ProtectedCurrentToArchiveMaintenanceServiceTests
             environment.Factory.OnOpen = null;
         }
     }
+
+    [Fact]
+    public async Task TransferAsync_HoldsMutationLeaseDuringCatalogRefresh()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        DateOnly today = DateOnly.FromDateTime(DateTime.Now);
+        DateOnly day = today.AddDays(-4);
+        var range = new JournalDateRange(day, day);
+        var archiveFileName = new ArchiveFileName(42, ArchiveFileName.NoSplit);
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        await archiveService.CreateAsync(archiveFileName, range);
+
+        Task<ProtectedStorageMutationLease>? competingLeaseTask = null;
+        bool competingLeaseCompletedDuringCatalogWrite = false;
+        environment.Factory.OnOpen = (connection, mode) =>
+        {
+            if (competingLeaseTask is not null ||
+                mode != SqliteOpenMode.ReadWrite ||
+                !string.Equals(
+                    Path.GetFullPath(connection.DataSource),
+                    Path.GetFullPath(environment.CatalogPath),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            competingLeaseTask = environment.Session.AcquireMutationLeaseAsync().AsTask();
+            competingLeaseCompletedDuringCatalogWrite = competingLeaseTask.IsCompleted;
+            if (competingLeaseCompletedDuringCatalogWrite &&
+                competingLeaseTask.Status == TaskStatus.RanToCompletion)
+            {
+                competingLeaseTask.Result.Dispose();
+            }
+        };
+
+        try
+        {
+            var service = new ProtectedCurrentToArchiveMaintenanceService(
+                environment.Session,
+                environment.Factory);
+            CurrentToArchiveMaintenanceResult result = await service.TransferAsync(
+                archiveFileName,
+                range);
+
+            Assert.Equal(0, result.Transfer.CopiedEventCount);
+            Assert.Equal(0, result.Transfer.PurgedEventCount);
+            Assert.NotNull(competingLeaseTask);
+            Assert.False(
+                competingLeaseCompletedDuringCatalogWrite,
+                "Catalog refresh must own the session mutation lease while writing its projection.");
+
+            using ProtectedStorageMutationLease competingLease = await competingLeaseTask!;
+        }
+        finally
+        {
+            environment.Factory.OnOpen = null;
+        }
+    }
 }
