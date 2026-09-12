@@ -41,6 +41,32 @@ public sealed class ProtectedArchiveSegmentCatalog
             CancellationToken.None).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<ArchiveSegmentDescriptor>> ValidateConsistencyAsync(
+        DateOnly currentCalendarDate,
+        CancellationToken cancellationToken = default)
+    {
+        using CancellationTokenSource linkedCancellation =
+            CreateLinkedCancellation(cancellationToken);
+        CancellationToken token = linkedCancellation.Token;
+        token.ThrowIfCancellationRequested();
+
+        IReadOnlyList<ArchiveSegmentDescriptor> projected = await DiscoverProjectionAsync(
+            currentCalendarDate,
+            token).ConfigureAwait(false);
+        IReadOnlyList<ArchiveSegmentDescriptor> persisted = await Task.Run(
+            () => ReadCatalogCore(token),
+            CancellationToken.None).ConfigureAwait(false);
+
+        token.ThrowIfCancellationRequested();
+        if (!projected.SequenceEqual(persisted))
+        {
+            throw new InvalidDataException(
+                "Storage catalog archive projection does not match validated physical archives.");
+        }
+
+        return projected;
+    }
+
     public async Task<IReadOnlyList<ArchiveSegmentDescriptor>> RebuildAsync(
         DateOnly currentCalendarDate,
         CancellationToken cancellationToken = default)
@@ -50,8 +76,23 @@ public sealed class ProtectedArchiveSegmentCatalog
         CancellationToken token = linkedCancellation.Token;
         token.ThrowIfCancellationRequested();
 
+        IReadOnlyList<ArchiveSegmentDescriptor> projected = await DiscoverProjectionAsync(
+            currentCalendarDate,
+            token).ConfigureAwait(false);
+
+        await Task.Run(
+            () => PersistProjection(projected, token),
+            CancellationToken.None).ConfigureAwait(false);
+        return projected;
+    }
+
+    private async Task<IReadOnlyList<ArchiveSegmentDescriptor>> DiscoverProjectionAsync(
+        DateOnly currentCalendarDate,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         string[] archivePaths = await Task.Run(
-            () => EnumerateArchivePaths(token),
+            () => EnumerateArchivePaths(cancellationToken),
             CancellationToken.None).ConfigureAwait(false);
 
         var archiveService = new ProtectedArchiveDatabaseService(_session, _connectionFactory);
@@ -60,7 +101,7 @@ public sealed class ProtectedArchiveSegmentCatalog
 
         foreach (string archivePath in archivePaths)
         {
-            token.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             string fileNameText = Path.GetFileName(archivePath);
             if (!ArchiveFileName.TryParse(fileNameText, out ArchiveFileName archiveFileName) ||
                 !string.Equals(fileNameText, archiveFileName.FileName, StringComparison.Ordinal))
@@ -70,7 +111,7 @@ public sealed class ProtectedArchiveSegmentCatalog
             }
 
             DatabaseIdentity identity = await archiveService
-                .ValidateAsync(archiveFileName, token)
+                .ValidateAsync(archiveFileName, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!databaseIds.Add(identity.DatabaseId))
@@ -95,7 +136,7 @@ public sealed class ProtectedArchiveSegmentCatalog
         ValidateNonOverlapping(discovered);
 
         return await Task.Run(
-            () => DeriveAndPersistProjection(discovered, currentCalendarDate, token),
+            () => DeriveProjection(discovered, currentCalendarDate, cancellationToken),
             CancellationToken.None).ConfigureAwait(false);
     }
 
@@ -127,7 +168,7 @@ public sealed class ProtectedArchiveSegmentCatalog
         return descriptors;
     }
 
-    private IReadOnlyList<ArchiveSegmentDescriptor> DeriveAndPersistProjection(
+    private IReadOnlyList<ArchiveSegmentDescriptor> DeriveProjection(
         IReadOnlyList<ArchiveSegmentDescriptor> discovered,
         DateOnly currentCalendarDate,
         CancellationToken cancellationToken)
@@ -152,6 +193,15 @@ public sealed class ProtectedArchiveSegmentCatalog
             projected.Add(descriptor with { IsSealed = isSealed });
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        return projected;
+    }
+
+    private void PersistProjection(
+        IReadOnlyList<ArchiveSegmentDescriptor> projected,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         using SqliteConnection catalogConnection = OpenValidatedCatalog(
             SqliteOpenMode.ReadWrite,
             cancellationToken);
@@ -197,7 +247,6 @@ public sealed class ProtectedArchiveSegmentCatalog
 
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
-        return projected;
     }
 
     private string[] EnumerateArchivePaths(CancellationToken cancellationToken)
