@@ -41,10 +41,16 @@ public sealed class ProtectedCurrentToArchiveMaintenanceService
         // operation that crosses midnight does not persist a projection based on yesterday.
         DateOnly currentLocalDate = DateOnly.FromDateTime(DateTime.Now);
 
-        // The Archive and Current commits are already durable when TransferAsync returns.
-        // Do not let a late caller cancellation report that completed transfer as failed.
-        // RebuildAsync still links CancellationToken.None with the protected session token,
-        // so lock/session revocation remains a fail-closed cancellation boundary.
+        // The durable transfer releases its mutation lease before returning. Reacquire the same
+        // session gate before rebuilding the Catalog so no other mutation can interleave with the
+        // projection scan/write. If another mutation wins the small handoff window, waiting here
+        // makes this rebuild observe its completed authoritative state as well.
+        //
+        // Caller cancellation is intentionally not reused after the durable transfer completed;
+        // AcquireMutationLeaseAsync and RebuildAsync still link to the protected session token, so
+        // lock/session revocation remains a fail-closed cancellation boundary.
+        using ProtectedStorageMutationLease mutationLease =
+            await _session.AcquireMutationLeaseAsync(CancellationToken.None).ConfigureAwait(false);
         IReadOnlyList<ArchiveSegmentDescriptor> archiveSegments =
             await new ProtectedArchiveSegmentCatalog(_session, _connectionFactory)
                 .RebuildAsync(currentLocalDate, CancellationToken.None)
