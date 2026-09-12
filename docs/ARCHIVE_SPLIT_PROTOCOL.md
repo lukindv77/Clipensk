@@ -45,30 +45,30 @@ archive_000025_0002.db
 
 Split требует защищённого durable marker в Current. Он не хранится только в Catalog.
 
-Первый backend slice должен добавить Current schema migration и таблицу `PendingArchiveSplit` с максимум одной активной операцией на storage.
+**Backend slice для marker завершён.** Current schema v9 содержит максимум одну активную `PendingArchiveSplit` operation и нормализованные ordered rows в `PendingArchiveSplitSegment`. Production repository — `SqlitePendingArchiveSplitRepository`.
 
-Минимальный marker содержит:
+Durable state содержит:
 
 - `OperationId` — GUID;
 - исходный canonical `SourceFileName`;
 - ожидаемый `SourceDatabaseId`;
 - исходные `CoverageStartDate/CoverageEndDate`;
-- сериализованный ordered plan будущих сегментов: canonical filename, DatabaseId и coverage;
+- ordered immutable segment plan: canonical filename, DatabaseId и coverage;
 - `Phase`;
 - UTC timestamp создания marker.
 
-Plan immutable после первого commit. Phase может двигаться только вперёд.
+Plan immutable после первого commit. Phase может двигаться только вперёд и ровно на один шаг.
 
-Рекомендуемые фазы:
+Реализованные фазы:
 
 1. `Planned`
 2. `ReadyToPublish`
 3. `PhysicalPublished`
 4. `CatalogPublished`
 
-Marker удаляется только после финальной validation и cleanup backup/staging.
+Marker разрешено удалить только после `CatalogPublished`. Repository fail-closed валидирует Current identity/schema v9, operation ownership, canonical archive filenames, exact contiguous partition, unique names/IDs и phase transitions.
 
-Если Current содержит pending split, unlock/maintenance continuation должен сначала продолжить или безопасно остановить эту операцию; обычная новая split-команда должна завершаться fail-closed.
+Если Current содержит pending split, будущий unlock/maintenance continuation должен сначала продолжить или безопасно остановить эту операцию; обычная новая split-команда должна завершаться fail-closed.
 
 ## 4. Staging
 
@@ -96,6 +96,8 @@ Staging не является durable source of truth сам по себе: dura
 8. Commit `PendingArchiveSplit` в Current в фазе `Planned`.
 
 До commit marker никакие Archive-файлы не изменяются.
+
+**Следующий implementation slice — pure split planner.** Он должен реализовать пункты 4–7 как детерминированное планирование без filesystem/DB mutation; caller передаёт уже валидированные source identity/coverage и snapshot занятых family filenames/sequences.
 
 ## 6. Построение shadow set
 
@@ -227,20 +229,25 @@ Marker phase может отставать от фактической filesyste
 - После `ReadyToPublish`: cancellation не инициирует rollback опубликованных файлов. Операция либо завершает publication в текущем вызове, либо оставляет durable pending marker для roll-forward recovery.
 - После durable completion поздняя cancellation не превращает success в failure.
 
-## 13. Implementation slices
+## 13. Implementation slices и текущий статус
 
-Реализацию следует делать последовательно:
+Реализация идёт последовательно:
 
-1. Current schema + `PendingArchiveSplit` repository/validation/migration/tests.
-2. Pure split planner: partition validation, family suffix allocation, immutable plan tests.
-3. Shadow builder + exact source/output cross-check tests.
-4. Publication/recovery state machine с fault-injection tests на границах каждой durable phase.
-5. Catalog rebuild integration и end-to-end storage tests.
-6. Maintenance UI: выбор Archive, split boundaries, explicit confirmation, progress/error reporting.
+1. **DONE** — Current v9 schema + `PendingArchiveSplit` repository/validation/migration/tests.
+2. **NEXT** — pure split planner: partition validation, family suffix allocation, immutable plan tests.
+3. **NOT STARTED** — shadow builder + exact source/output cross-check tests.
+4. **NOT STARTED** — publication/recovery state machine с fault-injection tests на границах каждой durable phase.
+5. **NOT STARTED** — Catalog rebuild integration и end-to-end storage tests.
+6. **NOT STARTED** — Maintenance UI: выбор Archive, split boundaries, explicit confirmation, progress/error reporting.
+
+Slice 1 принят на exact storage baseline `08d23672a75f85ca61c2ad62ae57395f2eadfdbc`:
+
+- Build #408 / run `34709397765` — **SUCCESS**;
+- Native SQLCipher #73 / run `34709397774` — **SUCCESS**, включая encrypted-storage verification и published-runtime SQLCipher loading.
 
 Storage slices требуют exact-main Build и Native SQLCipher evidence по правилам проекта.
 
-## 14. Не входит в первый implementation tranche
+## 14. Не входит в первые Archive Split slices
 
 - автоматическая ротация по size/count/span thresholds;
 - изменение default rotation policy;
