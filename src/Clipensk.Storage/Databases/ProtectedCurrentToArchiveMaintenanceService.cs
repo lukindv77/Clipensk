@@ -30,13 +30,16 @@ public sealed class ProtectedCurrentToArchiveMaintenanceService
         JournalDateRange transferRange,
         CancellationToken cancellationToken = default)
     {
-        DateOnly currentLocalDate = DateOnly.FromDateTime(DateTime.Now);
         var transferService = new ProtectedCurrentToArchiveTransferService(
             _session,
             _connectionFactory);
         CurrentToArchiveTransferResult transfer = await transferService
             .TransferAsync(archiveFileName, transferRange, cancellationToken)
             .ConfigureAwait(false);
+
+        // Derive sealing against the local date after the durable transfer finishes so an
+        // operation that crosses midnight does not persist a projection based on yesterday.
+        DateOnly currentLocalDate = DateOnly.FromDateTime(DateTime.Now);
 
         // The Archive and Current commits are already durable when TransferAsync returns.
         // Do not let a late caller cancellation report that completed transfer as failed.
