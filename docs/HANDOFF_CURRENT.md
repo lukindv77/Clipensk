@@ -1,245 +1,295 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-09.
+Checkpoint prepared: 2026-09-13.
 
-Mutable GitHub state supersedes this file. Перед любой durable записью нужен fresh GitHub TOCTOU.
+Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязателен fresh GitHub TOCTOU relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
-## A. Project identity
+## A. Project identity and operating rules
 
-Clipensk — Open Source resident Windows clipboard-history manager.
+Clipensk — resident Windows clipboard-history manager.
 
-- repository: `lukindv77/Clipensk`;
+- repository / source of truth: `lukindv77/Clipensk`;
 - canonical branch: `main`;
 - Windows x64/AMD64 only; ARM64 вне scope;
 - C# / .NET 10 / WinUI 3 / Windows App SDK;
-- protected SQLite: SQLCipher, один MasterKey на storage.
+- protected SQLite uses SQLCipher; один MasterKey на storage;
+- `AGENTS.md`, `docs/CI_LOG_ACCESS.md` и `docs/WORKFLOW_NEW_CHAT_HANDOFF.md` обязательны;
+- promotion в `main` только fast-forward, `force=false`, без merge commit;
+- нельзя объявлять PASS/build/release/promotion без CI evidence на exact SHA;
+- при GitHub Actions failure сначала connector logs/artifacts, затем project-safe diagnostics; не угадывать причину failure;
+- временные feature triggers/diagnostic changes `.github/workflows/build.yml` перед promotion должны быть восстановлены byte-for-byte к fresh canonical workflow из текущего `main`.
 
-## B. Canonical baseline
+Пользователь ожидает автономное продолжение разработки без повторения уже завершённых этапов и без вопросов, если нет реального blocker.
 
-Последний exact PASS `main` перед активной Archive-фазой:
+## B. Last accepted product/storage baseline
 
-`58135deaa2ce57244d41e4cb5e9e72c8f2d80e59`
+Последний product/storage implementation baseline:
 
-На этом SHA уже завершены:
+`08d23672a75f85ca61c2ad62ae57395f2eadfdbc`
 
-- authoritative global policy change for Current;
-- atomic Current cleanup;
-- resumable pending-maintenance marker;
-- Current v7 policy-maintenance foundation.
+Commit:
 
-Official evidence на `58135dea…`:
+`ci: restore canonical build workflow after archive split marker`
 
-- Build #251 / run `34302777049` — SUCCESS;
-- Native SQLCipher #52 / run `34302777039` — SUCCESS;
-- canonical `.github/workflows/build.yml` blob SHA: `657f11356566b459dc46f1639b0d4ea7728083f2`.
+На этом exact SHA приняты:
 
-Fresh read перед handoff показывал, что `main` всё ещё равен `58135deaa2ce57244d41e4cb5e9e72c8f2d80e59`.
+- Current schema **v9**;
+- Storage Catalog schema **v3**;
+- Archive schema **v1**;
+- encryption version **1**;
+- durable Current v9 pending Archive Split marker + normalized segment plan;
+- `SqlitePendingArchiveSplitRepository`;
+- Current v8→v9 migration + fail-closed validation;
+- canonical Archive filename validation before marker write.
 
-## C. Active feature
+Docs-only handoff refresh может сделать текущий `main` более поздним descendant без product code changes. Новый чат обязан fresh прочитать фактический `main` и не считать `08d23672…` текущим branch head автоматически.
 
-Branch:
+Canonical workflow blobs на product baseline:
 
-`feat/policy-maintenance-archive-external-phase`
+- `.github/workflows/build.yml`: `6bb0e8b8eda657c082738a64a4ba80acd857daf4`;
+- `.github/workflows/sqlcipher-native.yml`: `e8968b283cc747aa3a9ba5f566538066b89f01be`.
 
-Base:
+## C. Exact acceptance evidence for Current v9 / pending split marker
 
-`58135deaa2ce57244d41e4cb5e9e72c8f2d80e59`
+### Feature evidence
 
-Последний implementation/CI head до этого handoff-doc commit:
+Final feature Build:
 
-`ae5f34aad60ea1163953e29ff619e8cdba8e42e6`
+- Build #407;
+- run `34709144738`;
+- job `103594583078`;
+- exact head `bf5f16c2db2725655d93cf97e63897e4bb20d35b`;
+- Restore / Build / Test / diagnostics: **SUCCESS**.
 
-Compare `58135dea…` → `ae5f34aa…` перед handoff:
+### Exact-main evidence
 
-- status: ahead;
-- ahead_by: 21;
-- behind_by: 0;
-- merge base: exact `58135dea…`;
-- intended code/test files:
-  - `src/Clipensk.Storage/Clipboard/GlobalPolicyMaintenanceState.cs`;
-  - `src/Clipensk.Storage/Clipboard/ProtectedArchiveExternalPolicyMaintenanceService.cs`;
-  - `tests/Clipensk.Storage.Tests/ProtectedArchiveExternalPolicyMaintenanceServiceTests.cs`;
-- `.github/workflows/build.yml` временно отличается для feature CI и обязан быть восстановлен byte-for-byte до promotion.
+Build:
 
-Этот handoff-doc commit добавляет только authoritative transition data; перед продолжением получить новый exact branch head из GitHub.
+- Build #408;
+- run `34709397765`;
+- job `103595248864`;
+- exact head `08d23672a75f85ca61c2ad62ae57395f2eadfdbc`;
+- full job: **SUCCESS**.
 
-## D. Archive external-reference cleanup contract
+Native SQLCipher:
 
-Текущая feature-фаза реализует только Archive cleanup для external payload references.
+- Native SQLCipher #73;
+- run `34709397774`;
+- job `103595248847`;
+- exact head `08d23672a75f85ca61c2ad62ae57395f2eadfdbc`;
+- full job: **SUCCESS**;
+- pinned SQLCipher x64 build: SUCCESS;
+- provenance: SUCCESS;
+- smoke host: SUCCESS;
+- encrypted-storage x64 verification: SUCCESS;
+- unpackaged runtime publish: SUCCESS;
+- published-runtime SQLCipher loading verification: SUCCESS;
+- evidence/runtime artifacts: SUCCESS.
 
-Semantics:
+Therefore Current v9 + pending Archive Split marker tranche is **CLOSED**. Не повторять его без новой evidence-driven причины.
 
-- обычные Archive DB payloads сохраняются;
-- удаляются только disallowed external references, где persisted `PayloadKind` = `PngImage` или `CustomBinary`;
-- persisted `PayloadKind` authoritative; inference по `FormatName` запрещён;
-- effective policy = global merged with application policy;
-- `SourceApplicationId == null` => global only;
-- payload допустим только если overall Capture == Allow И exact/BINARY `Formats[FormatName].Capture == Allow`;
-- MaxBytes reduction не является retroactive purge criterion;
-- event headers не удаляются при удалении последнего payload row;
-- marker меняет только `archiveExternalReferenceCleanup: pending -> completed`;
-- `catalogRebuild`, `externalTrashCollection`, `completion` остаются pending;
-- marker не очищается в этой фазе.
+## D. Relevant failure/diagnostic history — do not repeat
 
-## E. Durable maintenance state
+Build #403 on feature SHA `fd8f455e124c12095081ca41165b2aa9ec47f3fa` compiled successfully but Test failed.
 
-`GlobalPolicyMaintenanceState` / codec:
+Artifact evidence exposed exactly two causes:
 
-- version = 1;
-- `currentPhase` должен быть `completed`;
-- continuation fields только `pending|completed`;
-- monotonic ordering enforced;
-- strict JSON shape;
-- uppercase 64-char SHA256 policy fingerprint;
-- malformed durable state => fail closed.
+1. four new marker tests failed because `OpenValidatedCurrent` called `reader.GetInt32(3)` only after another `reader.Read()` had already moved past the single identity row;
+2. one older negative schema test still treated `PRAGMA user_version = 9` as invalid after Current v9 became the legitimate current version.
 
-Expected marker shape:
+Confirmed fixes:
 
-```json
-{
-  "version": 1,
-  "policyFingerprint": "<64-char uppercase SHA256>",
-  "currentPhase": "completed",
-  "archiveExternalReferenceCleanup": "pending|completed",
-  "catalogRebuild": "pending",
-  "externalTrashCollection": "pending",
-  "completion": "pending"
-}
-```
+- read `SchemaVersion` before row-exhaustion check;
+- move that negative test to invalid version 10.
 
-Operation kind remains:
+Later review also hardened marker start-time validation against noncanonical `ArchiveFileName` values that can be created directly through the record struct constructor; regression test proves rejection before DB open.
 
-`GlobalCapturePolicyMaintenance`
+Final feature Build #407 and exact-main Build #408 / Native #73 are green. Do not resurrect the Build #403 hypotheses or obsolete manual-schema test setup.
 
-## F. Production implementation
+## E. Archive Split slice 1 — completed contract
 
-`ProtectedArchiveExternalPolicyMaintenanceService`:
+Implemented files include:
 
-- holds shared `ProtectedStorageMutationLease` across Current state/policy read, full Archive preflight, Archive writes, and marker completion;
-- validates exact Current v7 identity/schema and pending global maintenance marker;
-- verifies persisted global policy fingerprint equals marker fingerprint;
-- loads application policies with canonical IDs and exact/BINARY format names;
-- enumerates canonical `archive_*.db` files;
-- preflights every archive before first mutation;
-- validates Archive v1 identity/schema/FK and payload representation;
-- detects duplicate archive `DatabaseId`;
-- validates external SHA/path/size;
-- collects deletion keys only during preflight;
-- revalidates archive identity before and after write;
-- verifies archive filename set is unchanged across preflight/writes;
-- commits each archive DB independently in an immediate RW transaction;
-- requires exactly one row deleted for every planned deletion;
-- retry after partial archive commits is idempotent;
-- cancellation after an archive commit may leave durable partial cleanup with marker pending;
-- final Current marker update is transactional;
-- no cancellation check after final marker commit, so durable success is not demoted by late cancellation;
-- if Archive phase already completed, returns idempotently without Archive writes.
+- `src/Clipensk.Storage/Databases/PendingArchiveSplitOperation.cs`;
+- `src/Clipensk.Storage/Databases/PendingArchiveSplitSqlSchema.cs`;
+- `src/Clipensk.Storage/Databases/SqlitePendingArchiveSplitRepository.cs`;
+- Current v9 support in `ProtectedStorageDatabaseService.cs`;
+- v9-aware Current maintenance validation;
+- `tests/Clipensk.Storage.Tests/ProtectedStorageCurrentSchemaV9MigrationTests.cs`;
+- `tests/Clipensk.Storage.Tests/SqlitePendingArchiveSplitRepositoryTests.cs`.
 
-Checkpoint enum used by deterministic tests:
+Durable operation phases:
 
-- `MutationLeaseAcquired`;
-- `PreflightCompleted`;
-- `ArchiveCommitCompleted`;
-- `BeforeMarkerCommit`;
-- `AfterMarkerCommit`.
+`Planned → ReadyToPublish → PhysicalPublished → CatalogPublished`
 
-## G. Tests present
+Repository invariants:
 
-`ProtectedArchiveExternalPolicyMaintenanceServiceTests.cs` covers:
+- one active operation per storage;
+- immutable ordered segment plan;
+- first result preserves source filename + source DatabaseId;
+- additional segments require new DatabaseIds and canonical family filenames;
+- exact contiguous source-coverage partition;
+- canonical filename and unique filename/DatabaseId validation;
+- operation ownership checks;
+- phase advances exactly one step;
+- marker clear only after `CatalogPublished`;
+- Current identity/schema v9 checked fail-closed;
+- write operations run under `ProtectedStorageMutationLease`.
 
-1. denied external refs removed while ordinary archive payloads/event headers remain;
-2. application override, null source, exact binary format names;
-3. MaxBytes reduction does not purge allowed external payload;
-4. malformed later archive fails preflight before any mutation;
-5. cancellation after first archive commit is resumable/idempotent;
-6. late cancellation after marker commit does not demote success;
-7. exact retry after completed Archive phase is idempotent;
-8. malformed marker fails closed before archive writes;
-9. missing global maintenance marker rejects before archive writes;
-10. shared mutation lease is held through archive observation/writes and marker commit preparation.
+This slice intentionally does **not** build shadow Archive DBs, publish files, rebuild Catalog, perform recovery orchestration or expose split UI.
 
-The lease test was normalized/formatted in commit:
+## F. Current durable docs
 
-`eb03b486aa0e398f6e4e46fd9a2769404b76a7de`
+During this checkpoint a docs-only refresh brought these documents in line with promoted code:
 
-## H. CI history relevant to debugging
+- `docs/CURRENT_DATABASE_SCHEMA.md` — Current v2-v9, migrations through v9, repository boundaries and exact v9 acceptance evidence;
+- `docs/ARCHIVE_SPLIT_PROTOCOL.md` — slice 1 marked DONE, planner NEXT, later slices NOT STARTED;
+- `docs/ARCHITECTURE.md` — Archive Split now uses copy-first / roll-forward crash-safe protocol instead of the old simplistic move/delete ordering;
+- `docs/HANDOFF_CURRENT.md` — this operational checkpoint.
 
-Earlier failures were CI/test-harness issues, not confirmed production logic failures:
+Always prefer fresh code + GitHub state over prose if they ever diverge again.
 
-- Build #252 / run `34316076202`: compile failure from xUnit `Assert.NotNull` assignment; fixed.
-- Build #253 / run `34322019878`: test deadlock because service reached blocking checkpoint synchronously before returning Task; fixed with async harness.
-- Build #254 / run `34322595227`: full Test failed; raw logs were opaque.
-- Diagnostic workflows were temporarily introduced to isolate failures.
-- Build #265 / run `34358892414`: failed in temporary CI formatting/normalization step before tests, so it is not evidence of a product/test failure.
+## G. Completed work not to reopen casually
 
-At handoff time clean validation was running on exact pre-handoff head:
+Besides the Archive Split marker foundation, previously promoted work already includes protected storage lifecycle, Current/Archive/Catalog validation and recovery, Current→Archive transfer, Archive and Current VACUUM/optimize maintenance, Catalog rebuild/replacement UI, global/application capture-policy maintenance/resume, external-payload catalog/trash handling, application discovered formats, journal/capture plumbing and the corresponding tests.
 
-- run `34361813378`;
-- job `102500430167`;
-- head `ae5f34aad60ea1163953e29ff619e8cdba8e42e6`;
-- x64 scope / Setup completed successfully;
-- Restore was in progress at last observation;
-- Build/Test result was not yet observed.
+Historical feature branches are not automatically active work. In particular:
 
-Do not infer PASS or FAIL. Re-read GitHub for the final result.
+`feat/archive-split-pending-marker`
 
-## I. Current temporary workflow state
+was fully promoted and matched product baseline `08d23672…` at checkpoint time.
 
-Feature `.github/workflows/build.yml` at `ae5f34aa…`:
+Manual production WinUI smoke/UX remains **UNVERIFIED** unless a later durable record or fresh evidence says otherwise; CI success is not a claim of manual desktop UX verification.
 
-- trigger: `branches: [ main, feat/policy-maintenance-archive-external-phase ]`;
-- permissions: `contents: read`;
-- no self-modifying/push steps;
-- normal x64 scope check / .NET setup / restore / build;
-- test step runs full solution with TRX failure diagnostics.
+## H. NEXT engineering slice — pure Archive Split planner
 
-Before promotion restore workflow byte-for-byte to canonical main version and prove blob SHA:
+No engineering feature branch is active after the docs refresh.
 
-`657f11356566b459dc46f1639b0d4ea7728083f2`
+Recommended next branch after fresh TOCTOU:
 
-## J. Resume procedure
+`feat/archive-split-planner`
 
-On a new chat:
+Scope only: deterministic split planning from already validated source metadata + a snapshot of occupied archive-family filenames/sequences. No DB mutation and no filesystem mutation.
 
-1. Read fresh GitHub branch heads for `main` and `feat/policy-maintenance-archive-external-phase`.
-2. Read final status/steps/logs for run `34361813378` if it still corresponds to the active pre-handoff implementation head.
-3. Do not repeat old diagnostic CI mutations.
-4. If clean feature Build/Test failed, extract the exact failed assertion/stack from TRX/logs and make the smallest code/test fix.
-5. If feature Build/Test succeeded:
-   - restore `.github/workflows/build.yml` byte-for-byte canonical;
-   - verify workflow blob `657f1135…`;
-   - fresh TOCTOU main/feature/compare;
-   - require behind=0 and merge-base=current main;
-   - require no unrelated files and no net workflow diff;
-   - fast-forward `main` with force=false to exact reviewed feature SHA.
-6. After promotion require BOTH official workflows on exact promoted main SHA:
-   - Build SUCCESS;
-   - Native SQLCipher SUCCESS.
-7. Verify final `main` exact SHA and canonical workflow.
+Planner responsibilities:
 
-## K. What remains after Archive phase
+1. validate that requested result ranges are at least two nonempty whole-day `JournalDateRange` values;
+2. require exact contiguous partition of source coverage, with no gaps/overlaps and no coverage outside source;
+3. preserve source canonical filename and source DatabaseId for segment 0;
+4. allocate new nonempty DatabaseIds for later segments;
+5. allocate new suffixes from the same `BaseNumber` after the maximum occupied family sequence, skipping/rejecting collisions according to the immutable plan contract;
+6. reject noncanonical/out-of-range archive names and any nested-name semantics;
+7. return stable ordered plan data suitable for `SqlitePendingArchiveSplitRepository.StartAsync`;
+8. remain pure and deterministic apart from an explicit injected/provided DatabaseId generation boundary if GUID generation is not supplied by the caller.
 
-Only after Archive external-reference cleanup is green and promoted:
+Expected tests:
 
-1. Catalog rebuild;
-2. external Trash collection;
-3. final completion / marker clear / resume coordinator;
-4. UI/settings wiring later.
+- happy-path two/multi-segment partition;
+- gap and overlap rejection;
+- ranges outside source rejection;
+- one-segment/empty split rejection;
+- source identity preservation;
+- existing sibling suffix allocation;
+- duplicate/collision behavior;
+- canonical six-digit base / four-digit positive split bounds and overflow behavior;
+- deterministic segment ordering and coverage;
+- no nested names.
 
-Do not expand Archive tranche into those phases.
+### Dependency-direction design check before coding
 
-## L. Promotion discipline
+`ArchiveFileName` is in `Clipensk.Core.Storage` and `JournalDateRange` is in `Clipensk.Core.History`, but `PendingArchiveSplitSegment` currently lives in `Clipensk.Storage.Databases`.
 
-Never claim PASS without exact SHA evidence.
+`Clipensk.Core` must not depend on `Clipensk.Storage`.
 
-Before main update:
+Therefore the new chat must first choose one of these clean designs after inspecting fresh code:
 
-- fresh main;
-- fresh feature;
-- compare commits;
-- `behind=0`;
-- merge-base exactly current main;
-- canonical workflow restored;
-- no unrelated diff.
+- pure planner in Core returning a Core plan DTO, adapted to `PendingArchiveSplitSegment` in Storage; or
+- pure planner implemented in Storage while depending only on Core value types and performing no I/O.
 
-Then fast-forward only, no force. Official acceptance is based on workflows that actually ran on the exact promoted main SHA.
+Do **not** make Core reference the Storage project merely to reuse `PendingArchiveSplitSegment`.
+
+Relevant starting files:
+
+- `src/Clipensk.Core/Storage/ArchiveFileName.cs`;
+- `src/Clipensk.Core/History/JournalDateRange.cs`;
+- `src/Clipensk.Core/Storage/StorageQueryPlanner.cs`;
+- `src/Clipensk.Core/Storage/ArchiveSegmentDescriptor.cs`;
+- `src/Clipensk.Storage/Databases/PendingArchiveSplitOperation.cs`;
+- `src/Clipensk.Storage/Databases/SqlitePendingArchiveSplitRepository.cs`;
+- `tests/Clipensk.Storage.Tests/SqlitePendingArchiveSplitRepositoryTests.cs`.
+
+Do not expand this slice into shadow DB construction or publication/recovery.
+
+## I. Later Archive Split slices — NOT STARTED
+
+After planner only:
+
+1. shadow Archive builder + exact source/output EventId/content cross-check;
+2. publication/recovery state machine with fault-injection at every durable/file boundary;
+3. Catalog rebuild integration + end-to-end storage tests;
+4. Maintenance UI for Archive selection, split boundaries, explicit confirmation, progress/error reporting.
+
+Protocol details are authoritative in `docs/ARCHIVE_SPLIT_PROTOCOL.md`.
+
+## J. GitHub mutable-state notes
+
+At checkpoint preparation there was one unrelated stale open PR:
+
+- PR #1, `docs: document GitHub Actions log access`;
+- historical head `docs/actions-log-access` / `dd500eee1ef76a5e0984f43a88700abf31a24122`;
+- the current `main` already contains the durable `docs/CI_LOG_ACCESS.md` policy and much later development.
+
+Treat PR #1 as stale historical GitHub state, **not active engineering work**. Re-check before changing/closing it; do not merge it into current main as a shortcut.
+
+Many old feature branches also remain. Branch existence does not imply unfinished work.
+
+## K. CI / promotion rules for the next slice
+
+Canonical Build normally triggers on `main`. Feature validation may temporarily add the feature branch trigger, but before promotion restore `.github/workflows/build.yml` byte-for-byte to the fresh canonical current-main file.
+
+Before every durable write:
+
+1. fresh branch head;
+2. fresh `AGENTS.md`;
+3. fresh relevant file/ref.
+
+Before promotion:
+
+1. fresh `main`;
+2. fresh feature ref;
+3. fresh compare;
+4. require `behind_by=0`;
+5. require merge base == exact current `main`;
+6. review net diff and ensure no temporary workflow/diagnostic changes remain;
+7. fast-forward `main` with `force=false`.
+
+After promotion, official acceptance is based only on workflows that actually ran on the exact promoted main SHA.
+
+Current Native SQLCipher path filter includes `src/Clipensk.Storage/**` and `src/Clipensk.Core/Storage/**`. Therefore planner placement may make Native mandatory even if the code is pure. Always fresh-read `.github/workflows/sqlcipher-native.yml` instead of assuming path-filter behavior from this handoff.
+
+## L. Exact resume point for the next chat
+
+On the first turn of the new chat:
+
+1. Fresh-read `main` SHA from GitHub. Mutable GitHub state wins over every SHA in this handoff.
+2. Read fresh:
+   - `AGENTS.md`;
+   - `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`;
+   - `docs/HANDOFF_CURRENT.md`;
+   - `docs/ARCHIVE_SPLIT_PROTOCOL.md`.
+3. Check workflow runs on the current `main`. If the docs-only handoff refresh Build is still running, check that exact run first; if it failed, diagnose logs/artifact before any feature work.
+4. Confirm Current v9 marker tranche remains accepted; do not rerun or redesign it without new evidence.
+5. Inspect fresh planner inputs/contracts listed in section H, especially the Core↔Storage dependency boundary.
+6. Create `feat/archive-split-planner` from exact current `main` only after fresh TOCTOU.
+7. Implement only the pure planner + focused tests.
+8. Run exact feature Build using the established temporary-trigger discipline if needed.
+9. Restore canonical workflow, fresh compare, fast-forward promote only after feature evidence.
+10. Determine exact-main Build/Native requirements from the final net diff and current workflow path filters, then require all applicable exact-SHA gates before closing the planner tranche.
+
+If a CI failure occurs at any point, follow `docs/CI_LOG_ACCESS.md`: obtain exact job logs/artifact evidence first and make only the smallest evidence-driven fix.
+
+## M. Recommended model for the next session
+
+Recommended: **GPT-5.6 Sol, High**.
+
+Reason: the next slice is small in code size but has nontrivial invariants around calendar partitioning, canonical filename allocation, Core/Storage dependency direction and later crash-safe compatibility. High reasoning is justified to keep the planner pure and prevent decisions that would complicate publication/recovery slices.
