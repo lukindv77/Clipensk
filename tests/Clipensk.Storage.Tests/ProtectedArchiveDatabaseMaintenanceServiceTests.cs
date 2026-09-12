@@ -35,20 +35,22 @@ public sealed class ProtectedArchiveDatabaseMaintenanceServiceTests
     }
 
     [Fact]
-    public async Task OptimizeAsync_ValidatesBeforeWriteAndPreservesIdentity()
+    public async Task OptimizeAsync_ValidatesExpectedCatalogSegmentAndPreservesIdentity()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
         var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
         var fileName = new ArchiveFileName(42, 3);
-        DatabaseIdentity created = await archiveService.CreateAsync(
-            fileName,
-            Range(2026, 8, 1, 2026, 8, 15));
+        JournalDateRange coverage = Range(2026, 8, 1, 2026, 8, 15);
+        DatabaseIdentity created = await archiveService.CreateAsync(fileName, coverage);
         environment.Factory.Modes.Clear();
 
         var service = new ProtectedArchiveDatabaseMaintenanceService(
             environment.Session,
             environment.Factory);
-        DatabaseIdentity maintained = await service.OptimizeAsync(fileName);
+        DatabaseIdentity maintained = await service.OptimizeAsync(
+            fileName,
+            created.DatabaseId,
+            coverage);
 
         Assert.Equal(created, maintained);
         Assert.Equal(
@@ -147,6 +149,25 @@ public sealed class ProtectedArchiveDatabaseMaintenanceServiceTests
             environment.Session,
             environment.Factory);
         await Assert.ThrowsAsync<InvalidDataException>(() => service.VacuumAsync(fileName));
+
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+    }
+
+    [Fact]
+    public async Task OptimizeAsync_CatalogIdentityMismatchNeverOpensReadWrite()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        var fileName = new ArchiveFileName(46, ArchiveFileName.NoSplit);
+        JournalDateRange coverage = Range(2026, 3, 1, 2026, 3, 31);
+        await archiveService.CreateAsync(fileName, coverage);
+        environment.Factory.Modes.Clear();
+
+        var service = new ProtectedArchiveDatabaseMaintenanceService(
+            environment.Session,
+            environment.Factory);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            service.OptimizeAsync(fileName, Guid.NewGuid(), coverage));
 
         Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
     }
