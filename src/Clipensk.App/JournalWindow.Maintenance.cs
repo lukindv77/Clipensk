@@ -20,6 +20,7 @@ public sealed partial class JournalWindow
         MaintenanceStartDate.Header = MaintenanceText("StartDate");
         MaintenanceEndDate.Header = MaintenanceText("EndDate");
         MaintenanceValidateCatalogButton.Content = MaintenanceText("ValidateCatalog");
+        MaintenanceRebuildCatalogButton.Content = MaintenanceText("RebuildCatalog");
         MaintenanceValidateButton.Content = MaintenanceText("Validate");
         MaintenanceTransferButton.Content = MaintenanceText("Transfer");
         MaintenanceReloadButton.Content = MaintenanceText("Reload");
@@ -182,6 +183,58 @@ public sealed partial class JournalWindow
             {
                 MaintenanceInfo.Severity = InfoBarSeverity.Error;
                 MaintenanceInfo.Message = MaintenanceText("CatalogValidationFailed");
+                MaintenanceInfo.IsOpen = true;
+            }
+        }
+        finally
+        {
+            if (IsCurrentMaintenanceOperation(session, generation))
+            {
+                SetMaintenanceBusy(false);
+            }
+        }
+    }
+
+    private async void OnMaintenanceRebuildCatalogClicked(object sender, RoutedEventArgs e)
+    {
+        ProtectedStorageSessionLease? session = _protectedStorageSession;
+        if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
+        {
+            ShowMaintenanceLocked();
+            return;
+        }
+
+        long generation = Interlocked.Increment(ref _maintenanceGeneration);
+        MaintenanceInfo.IsOpen = false;
+        SetMaintenanceBusy(true);
+        try
+        {
+            var service = new ProtectedArchiveSegmentCatalogMaintenanceService(session);
+            IReadOnlyList<ArchiveSegmentDescriptor> rebuilt =
+                await service.RebuildAsync(session.CancellationToken);
+
+            if (!IsCurrentMaintenanceOperation(session, generation))
+            {
+                return;
+            }
+
+            SetMaintenanceArchiveItems(rebuilt);
+            MaintenanceInfo.Severity = InfoBarSeverity.Success;
+            MaintenanceInfo.Message = string.Format(
+                CultureInfo.CurrentCulture,
+                MaintenanceText("CatalogRebuilt"),
+                rebuilt.Count);
+            MaintenanceInfo.IsOpen = true;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            if (IsCurrentMaintenanceOperation(session, generation))
+            {
+                MaintenanceInfo.Severity = InfoBarSeverity.Error;
+                MaintenanceInfo.Message = MaintenanceText("CatalogRebuildFailed");
                 MaintenanceInfo.IsOpen = true;
             }
         }
@@ -513,6 +566,7 @@ public sealed partial class JournalWindow
         MaintenanceProgress.IsActive = busy;
         MaintenanceProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         MaintenanceValidateCatalogButton.IsEnabled = !busy && protectedAccess;
+        MaintenanceRebuildCatalogButton.IsEnabled = !busy && protectedAccess;
         MaintenanceReloadButton.IsEnabled = !busy && protectedAccess;
         MaintenanceArchiveSelector.IsEnabled = !busy && protectedAccess && _maintenanceArchives.Count > 0;
         MaintenanceStartDate.IsEnabled = !busy && protectedAccess && archiveSelected;
