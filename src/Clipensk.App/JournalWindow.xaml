@@ -108,6 +108,46 @@
                             Visibility="Collapsed"
                             Click="OnJournalLoadMoreClicked" />
                 </StackPanel>
+
+                <StackPanel x:Name="MaintenanceContentPanel"
+                            Spacing="12"
+                            Visibility="Collapsed"
+                            MaxWidth="760"
+                            HorizontalAlignment="Left"
+                            Loaded="OnMaintenanceContentPanelLoaded">
+                    <TextBlock x:Name="MaintenanceBody" TextWrapping="Wrap" />
+                    <InfoBar x:Name="MaintenanceInfo"
+                             IsOpen="False"
+                             IsClosable="True" />
+                    <ProgressRing x:Name="MaintenanceProgress"
+                                  IsActive="False"
+                                  Visibility="Collapsed"
+                                  Width="28"
+                                  Height="28"
+                                  HorizontalAlignment="Left" />
+                    <StackPanel Spacing="6">
+                        <TextBlock x:Name="MaintenanceArchiveLabel"
+                                   Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <ComboBox x:Name="MaintenanceArchiveSelector"
+                                  Width="520"
+                                  HorizontalAlignment="Left"
+                                  DisplayMemberPath="DisplayText"
+                                  SelectionChanged="OnMaintenanceArchiveSelectionChanged" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <CalendarDatePicker x:Name="MaintenanceStartDate"
+                                            DateChanged="OnMaintenanceDateChanged" />
+                        <CalendarDatePicker x:Name="MaintenanceEndDate"
+                                            DateChanged="OnMaintenanceDateChanged" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="MaintenanceTransferButton"
+                                IsEnabled="False"
+                                Click="OnMaintenanceTransferClicked" />
+                        <Button x:Name="MaintenanceReloadButton"
+                                Click="OnMaintenanceReloadClicked" />
+                    </StackPanel>
+                </StackPanel>
             </StackPanel>
 
             <ScrollViewer x:Name="GlobalPolicyPanel" Visibility="Collapsed"
