@@ -144,6 +144,10 @@
                         <Button x:Name="MaintenanceValidateCatalogButton"
                                 IsEnabled="False"
                                 Click="OnMaintenanceValidateCatalogClicked" />
+                        <Button x:Name="MaintenanceRebuildCatalogButton"
+                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceValidateCatalogButton}"
+                                Loaded="OnMaintenanceRebuildCatalogButtonLoaded"
+                                Click="OnMaintenanceRebuildCatalogClicked" />
                         <Button x:Name="MaintenanceValidateButton"
                                 IsEnabled="False"
                                 Click="OnMaintenanceValidateClicked" />
