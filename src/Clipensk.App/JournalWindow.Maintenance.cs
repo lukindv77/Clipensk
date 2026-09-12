@@ -47,8 +47,8 @@ public sealed partial class JournalWindow
         NavigationView sender,
         NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.SelectedItemContainer?.Tag is not string tag ||
-            !string.Equals(tag, "maintenance", StringComparison.Ordinal))
+        string? tag = args.SelectedItemContainer?.Tag as string;
+        if (!string.Equals(tag, "maintenance", StringComparison.Ordinal))
         {
             Interlocked.Increment(ref _maintenanceGeneration);
             MaintenanceContentPanel.Visibility = Visibility.Collapsed;
