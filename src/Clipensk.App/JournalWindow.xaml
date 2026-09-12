@@ -151,6 +151,14 @@
                         <Button x:Name="MaintenanceValidateButton"
                                 IsEnabled="False"
                                 Click="OnMaintenanceValidateClicked" />
+                        <Button x:Name="MaintenanceVacuumButton"
+                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceValidateButton}"
+                                Loaded="OnMaintenanceVacuumButtonLoaded"
+                                Click="OnMaintenanceVacuumClicked" />
+                        <Button x:Name="MaintenanceOptimizeButton"
+                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceValidateButton}"
+                                Loaded="OnMaintenanceOptimizeButtonLoaded"
+                                Click="OnMaintenanceOptimizeClicked" />
                         <Button x:Name="MaintenanceTransferButton"
                                 IsEnabled="False"
                                 Click="OnMaintenanceTransferClicked" />
