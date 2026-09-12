@@ -19,6 +19,7 @@ public sealed partial class JournalWindow
         MaintenanceArchiveSelector.PlaceholderText = MaintenanceText("ArchivePlaceholder");
         MaintenanceStartDate.Header = MaintenanceText("StartDate");
         MaintenanceEndDate.Header = MaintenanceText("EndDate");
+        MaintenanceValidateCatalogButton.Content = MaintenanceText("ValidateCatalog");
         MaintenanceValidateButton.Content = MaintenanceText("Validate");
         MaintenanceTransferButton.Content = MaintenanceText("Transfer");
         MaintenanceReloadButton.Content = MaintenanceText("Reload");
@@ -138,6 +139,59 @@ public sealed partial class JournalWindow
         CalendarDatePickerDateChangedEventArgs args)
     {
         UpdateMaintenanceTransferAvailability();
+    }
+
+    private async void OnMaintenanceValidateCatalogClicked(object sender, RoutedEventArgs e)
+    {
+        ProtectedStorageSessionLease? session = _protectedStorageSession;
+        if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
+        {
+            ShowMaintenanceLocked();
+            return;
+        }
+
+        long generation = Interlocked.Increment(ref _maintenanceGeneration);
+        MaintenanceInfo.IsOpen = false;
+        SetMaintenanceBusy(true);
+        try
+        {
+            IReadOnlyList<ArchiveSegmentDescriptor> validated =
+                await new ProtectedArchiveSegmentCatalog(session)
+                    .ValidateConsistencyAsync(
+                        DateOnly.FromDateTime(DateTime.Now),
+                        session.CancellationToken);
+
+            if (!IsCurrentMaintenanceOperation(session, generation))
+            {
+                return;
+            }
+
+            MaintenanceInfo.Severity = InfoBarSeverity.Success;
+            MaintenanceInfo.Message = string.Format(
+                CultureInfo.CurrentCulture,
+                MaintenanceText("CatalogValidated"),
+                validated.Count);
+            MaintenanceInfo.IsOpen = true;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            if (IsCurrentMaintenanceOperation(session, generation))
+            {
+                MaintenanceInfo.Severity = InfoBarSeverity.Error;
+                MaintenanceInfo.Message = MaintenanceText("CatalogValidationFailed");
+                MaintenanceInfo.IsOpen = true;
+            }
+        }
+        finally
+        {
+            if (IsCurrentMaintenanceOperation(session, generation))
+            {
+                SetMaintenanceBusy(false);
+            }
+        }
     }
 
     private async void OnMaintenanceValidateClicked(object sender, RoutedEventArgs e)
@@ -458,6 +512,7 @@ public sealed partial class JournalWindow
 
         MaintenanceProgress.IsActive = busy;
         MaintenanceProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        MaintenanceValidateCatalogButton.IsEnabled = !busy && protectedAccess;
         MaintenanceReloadButton.IsEnabled = !busy && protectedAccess;
         MaintenanceArchiveSelector.IsEnabled = !busy && protectedAccess && _maintenanceArchives.Count > 0;
         MaintenanceStartDate.IsEnabled = !busy && protectedAccess && archiveSelected;
