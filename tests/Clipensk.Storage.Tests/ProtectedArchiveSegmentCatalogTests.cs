@@ -1,6 +1,7 @@
 using Clipensk.Core.History;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Databases;
+using Clipensk.Storage.Sqlite;
 using Xunit;
 
 namespace Clipensk.Storage.Tests;
@@ -33,6 +34,93 @@ public sealed class ProtectedArchiveSegmentCatalogTests
         Assert.Equal(later.DatabaseId, rebuilt[1].DatabaseId);
         Assert.Equal("archive_000002.db", rebuilt[1].FileName);
         Assert.True(rebuilt[1].IsSealed);
+    }
+
+    [Fact]
+    public async Task ValidateConsistencyAsync_MatchingProjectionUsesReadOnlyConnections()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        var catalog = new ProtectedArchiveSegmentCatalog(environment.Session, environment.Factory);
+        await archiveService.CreateAsync(
+            new ArchiveFileName(1, ArchiveFileName.NoSplit),
+            Range(2026, 8, 1, 2026, 8, 31));
+        IReadOnlyList<ArchiveSegmentDescriptor> rebuilt = await catalog.RebuildAsync(
+            new DateOnly(2026, 9, 7));
+        environment.Factory.Modes.Clear();
+
+        IReadOnlyList<ArchiveSegmentDescriptor> validated = await catalog.ValidateConsistencyAsync(
+            new DateOnly(2026, 9, 7));
+
+        Assert.Equal(rebuilt, validated);
+        Assert.Equal(
+            new[]
+            {
+                SqliteOpenMode.ReadOnly,
+                SqliteOpenMode.ReadOnly,
+                SqliteOpenMode.ReadOnly,
+            },
+            environment.Factory.Modes);
+    }
+
+    [Fact]
+    public async Task ValidateConsistencyAsync_NewPhysicalArchiveFailsWithoutMutatingCatalog()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        var catalog = new ProtectedArchiveSegmentCatalog(environment.Session, environment.Factory);
+        await archiveService.CreateAsync(
+            new ArchiveFileName(1, ArchiveFileName.NoSplit),
+            Range(2026, 7, 1, 2026, 7, 31));
+        await catalog.RebuildAsync(new DateOnly(2026, 9, 7));
+        await archiveService.CreateAsync(
+            new ArchiveFileName(2, ArchiveFileName.NoSplit),
+            Range(2026, 8, 1, 2026, 8, 31));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            catalog.ValidateConsistencyAsync(new DateOnly(2026, 9, 7)));
+
+        ArchiveSegmentDescriptor persisted = Assert.Single(await catalog.ReadAsync());
+        Assert.Equal("archive_000001.db", persisted.FileName);
+    }
+
+    [Fact]
+    public async Task ValidateConsistencyAsync_StaleSealingStateFailsWithoutMutatingCatalog()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var archiveService = new ProtectedArchiveDatabaseService(environment.Session, environment.Factory);
+        var catalog = new ProtectedArchiveSegmentCatalog(environment.Session, environment.Factory);
+        await archiveService.CreateAsync(
+            new ArchiveFileName(1, ArchiveFileName.NoSplit),
+            Range(2026, 9, 1, 2026, 9, 5));
+        IReadOnlyList<ArchiveSegmentDescriptor> rebuilt = await catalog.RebuildAsync(
+            new DateOnly(2026, 9, 10));
+        Assert.True(Assert.Single(rebuilt).IsSealed);
+
+        InsertCurrentEvent(environment, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "2026-09-03");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            catalog.ValidateConsistencyAsync(new DateOnly(2026, 9, 10)));
+
+        ArchiveSegmentDescriptor persisted = Assert.Single(await catalog.ReadAsync());
+        Assert.True(persisted.IsSealed);
+    }
+
+    [Fact]
+    public async Task ValidateConsistencyAsync_CallerCancellationBeforeWorkDoesNotOpenDatabase()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var catalog = new ProtectedArchiveSegmentCatalog(environment.Session, environment.Factory);
+        environment.Factory.Modes.Clear();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            catalog.ValidateConsistencyAsync(
+                new DateOnly(2026, 9, 7),
+                cancellation.Token));
+
+        Assert.Empty(environment.Factory.Modes);
     }
 
     [Fact]
