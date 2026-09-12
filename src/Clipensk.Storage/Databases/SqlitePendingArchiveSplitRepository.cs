@@ -385,12 +385,16 @@ public sealed class SqlitePendingArchiveSplitRepository
                     reader.GetInt64(0) != 1 ||
                     !Guid.TryParse(reader.GetString(1), out Guid storageId) ||
                     storageId != _session.StorageId ||
-                    !string.Equals(reader.GetString(2), DatabaseRole.Current.ToString(), StringComparison.Ordinal) ||
-                    reader.Read())
+                    !string.Equals(reader.GetString(2), DatabaseRole.Current.ToString(), StringComparison.Ordinal))
                 {
                     throw new InvalidDataException("Pending archive split requires the expected Current identity.");
                 }
+
                 version = reader.GetInt32(3);
+                if (reader.Read())
+                {
+                    throw new InvalidDataException("Pending archive split requires exactly one Current identity row.");
+                }
             }
 
             if (version < PendingArchiveSplitSqlSchema.MinimumCurrentSchemaVersion)
