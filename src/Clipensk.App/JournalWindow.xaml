@@ -141,6 +141,9 @@
                                             DateChanged="OnMaintenanceDateChanged" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="MaintenanceValidateButton"
+                                IsEnabled="False"
+                                Click="OnMaintenanceValidateClicked" />
                         <Button x:Name="MaintenanceTransferButton"
                                 IsEnabled="False"
                                 Click="OnMaintenanceTransferClicked" />
