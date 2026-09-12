@@ -19,6 +19,7 @@ public sealed partial class JournalWindow
         MaintenanceArchiveSelector.PlaceholderText = MaintenanceText("ArchivePlaceholder");
         MaintenanceStartDate.Header = MaintenanceText("StartDate");
         MaintenanceEndDate.Header = MaintenanceText("EndDate");
+        MaintenanceValidateButton.Content = MaintenanceText("Validate");
         MaintenanceTransferButton.Content = MaintenanceText("Transfer");
         MaintenanceReloadButton.Content = MaintenanceText("Reload");
 
@@ -137,6 +138,69 @@ public sealed partial class JournalWindow
         CalendarDatePickerDateChangedEventArgs args)
     {
         UpdateMaintenanceTransferAvailability();
+    }
+
+    private async void OnMaintenanceValidateClicked(object sender, RoutedEventArgs e)
+    {
+        if (MaintenanceArchiveSelector.SelectedItem is not MaintenanceArchiveListItem selectedArchive)
+        {
+            return;
+        }
+
+        ProtectedStorageSessionLease? session = _protectedStorageSession;
+        if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
+        {
+            ShowMaintenanceLocked();
+            return;
+        }
+
+        long generation = Interlocked.Increment(ref _maintenanceGeneration);
+        MaintenanceInfo.IsOpen = false;
+        SetMaintenanceBusy(true);
+        try
+        {
+            DatabaseIdentity identity = await new ProtectedArchiveDatabaseService(session)
+                .ValidateAsync(selectedArchive.FileName, session.CancellationToken);
+
+            if (!IsCurrentMaintenanceOperation(session, generation))
+            {
+                return;
+            }
+
+            if (identity.DatabaseId != selectedArchive.DatabaseId ||
+                identity.CoverageStartDate != selectedArchive.Coverage.StartDate ||
+                identity.CoverageEndDate != selectedArchive.Coverage.EndDate)
+            {
+                throw new InvalidDataException(
+                    "Archive DatabaseIdentity does not match the storage catalog entry.");
+            }
+
+            MaintenanceInfo.Severity = InfoBarSeverity.Success;
+            MaintenanceInfo.Message = string.Format(
+                CultureInfo.CurrentCulture,
+                MaintenanceText("Validated"),
+                selectedArchive.FileName.FileName);
+            MaintenanceInfo.IsOpen = true;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            if (IsCurrentMaintenanceOperation(session, generation))
+            {
+                MaintenanceInfo.Severity = InfoBarSeverity.Error;
+                MaintenanceInfo.Message = MaintenanceText("ValidationFailed");
+                MaintenanceInfo.IsOpen = true;
+            }
+        }
+        finally
+        {
+            if (IsCurrentMaintenanceOperation(session, generation))
+            {
+                SetMaintenanceBusy(false);
+            }
+        }
     }
 
     private async void OnMaintenanceTransferClicked(object sender, RoutedEventArgs e)
@@ -315,7 +379,11 @@ public sealed partial class JournalWindow
             descriptor.FileName,
             descriptor.Coverage.StartDate,
             descriptor.Coverage.EndDate);
-        return new MaintenanceArchiveListItem(fileName, descriptor.Coverage, displayText);
+        return new MaintenanceArchiveListItem(
+            descriptor.DatabaseId,
+            fileName,
+            descriptor.Coverage,
+            displayText);
     }
 
     private bool TryGetMaintenanceTransfer(
@@ -399,11 +467,18 @@ public sealed partial class JournalWindow
 
     private void UpdateMaintenanceTransferAvailability(bool busy = false)
     {
+        bool protectedAccess = _lifecycle.CanAccessProtectedData &&
+            _protectedStorageSession?.IsActive == true;
+        bool archiveSelected = MaintenanceArchiveSelector.SelectedItem is MaintenanceArchiveListItem;
+
+        MaintenanceValidateButton.IsEnabled =
+            !busy &&
+            protectedAccess &&
+            archiveSelected;
         MaintenanceTransferButton.IsEnabled =
             !busy &&
-            _lifecycle.CanAccessProtectedData &&
-            _protectedStorageSession?.IsActive == true &&
-            MaintenanceArchiveSelector.SelectedItem is MaintenanceArchiveListItem &&
+            protectedAccess &&
+            archiveSelected &&
             MaintenanceStartDate.Date is not null &&
             MaintenanceEndDate.Date is not null;
     }
@@ -418,6 +493,7 @@ public sealed partial class JournalWindow
     }
 
     private sealed record MaintenanceArchiveListItem(
+        Guid DatabaseId,
         ArchiveFileName FileName,
         JournalDateRange Coverage,
         string DisplayText);
