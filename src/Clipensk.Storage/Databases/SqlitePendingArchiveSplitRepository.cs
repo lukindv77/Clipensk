@@ -431,7 +431,7 @@ public sealed class SqlitePendingArchiveSplitRepository
         IReadOnlyList<PendingArchiveSplitSegment> segments)
     {
         ArgumentNullException.ThrowIfNull(segments);
-        if (sourceFileName.BaseNumber <= 0 || sourceDatabaseId == Guid.Empty)
+        if (!IsCanonicalArchiveFileName(sourceFileName) || sourceDatabaseId == Guid.Empty)
         {
             throw new ArgumentException("Archive split source identity is invalid.");
         }
@@ -447,6 +447,7 @@ public sealed class SqlitePendingArchiveSplitRepository
         {
             PendingArchiveSplitSegment segment = segments[index];
             if (segment.SegmentOrder != index ||
+                !IsCanonicalArchiveFileName(segment.FileName) ||
                 segment.FileName.BaseNumber != sourceFileName.BaseNumber ||
                 segment.DatabaseId == Guid.Empty ||
                 segment.Coverage.StartDate != expectedStart ||
@@ -477,6 +478,11 @@ public sealed class SqlitePendingArchiveSplitRepository
             throw new ArgumentException("Archive split plan must exactly partition source coverage.", nameof(segments));
         }
     }
+
+    private static bool IsCanonicalArchiveFileName(ArchiveFileName fileName) =>
+        ArchiveFileName.TryParse(fileName.FileName, out ArchiveFileName parsed) &&
+        parsed == fileName &&
+        string.Equals(parsed.FileName, fileName.FileName, StringComparison.Ordinal);
 
     private static void ValidatePersistedPlan(
         ArchiveFileName sourceFileName,
