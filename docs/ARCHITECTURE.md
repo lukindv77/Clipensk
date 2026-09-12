@@ -328,15 +328,24 @@ Current=no   Archive=no
 
 ## 14. Разделение архива
 
-Операция `SplitArchive`:
+`SplitArchive` использует crash-safe **copy-first, roll-forward** protocol из `ARCHIVE_SPLIT_PROTOCOL.md`.
 
-1. получает исходный архив и календарные точки разделения;
-2. создаёт новые архивные файлы с суффиксами;
-3. переносит данные целыми календарными днями;
-4. проверяет новые сегменты;
-5. проверяет отсутствие пересечения;
-6. актуализирует catalog;
-7. только после подтверждения удаляет перенесённые данные из исходного сегмента.
+Ключевой durable contract:
+
+1. до первого Archive write полностью валидируются source identity/coverage и физический Archive set;
+2. ranges образуют точное непрерывное partition исходной coverage по целым `CalendarDate`;
+3. immutable split plan фиксирует canonical filenames и DatabaseId каждого будущего сегмента;
+4. plan и phase сохраняются в Current v9 через `PendingArchiveSplit` / `PendingArchiveSplitSegment`;
+5. полный будущий shadow set сначала строится и cross-check-ится в operation-specific staging;
+6. дополнительные сегменты публикуются без overwrite, пока исходный файл всё ещё содержит полную durable копию;
+7. исходное canonical имя заменяется только после проверки дополнительных outputs, а старые source bytes сохраняются как backup;
+8. весь физический Archive set повторно валидируется до изменения Catalog;
+9. `storage-catalog.db` rebuild/validation выполняется **после** подтверждённой physical publication;
+10. после начала publication recovery идёт roll-forward по immutable marker plan; поздняя cancellation не выдаётся за rollback.
+
+Durable phases: `Planned → ReadyToPublish → PhysicalPublished → CatalogPublished`. Marker удаляется только после финальной physical/catalog validation и cleanup backup/staging.
+
+Current v9 + marker repository уже реализованы и приняты exact-main Build/Native evidence. Следующий implementation slice — pure split planner; shadow builder, publication/recovery orchestration, Catalog integration и Maintenance UI пока не реализованы.
 
 ## 15. History Query Planning
 
@@ -479,8 +488,6 @@ capture services и history sink с Core delivery factory и одной protecte
 Это не автоматический app-level запуск: extension provider и worker lifecycle остаются
 явными зависимостями. Контракт: `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`.
 
-
-
 ## 21. Очистка после изменения политики
 
 Для текстовых DB payload:
@@ -595,4 +602,3 @@ Journal Shell
 5. только после успешной регистрации считать новое значение действующим.
 
 Конкретная комбинация по умолчанию пока не зафиксирована.
-
