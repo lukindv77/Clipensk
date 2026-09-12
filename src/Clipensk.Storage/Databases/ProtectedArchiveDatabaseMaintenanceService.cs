@@ -1,3 +1,4 @@
+using Clipensk.Core.History;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -24,16 +25,47 @@ public sealed class ProtectedArchiveDatabaseMaintenanceService
     public Task<DatabaseIdentity> VacuumAsync(
         ArchiveFileName archiveFileName,
         CancellationToken cancellationToken = default) =>
-        MaintainAsync(archiveFileName, "VACUUM;", cancellationToken);
+        MaintainAsync(
+            archiveFileName,
+            "VACUUM;",
+            expectedSegment: null,
+            cancellationToken);
+
+    public Task<DatabaseIdentity> VacuumAsync(
+        ArchiveFileName archiveFileName,
+        Guid expectedDatabaseId,
+        JournalDateRange expectedCoverage,
+        CancellationToken cancellationToken = default) =>
+        MaintainAsync(
+            archiveFileName,
+            "VACUUM;",
+            CreateExpectedSegment(expectedDatabaseId, expectedCoverage),
+            cancellationToken);
 
     public Task<DatabaseIdentity> OptimizeAsync(
         ArchiveFileName archiveFileName,
         CancellationToken cancellationToken = default) =>
-        MaintainAsync(archiveFileName, "PRAGMA optimize;", cancellationToken);
+        MaintainAsync(
+            archiveFileName,
+            "PRAGMA optimize;",
+            expectedSegment: null,
+            cancellationToken);
+
+    public Task<DatabaseIdentity> OptimizeAsync(
+        ArchiveFileName archiveFileName,
+        Guid expectedDatabaseId,
+        JournalDateRange expectedCoverage,
+        CancellationToken cancellationToken = default) =>
+        MaintainAsync(
+            archiveFileName,
+            "PRAGMA optimize;",
+            CreateExpectedSegment(expectedDatabaseId, expectedCoverage),
+            cancellationToken);
 
     private async Task<DatabaseIdentity> MaintainAsync(
         ArchiveFileName archiveFileName,
         string commandText,
+        ExpectedArchiveSegment? expectedSegment,
         CancellationToken cancellationToken)
     {
         using ProtectedStorageMutationLease mutationLease =
@@ -46,6 +78,7 @@ public sealed class ProtectedArchiveDatabaseMaintenanceService
         DatabaseIdentity identity = await archiveService
             .ValidateAsync(archiveFileName, cancellationToken)
             .ConfigureAwait(false);
+        ValidateExpectedSegment(identity, expectedSegment);
 
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
             _session.CancellationToken,
@@ -96,4 +129,40 @@ public sealed class ProtectedArchiveDatabaseMaintenanceService
                 "Archive SQLite quick_check failed after physical maintenance.");
         }
     }
+
+    private static ExpectedArchiveSegment CreateExpectedSegment(
+        Guid expectedDatabaseId,
+        JournalDateRange expectedCoverage)
+    {
+        if (expectedDatabaseId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Expected Archive DatabaseId cannot be empty.",
+                nameof(expectedDatabaseId));
+        }
+
+        return new ExpectedArchiveSegment(expectedDatabaseId, expectedCoverage);
+    }
+
+    private static void ValidateExpectedSegment(
+        DatabaseIdentity identity,
+        ExpectedArchiveSegment? expectedSegment)
+    {
+        if (expectedSegment is not { } expected)
+        {
+            return;
+        }
+
+        if (identity.DatabaseId != expected.DatabaseId ||
+            identity.CoverageStartDate != expected.Coverage.StartDate ||
+            identity.CoverageEndDate != expected.Coverage.EndDate)
+        {
+            throw new InvalidDataException(
+                "Archive DatabaseIdentity does not match the expected storage catalog segment.");
+        }
+    }
+
+    private readonly record struct ExpectedArchiveSegment(
+        Guid DatabaseId,
+        JournalDateRange Coverage);
 }
