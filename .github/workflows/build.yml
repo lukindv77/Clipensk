@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/manual-archive-transfer ]
   workflow_dispatch:
 
 permissions:
