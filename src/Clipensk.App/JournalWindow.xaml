@@ -140,18 +140,26 @@
                         <CalendarDatePicker x:Name="MaintenanceEndDate"
                                             DateChanged="OnMaintenanceDateChanged" />
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button x:Name="MaintenanceValidateCatalogButton"
-                                IsEnabled="False"
-                                Click="OnMaintenanceValidateCatalogClicked" />
-                        <Button x:Name="MaintenanceValidateButton"
-                                IsEnabled="False"
-                                Click="OnMaintenanceValidateClicked" />
-                        <Button x:Name="MaintenanceTransferButton"
-                                IsEnabled="False"
-                                Click="OnMaintenanceTransferClicked" />
-                        <Button x:Name="MaintenanceReloadButton"
-                                Click="OnMaintenanceReloadClicked" />
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="MaintenanceValidateCatalogButton"
+                                    IsEnabled="False"
+                                    Click="OnMaintenanceValidateCatalogClicked" />
+                            <Button x:Name="MaintenanceRebuildCatalogButton"
+                                    IsEnabled="{Binding IsEnabled, ElementName=MaintenanceReloadButton}"
+                                    Loaded="OnMaintenanceRebuildCatalogButtonLoaded"
+                                    Click="OnMaintenanceRebuildCatalogClicked" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="MaintenanceValidateButton"
+                                    IsEnabled="False"
+                                    Click="OnMaintenanceValidateClicked" />
+                            <Button x:Name="MaintenanceTransferButton"
+                                    IsEnabled="False"
+                                    Click="OnMaintenanceTransferClicked" />
+                            <Button x:Name="MaintenanceReloadButton"
+                                    Click="OnMaintenanceReloadClicked" />
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </StackPanel>
