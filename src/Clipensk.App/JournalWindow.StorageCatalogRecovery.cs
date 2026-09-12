@@ -36,6 +36,7 @@ public sealed partial class JournalWindow
 
         MasterKeyLease? acquiredKey = null;
         UnlockButton.IsEnabled = false;
+        StorageCatalogRecoveryButton.IsEnabled = false;
         LockInfo.IsOpen = false;
 
         try
@@ -122,6 +123,7 @@ public sealed partial class JournalWindow
             PasswordConfirmationEntry.Password = string.Empty;
             password = string.Empty;
             UnlockButton.IsEnabled = _credentialState != ProtectedStorageCredentialState.Invalid;
+            StorageCatalogRecoveryButton.IsEnabled = _credentialState == ProtectedStorageCredentialState.Ready;
             RefreshStorageCatalogRecoveryButton();
         }
     }
