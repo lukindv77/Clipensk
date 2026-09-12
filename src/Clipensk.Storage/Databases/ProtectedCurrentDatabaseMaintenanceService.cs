@@ -211,6 +211,7 @@ public sealed class ProtectedCurrentDatabaseMaintenanceService
             CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
             PendingPolicyMaintenanceSqlSchema.ValidateTable(connection);
             ApplicationDiscoveredFormatSqlSchema.ValidateTable(connection);
+            PendingArchiveSplitSqlSchema.ValidateTables(connection);
         }
         else if (expectedRole == DatabaseRole.StorageCatalog)
         {
