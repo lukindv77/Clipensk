@@ -12,12 +12,13 @@ public sealed class ProtectedStorageCurrentSchemaV9MigrationTests
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
         environment.DowngradeToV8();
         environment.Execute("""
-            INSERT INTO ApplicationDiscoveredFormat (
-                ApplicationId, FormatId, FormatName, FirstSeenAtUtc, LastSeenAtUtc)
+            INSERT INTO PendingPolicyMaintenance (
+                SingletonId, OperationId, OperationKind, StateJson, CreatedAtUtc, UpdatedAtUtc)
             VALUES (
+                1,
                 '11111111-1111-1111-1111-111111111111',
-                70001,
-                'ExistingFormat',
+                'ExistingMaintenance',
+                '{}',
                 '2026-01-01T00:00:00.0000000+00:00',
                 '2026-01-01T00:00:00.0000000+00:00');
             """);
@@ -27,7 +28,7 @@ public sealed class ProtectedStorageCurrentSchemaV9MigrationTests
             ProtectedStorageDatabaseService.CurrentSchemaVersion,
             environment.Scalar("PRAGMA user_version;"));
         Assert.Equal(1, environment.Scalar(
-            "SELECT COUNT(*) FROM ApplicationDiscoveredFormat WHERE FormatName = 'ExistingFormat';"));
+            "SELECT COUNT(*) FROM PendingPolicyMaintenance WHERE OperationKind = 'ExistingMaintenance';"));
         Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM PendingArchiveSplit;"));
         Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM PendingArchiveSplitSegment;"));
     }
