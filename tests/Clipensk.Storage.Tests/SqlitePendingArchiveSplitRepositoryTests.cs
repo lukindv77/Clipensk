@@ -11,7 +11,6 @@ public sealed class SqlitePendingArchiveSplitRepositoryTests
     public async Task StartAdvanceAndClear_PreservesImmutablePlan()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
-        UpgradeTestCurrentToV9(environment);
 
         var source = new ArchiveFileName(25, ArchiveFileName.NoSplit);
         Guid sourceId = Guid.NewGuid();
@@ -64,7 +63,6 @@ public sealed class SqlitePendingArchiveSplitRepositoryTests
     public async Task AdvancePhase_RejectsSkippedOrStaleTransition()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
-        UpgradeTestCurrentToV9(environment);
         var repository = new SqlitePendingArchiveSplitRepository(environment.Session, environment.Factory);
         PendingArchiveSplitOperation started = await StartTwoSegmentOperation(repository);
 
@@ -90,7 +88,6 @@ public sealed class SqlitePendingArchiveSplitRepositoryTests
     public async Task ClearCompleted_RejectsNonFinalPhase()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
-        UpgradeTestCurrentToV9(environment);
         var repository = new SqlitePendingArchiveSplitRepository(environment.Session, environment.Factory);
         PendingArchiveSplitOperation started = await StartTwoSegmentOperation(repository);
 
@@ -103,7 +100,6 @@ public sealed class SqlitePendingArchiveSplitRepositoryTests
     public async Task StartAsync_RejectsGapAndDoesNotPersistMarker()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
-        UpgradeTestCurrentToV9(environment);
         var repository = new SqlitePendingArchiveSplitRepository(environment.Session, environment.Factory);
         var source = new ArchiveFileName(31, ArchiveFileName.NoSplit);
         Guid sourceId = Guid.NewGuid();
@@ -135,36 +131,6 @@ public sealed class SqlitePendingArchiveSplitRepositoryTests
                 new(0, source, sourceId, Range(2026, 3, 1, 2026, 3, 15)),
                 new(1, source.NextSplit(1), Guid.NewGuid(), Range(2026, 3, 16, 2026, 3, 31)),
             ]);
-    }
-
-    private static void UpgradeTestCurrentToV9(GlobalPolicyTestEnvironment environment)
-    {
-        environment.Execute("""
-            CREATE TABLE PendingArchiveSplit (
-                SingletonId INTEGER NOT NULL PRIMARY KEY CHECK (SingletonId = 1),
-                OperationId TEXT NOT NULL UNIQUE CHECK (length(OperationId) > 0),
-                SourceFileName TEXT NOT NULL CHECK (length(SourceFileName) > 0),
-                SourceDatabaseId TEXT NOT NULL CHECK (length(SourceDatabaseId) > 0),
-                SourceCoverageStartDate TEXT NOT NULL CHECK (length(SourceCoverageStartDate) > 0),
-                SourceCoverageEndDate TEXT NOT NULL CHECK (length(SourceCoverageEndDate) > 0),
-                Phase INTEGER NOT NULL CHECK (Phase >= 0 AND Phase <= 3),
-                CreatedAtUtc TEXT NOT NULL CHECK (length(CreatedAtUtc) > 0)
-            );
-            CREATE TABLE PendingArchiveSplitSegment (
-                OperationId TEXT NOT NULL,
-                SegmentOrder INTEGER NOT NULL CHECK (SegmentOrder >= 0),
-                FileName TEXT NOT NULL CHECK (length(FileName) > 0),
-                DatabaseId TEXT NOT NULL CHECK (length(DatabaseId) > 0),
-                CoverageStartDate TEXT NOT NULL CHECK (length(CoverageStartDate) > 0),
-                CoverageEndDate TEXT NOT NULL CHECK (length(CoverageEndDate) > 0),
-                PRIMARY KEY (OperationId, SegmentOrder),
-                UNIQUE (OperationId, FileName),
-                UNIQUE (OperationId, DatabaseId),
-                FOREIGN KEY (OperationId) REFERENCES PendingArchiveSplit(OperationId) ON DELETE CASCADE
-            );
-            UPDATE DatabaseIdentity SET SchemaVersion = 9 WHERE DatabaseRole = 'Current';
-            PRAGMA user_version = 9;
-            """);
     }
 
     private static JournalDateRange Range(
