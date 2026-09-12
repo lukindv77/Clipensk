@@ -118,6 +118,28 @@ public sealed class SqlitePendingArchiveSplitRepositoryTests
         Assert.Null(await repository.ReadAsync());
     }
 
+    [Fact]
+    public async Task StartAsync_RejectsNoncanonicalArchiveFileNameBeforeOpening()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        var repository = new SqlitePendingArchiveSplitRepository(environment.Session, environment.Factory);
+        var source = new ArchiveFileName(1_000_000, ArchiveFileName.NoSplit);
+        Guid sourceId = Guid.NewGuid();
+        environment.Factory.Modes.Clear();
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await repository.StartAsync(
+                source,
+                sourceId,
+                Range(2026, 4, 1, 2026, 4, 30),
+                [
+                    new(0, source, sourceId, Range(2026, 4, 1, 2026, 4, 15)),
+                    new(1, source.NextSplit(1), Guid.NewGuid(), Range(2026, 4, 16, 2026, 4, 30)),
+                ]));
+
+        Assert.Empty(environment.Factory.Modes);
+    }
+
     private static async Task<PendingArchiveSplitOperation> StartTwoSegmentOperation(
         SqlitePendingArchiveSplitRepository repository)
     {
