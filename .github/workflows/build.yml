@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/archive-physical-maintenance-ui ]
   workflow_dispatch:
 
 permissions:
