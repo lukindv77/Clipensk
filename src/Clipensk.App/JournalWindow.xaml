@@ -131,6 +131,16 @@
                                   Width="28"
                                   Height="28"
                                   HorizontalAlignment="Left" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="MaintenanceCurrentVacuumButton"
+                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceValidateCatalogButton}"
+                                Loaded="OnMaintenanceCurrentVacuumButtonLoaded"
+                                Click="OnMaintenanceCurrentVacuumClicked" />
+                        <Button x:Name="MaintenanceCurrentOptimizeButton"
+                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceValidateCatalogButton}"
+                                Loaded="OnMaintenanceCurrentOptimizeButtonLoaded"
+                                Click="OnMaintenanceCurrentOptimizeClicked" />
+                    </StackPanel>
                     <StackPanel Spacing="6">
                         <TextBlock x:Name="MaintenanceArchiveLabel"
                                    Style="{StaticResource SubtitleTextBlockStyle}" />
