@@ -75,6 +75,8 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     }
 
     public void DowngradeToV4() => Execute("""
+        DROP TABLE PendingArchiveSplitSegment;
+        DROP TABLE PendingArchiveSplit;
         DROP TABLE ApplicationDiscoveredFormat;
         DROP TABLE PendingPolicyMaintenance;
         DROP TABLE CustomBinaryFormatConfiguration;
@@ -85,6 +87,8 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV5() => Execute("""
+        DROP TABLE PendingArchiveSplitSegment;
+        DROP TABLE PendingArchiveSplit;
         DROP TABLE ApplicationDiscoveredFormat;
         DROP TABLE PendingPolicyMaintenance;
         DROP TABLE CustomBinaryFormatConfiguration;
@@ -93,6 +97,8 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV6() => Execute("""
+        DROP TABLE PendingArchiveSplitSegment;
+        DROP TABLE PendingArchiveSplit;
         DROP TABLE ApplicationDiscoveredFormat;
         DROP TABLE PendingPolicyMaintenance;
         UPDATE DatabaseIdentity SET SchemaVersion = 6;
@@ -100,9 +106,18 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV7() => Execute("""
+        DROP TABLE PendingArchiveSplitSegment;
+        DROP TABLE PendingArchiveSplit;
         DROP TABLE ApplicationDiscoveredFormat;
         UPDATE DatabaseIdentity SET SchemaVersion = 7;
         PRAGMA user_version = 7;
+        """);
+
+    public void DowngradeToV8() => Execute("""
+        DROP TABLE PendingArchiveSplitSegment;
+        DROP TABLE PendingArchiveSplit;
+        UPDATE DatabaseIdentity SET SchemaVersion = 8;
+        PRAGMA user_version = 8;
         """);
 
     public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>
