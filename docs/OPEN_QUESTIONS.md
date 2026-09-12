@@ -79,8 +79,14 @@
 Источник global policy и отсутствие автоматического default зафиксированы в
 `GLOBAL_CAPTURE_POLICY.md`: защищённый Current, storage scope, явная первичная настройка.
 Current v6, repository, JournalWindow setup UI, app-level policy loading, custom-binary extension
-repository/provider, protected composition и worker lifecycle реализованы. **Policy cleanup для
-последующего изменения ещё не реализован.** Last-reference physical cleanup foundation уже реализован отдельно: `ProtectedExternalPayloadTrashCollector` выводит live-set из Current+Archive через authoritative Catalog rebuild и переносит только verified history-unreferenced canonical external objects `Files -> Trash`. Это не заменяет multi-DB policy cleanup.
+repository/provider, protected composition, worker lifecycle и cleanup при последующем изменении
+policy уже реализованы. Global и per-application change path останавливает capture runtime,
+атомарно публикует новую policy вместе с Current cleanup и durable pending-maintenance marker,
+после чего resumable continuation последовательно выполняет Archive cleanup, Catalog maintenance,
+external-payload Trash collection и marker completion; capture runtime возобновляется только после
+успешного завершения continuation. Отдельный `ProtectedExternalPayloadTrashCollector` остаётся
+last-reference physical cleanup foundation и переносит только verified history-unreferenced canonical
+external objects `Files -> Trash` после authoritative Current+Archive live-set reconstruction.
 
 Нужно утвердить конкретные defaults:
 
