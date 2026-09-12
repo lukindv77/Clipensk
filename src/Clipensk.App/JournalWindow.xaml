@@ -57,6 +57,12 @@
                 </StackPanel>
 
                 <Button x:Name="UnlockButton" HorizontalAlignment="Left" Click="OnUnlockClicked" />
+                <Button x:Name="StorageCatalogRecoveryButton"
+                        HorizontalAlignment="Left"
+                        Visibility="Collapsed"
+                        IsEnabled="{Binding IsEnabled, ElementName=UnlockButton}"
+                        Loaded="OnStorageCatalogRecoveryButtonLoaded"
+                        Click="OnStorageCatalogRecoveryClicked" />
                 <InfoBar x:Name="LockInfo" IsOpen="False" IsClosable="True" />
             </StackPanel>
 
