@@ -197,7 +197,18 @@ public sealed class ProtectedArchiveSplitPublisherTests
             await publisher.PublishOrRecoverAsync(fixture.Operation.OperationId);
 
         Assert.Equal(ArchiveSplitPhase.PhysicalPublished, first.Phase);
-        Assert.Equal(first, second);
+        Assert.Equal(first.OperationId, second.OperationId);
+        Assert.Equal(first.SourceFileName, second.SourceFileName);
+        Assert.Equal(first.SourceDatabaseId, second.SourceDatabaseId);
+        Assert.Equal(first.SourceCoverage, second.SourceCoverage);
+        Assert.Equal(first.Phase, second.Phase);
+        Assert.Equal(first.CreatedAtUtc, second.CreatedAtUtc);
+        Assert.Equal(first.Segments.Count, second.Segments.Count);
+        for (int index = 0; index < first.Segments.Count; index++)
+        {
+            Assert.Equal(first.Segments[index], second.Segments[index]);
+        }
+
         Assert.True(File.Exists(
             publisher.GetBackupPath(fixture.Operation.OperationId)));
     }
