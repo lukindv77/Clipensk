@@ -51,6 +51,36 @@ jobs:
       - name: Restore
         run: dotnet restore Clipensk.slnx
 
+      # Temporary project-level diagnostics. Step status is intentionally enough to
+      # localize a failure when GitHub connector job logs/artifacts are unavailable.
+      - name: Diagnostic build Core
+        run: dotnet build src/Clipensk.Core/Clipensk.Core.csproj --configuration Release --no-restore
+
+      - name: Diagnostic build Storage
+        run: dotnet build src/Clipensk.Storage/Clipensk.Storage.csproj --configuration Release --no-restore
+
+      - name: Diagnostic build Infrastructure
+        run: dotnet build src/Clipensk.Infrastructure/Clipensk.Infrastructure.csproj --configuration Release --no-restore
+
+      - name: Diagnostic build Windows
+        run: dotnet build src/Clipensk.Windows/Clipensk.Windows.csproj --configuration Release --no-restore
+
+      - name: Diagnostic build App
+        run: dotnet build src/Clipensk.App/Clipensk.App.csproj --configuration Release --no-restore
+
+      - name: Diagnostic build Storage tests
+        run: dotnet build tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj --configuration Release --no-restore
+
+      - name: Diagnostic coordinator tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          & dotnet test tests/Clipensk.Storage.Tests/Clipensk.Storage.Tests.csproj --configuration Release --no-build --filter "FullyQualifiedName~ProtectedArchiveSplitCoordinatorTests" 2>&1 | Tee-Object -FilePath artifacts/coordinator-test-output.txt
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            exit $testExitCode
+          }
+
       - name: Build
         run: dotnet build Clipensk.slnx --configuration Release --no-restore
 
@@ -69,6 +99,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-output-${{ github.sha }}
-          path: artifacts/test-output.txt
+          path: |
+            artifacts/test-output.txt
+            artifacts/coordinator-test-output.txt
           if-no-files-found: warn
           retention-days: 7
