@@ -9,14 +9,54 @@ namespace Clipensk.App;
 
 public sealed partial class JournalWindow
 {
-    private void OnMaintenanceSplitButtonLoaded(object sender, RoutedEventArgs e)
+    private CalendarDatePicker? _maintenanceSplitDate;
+    private Button? _maintenanceSplitButton;
+
+    private void InitializeMaintenanceArchiveSplitUi()
     {
-        MaintenanceSplitDate.Header = MaintenanceText("SplitDate");
-        MaintenanceSplitButton.Content = MaintenanceText("Split");
+        if (_maintenanceSplitDate is not null || _maintenanceSplitButton is not null)
+        {
+            UpdateMaintenanceSplitSelection();
+            return;
+        }
+
+        _maintenanceSplitDate = new CalendarDatePicker
+        {
+            Header = MaintenanceText("SplitDate"),
+            IsEnabled = false,
+        };
+        _maintenanceSplitDate.DateChanged += OnMaintenanceSplitDateChanged;
+
+        _maintenanceSplitButton = new Button
+        {
+            Content = MaintenanceText("Split"),
+            IsEnabled = false,
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+        _maintenanceSplitButton.Click += OnMaintenanceSplitClicked;
+
+        var splitPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
+        };
+        splitPanel.Children.Add(_maintenanceSplitDate);
+        splitPanel.Children.Add(_maintenanceSplitButton);
+        MaintenanceContentPanel.Children.Add(splitPanel);
 
         MaintenanceArchiveSelector.SelectionChanged -= OnMaintenanceSplitArchiveSelectionChanged;
         MaintenanceArchiveSelector.SelectionChanged += OnMaintenanceSplitArchiveSelectionChanged;
+        MaintenanceProgress.RegisterPropertyChangedCallback(
+            ProgressRing.IsActiveProperty,
+            OnMaintenanceProgressIsActiveChanged);
         UpdateMaintenanceSplitSelection();
+    }
+
+    private void OnMaintenanceProgressIsActiveChanged(
+        DependencyObject sender,
+        DependencyProperty dependencyProperty)
+    {
+        UpdateMaintenanceSplitAvailability(MaintenanceProgress.IsActive);
     }
 
     private void OnMaintenanceSplitArchiveSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -26,12 +66,17 @@ public sealed partial class JournalWindow
 
     private void UpdateMaintenanceSplitSelection()
     {
-        MaintenanceSplitDate.Date = null;
+        if (_maintenanceSplitDate is null)
+        {
+            return;
+        }
+
+        _maintenanceSplitDate.Date = null;
         if (MaintenanceArchiveSelector.SelectedItem is MaintenanceArchiveListItem selected &&
             selected.Coverage.StartDate < selected.Coverage.EndDate)
         {
-            MaintenanceSplitDate.MinDate = ToMaintenanceDateTimeOffset(selected.Coverage.StartDate.AddDays(1));
-            MaintenanceSplitDate.MaxDate = ToMaintenanceDateTimeOffset(selected.Coverage.EndDate);
+            _maintenanceSplitDate.MinDate = ToMaintenanceDateTimeOffset(selected.Coverage.StartDate.AddDays(1));
+            _maintenanceSplitDate.MaxDate = ToMaintenanceDateTimeOffset(selected.Coverage.EndDate);
         }
 
         UpdateMaintenanceSplitAvailability();
@@ -88,7 +133,7 @@ public sealed partial class JournalWindow
                 selectedArchive.DatabaseId,
                 selectedArchive.FileName.FileName,
                 selectedArchive.Coverage,
-                selectedArchive.IsSealed);
+                IsSealed: false);
 
             IReadOnlyList<ArchiveSegmentDescriptor> archives =
                 await new ProtectedArchiveSplitStartService(session)
@@ -164,7 +209,7 @@ public sealed partial class JournalWindow
         selectedArchive = MaintenanceArchiveSelector.SelectedItem as MaintenanceArchiveListItem;
         resultRanges = [];
         if (selectedArchive is null ||
-            MaintenanceSplitDate.Date is not DateTimeOffset splitDateValue)
+            _maintenanceSplitDate?.Date is not DateTimeOffset splitDateValue)
         {
             return false;
         }
@@ -186,14 +231,19 @@ public sealed partial class JournalWindow
 
     private void UpdateMaintenanceSplitAvailability(bool busy = false)
     {
+        if (_maintenanceSplitDate is null || _maintenanceSplitButton is null)
+        {
+            return;
+        }
+
         bool protectedAccess = _lifecycle.CanAccessProtectedData &&
             _protectedStorageSession?.IsActive == true;
         bool canSplit = MaintenanceArchiveSelector.SelectedItem is MaintenanceArchiveListItem selected &&
             selected.Coverage.StartDate < selected.Coverage.EndDate;
         bool validBoundary = TryGetMaintenanceSplit(out _, out _);
 
-        MaintenanceSplitDate.IsEnabled = !busy && protectedAccess && canSplit;
-        MaintenanceSplitButton.IsEnabled = !busy && protectedAccess && canSplit && validBoundary;
+        _maintenanceSplitDate.IsEnabled = !busy && protectedAccess && canSplit;
+        _maintenanceSplitButton.IsEnabled = !busy && protectedAccess && canSplit && validBoundary;
     }
 
     private async Task<MaintenanceArchiveLoadResult> LoadMaintenanceArchiveSnapshotAsync(
