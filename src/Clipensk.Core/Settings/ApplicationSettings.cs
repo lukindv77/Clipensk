@@ -17,4 +17,6 @@ public sealed record ApplicationSettings
     public int TrashRetentionDays { get; init; } = 30;
 
     public string PasswordHint { get; init; } = string.Empty;
+
+    public ArchiveRotationSettings? ArchiveRotation { get; init; }
 }
