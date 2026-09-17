@@ -2,6 +2,7 @@ using Clipensk.Core.Application;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Clipboard;
+using Clipensk.Storage.Databases;
 using Clipensk.Windows;
 
 namespace Clipensk.App;
@@ -62,10 +63,28 @@ public partial class App
                 return;
             }
 
-            DateOnly deletionDate = DateOnly.FromDateTime(DateTime.Now);
+            DateOnly currentCalendarDate = DateOnly.FromDateTime(DateTime.Now);
             await Task.Run(
-                () => new ProtectedPolicyMaintenanceResumeDispatcher(session)
-                    .ResumeAsync(deletionDate, session.CancellationToken),
+                async () =>
+                {
+                    PendingArchiveSplitOperation? pendingSplit =
+                        await new SqlitePendingArchiveSplitRepository(session)
+                            .ReadAsync(session.CancellationToken)
+                            .ConfigureAwait(false);
+                    if (pendingSplit is not null)
+                    {
+                        await new ProtectedArchiveSplitRecoveryService(session)
+                            .RecoverAsync(
+                                pendingSplit.OperationId,
+                                currentCalendarDate,
+                                session.CancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    await new ProtectedPolicyMaintenanceResumeDispatcher(session)
+                        .ResumeAsync(currentCalendarDate, session.CancellationToken)
+                        .ConfigureAwait(false);
+                },
                 session.CancellationToken);
         }
         catch (OperationCanceledException)
@@ -74,8 +93,9 @@ public partial class App
         }
         catch
         {
-            // Pending maintenance is a fail-closed runtime boundary. Do not release the
-            // suspension after any continuation failure; a later lock/unlock may retry it.
+            // Archive split and policy maintenance are both fail-closed runtime boundaries.
+            // Do not release the suspension after any continuation failure; a later lock/unlock
+            // or the explicit Maintenance recovery UI may retry the durable operation.
             return;
         }
 
