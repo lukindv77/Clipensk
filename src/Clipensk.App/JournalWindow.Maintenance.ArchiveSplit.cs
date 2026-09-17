@@ -9,16 +9,39 @@ namespace Clipensk.App;
 
 public sealed partial class JournalWindow
 {
+    private static readonly IReadOnlyDictionary<string, string> MaintenanceSplitRussianFallback =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Title"] = "Разделить архив",
+            ["Body"] = "Выберите архив и дату окончания первого сегмента. Clipensk создаст два непрерывных календарных сегмента, полностью покрывающих исходный период. Разделение можно повторить для получения дополнительных сегментов.",
+            ["Boundary"] = "Последний день первого сегмента",
+            ["Action"] = "Разделить архив",
+            ["ResumeAction"] = "Продолжить разделение",
+            ["Pending"] = "Обнаружено незавершённое разделение архива {0} (фаза {1}). Другие операции обслуживания заблокированы до завершения recovery.",
+            ["InvalidBoundary"] = "Выберите дату внутри периода архива, но раньше его последнего дня.",
+            ["Completed"] = "Архив {0} разделён. Итоговых сегментов в опубликованном наборе операции: {1}.",
+            ["Failed"] = "Разделение архива не завершено. Если durable marker уже создан, используйте «Продолжить разделение»; Clipensk выполнит roll-forward recovery без отката опубликованных файлов.",
+            ["ResumeFailed"] = "Не удалось прочитать или продолжить незавершённое разделение. Проверьте защищённое хранилище; другие операции обслуживания остаются заблокированными, пока marker существует.",
+            ["ResumeCompleted"] = "Незавершённое разделение архива успешно продолжено и полностью завершено.",
+            ["ConfirmTitle"] = "Подтвердить разделение архива",
+            ["ConfirmBody"] = "Архив {0} сейчас покрывает {1:dd.MM.yyyy}–{2:dd.MM.yyyy}. Будут опубликованы сегменты {3:dd.MM.yyyy}–{4:dd.MM.yyyy} и {5:dd.MM.yyyy}–{6:dd.MM.yyyy}. После начала publication операция становится roll-forward only. Продолжить?",
+            ["ConfirmAction"] = "Разделить",
+            ["Cancel"] = "Отмена",
+            ["ResumeConfirmTitle"] = "Продолжить незавершённое разделение?",
+            ["ResumeConfirmBody"] = "Для архива {0} сохранён durable split marker в фазе {1}. Clipensk проверит фактические файлы и продолжит операцию вперёд согласно сохранённому immutable plan.",
+            ["ResumeConfirmAction"] = "Продолжить",
+        };
+
     private PendingArchiveSplitOperation? _maintenancePendingArchiveSplit;
     private long _maintenanceSplitProgressCallbackToken;
 
     private void OnMaintenanceArchiveSplitPanelLoaded(object sender, RoutedEventArgs e)
     {
-        MaintenanceSplitTitle.Text = MaintenanceText("Split.Title");
-        MaintenanceSplitBody.Text = MaintenanceText("Split.Body");
-        MaintenanceSplitBoundary.Header = MaintenanceText("Split.Boundary");
-        MaintenanceSplitButton.Content = MaintenanceText("Split.Action");
-        MaintenanceSplitResumeButton.Content = MaintenanceText("Split.ResumeAction");
+        MaintenanceSplitTitle.Text = MaintenanceSplitText("Title");
+        MaintenanceSplitBody.Text = MaintenanceSplitText("Body");
+        MaintenanceSplitBoundary.Header = MaintenanceSplitText("Boundary");
+        MaintenanceSplitButton.Content = MaintenanceSplitText("Action");
+        MaintenanceSplitResumeButton.Content = MaintenanceSplitText("ResumeAction");
 
         MaintenanceArchiveSelector.SelectionChanged -= OnMaintenanceSplitArchiveSelectionChanged;
         MaintenanceArchiveSelector.SelectionChanged += OnMaintenanceSplitArchiveSelectionChanged;
@@ -151,7 +174,7 @@ public sealed partial class JournalWindow
         MaintenanceSplitStatus.Text = hasPending
             ? string.Format(
                 CultureInfo.CurrentCulture,
-                MaintenanceText("Split.Pending"),
+                MaintenanceSplitText("Pending"),
                 _maintenancePendingArchiveSplit!.SourceFileName.FileName,
                 _maintenancePendingArchiveSplit.Phase)
             : string.Empty;
@@ -227,7 +250,7 @@ public sealed partial class JournalWindow
                 out JournalDateRange first,
                 out JournalDateRange second))
         {
-            ShowMaintenanceSplitError(MaintenanceText("Split.InvalidBoundary"));
+            ShowMaintenanceSplitError(MaintenanceSplitText("InvalidBoundary"));
             return;
         }
 
@@ -274,7 +297,7 @@ public sealed partial class JournalWindow
             MaintenanceInfo.Severity = InfoBarSeverity.Success;
             MaintenanceInfo.Message = string.Format(
                 CultureInfo.CurrentCulture,
-                MaintenanceText("Split.Completed"),
+                MaintenanceSplitText("Completed"),
                 selected.FileName.FileName,
                 result.Count);
             MaintenanceInfo.IsOpen = true;
@@ -287,7 +310,7 @@ public sealed partial class JournalWindow
             if (IsCurrentMaintenanceOperation(session, generation))
             {
                 await RefreshMaintenancePendingSplitAsync(session);
-                ShowMaintenanceSplitError(MaintenanceText("Split.Failed"));
+                ShowMaintenanceSplitError(MaintenanceSplitText("Failed"));
             }
         }
         finally
@@ -321,7 +344,7 @@ public sealed partial class JournalWindow
         }
         catch
         {
-            ShowMaintenanceSplitError(MaintenanceText("Split.ResumeFailed"));
+            ShowMaintenanceSplitError(MaintenanceSplitText("ResumeFailed"));
             return;
         }
 
@@ -359,7 +382,7 @@ public sealed partial class JournalWindow
             SetMaintenancePendingArchiveSplit(null);
             SetMaintenanceArchiveItems(result, pending.SourceFileName);
             MaintenanceInfo.Severity = InfoBarSeverity.Success;
-            MaintenanceInfo.Message = MaintenanceText("Split.ResumeCompleted");
+            MaintenanceInfo.Message = MaintenanceSplitText("ResumeCompleted");
             MaintenanceInfo.IsOpen = true;
         }
         catch (OperationCanceledException)
@@ -370,7 +393,7 @@ public sealed partial class JournalWindow
             if (IsCurrentMaintenanceOperation(session, generation))
             {
                 await RefreshMaintenancePendingSplitAsync(session);
-                ShowMaintenanceSplitError(MaintenanceText("Split.ResumeFailed"));
+                ShowMaintenanceSplitError(MaintenanceSplitText("ResumeFailed"));
             }
         }
         finally
@@ -426,7 +449,7 @@ public sealed partial class JournalWindow
                 session.IsActive &&
                 _lifecycle.CanAccessProtectedData)
             {
-                ShowMaintenanceSplitError(MaintenanceText("Split.ResumeFailed"));
+                ShowMaintenanceSplitError(MaintenanceSplitText("ResumeFailed"));
             }
         }
     }
@@ -439,10 +462,10 @@ public sealed partial class JournalWindow
         var dialog = new ContentDialog
         {
             XamlRoot = ShellNavigation.XamlRoot,
-            Title = MaintenanceText("Split.ConfirmTitle"),
+            Title = MaintenanceSplitText("ConfirmTitle"),
             Content = string.Format(
                 CultureInfo.CurrentCulture,
-                MaintenanceText("Split.ConfirmBody"),
+                MaintenanceSplitText("ConfirmBody"),
                 selected.FileName.FileName,
                 selected.Coverage.StartDate,
                 selected.Coverage.EndDate,
@@ -450,8 +473,8 @@ public sealed partial class JournalWindow
                 first.EndDate,
                 second.StartDate,
                 second.EndDate),
-            PrimaryButtonText = MaintenanceText("Split.ConfirmAction"),
-            CloseButtonText = MaintenanceText("Split.Cancel"),
+            PrimaryButtonText = MaintenanceSplitText("ConfirmAction"),
+            CloseButtonText = MaintenanceSplitText("Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
 
@@ -464,18 +487,32 @@ public sealed partial class JournalWindow
         var dialog = new ContentDialog
         {
             XamlRoot = ShellNavigation.XamlRoot,
-            Title = MaintenanceText("Split.ResumeConfirmTitle"),
+            Title = MaintenanceSplitText("ResumeConfirmTitle"),
             Content = string.Format(
                 CultureInfo.CurrentCulture,
-                MaintenanceText("Split.ResumeConfirmBody"),
+                MaintenanceSplitText("ResumeConfirmBody"),
                 pending.SourceFileName.FileName,
                 pending.Phase),
-            PrimaryButtonText = MaintenanceText("Split.ResumeConfirmAction"),
-            CloseButtonText = MaintenanceText("Split.Cancel"),
+            PrimaryButtonText = MaintenanceSplitText("ResumeConfirmAction"),
+            CloseButtonText = MaintenanceSplitText("Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
 
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private string MaintenanceSplitText(string suffix)
+    {
+        string key = $"Maintenance.Split.{suffix}";
+        string localized = _localization.GetString(key);
+        if (!string.Equals(localized, key, StringComparison.Ordinal))
+        {
+            return localized;
+        }
+
+        return MaintenanceSplitRussianFallback.TryGetValue(suffix, out string? fallback)
+            ? fallback
+            : key;
     }
 
     private void ShowMaintenanceSplitError(string message)
