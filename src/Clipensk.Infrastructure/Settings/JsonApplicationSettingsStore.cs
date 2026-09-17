@@ -39,12 +39,13 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
             SerializerOptions,
             cancellationToken);
 
-        return settings ?? new ApplicationSettings();
+        return Validate(settings ?? new ApplicationSettings());
     }
 
     public async Task SaveAsync(ApplicationSettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        Validate(settings);
 
         string? directory = Path.GetDirectoryName(_settingsPath);
         if (!string.IsNullOrEmpty(directory))
@@ -82,5 +83,11 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
                 File.Delete(temporaryPath);
             }
         }
+    }
+
+    private static ApplicationSettings Validate(ApplicationSettings settings)
+    {
+        settings.ArchiveRotation?.Validate();
+        return settings;
     }
 }
