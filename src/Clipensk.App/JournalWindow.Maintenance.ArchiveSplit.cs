@@ -10,6 +10,7 @@ namespace Clipensk.App;
 public sealed partial class JournalWindow
 {
     private PendingArchiveSplitOperation? _maintenancePendingArchiveSplit;
+    private long _maintenanceSplitProgressCallbackToken;
 
     private void OnMaintenanceArchiveSplitPanelLoaded(object sender, RoutedEventArgs e)
     {
@@ -19,8 +20,85 @@ public sealed partial class JournalWindow
         MaintenanceSplitButton.Content = MaintenanceText("Split.Action");
         MaintenanceSplitResumeButton.Content = MaintenanceText("Split.ResumeAction");
 
+        MaintenanceArchiveSelector.SelectionChanged -= OnMaintenanceSplitArchiveSelectionChanged;
+        MaintenanceArchiveSelector.SelectionChanged += OnMaintenanceSplitArchiveSelectionChanged;
+        ShellNavigation.SelectionChanged -= OnMaintenanceSplitNavigationSelectionChanged;
+        ShellNavigation.SelectionChanged += OnMaintenanceSplitNavigationSelectionChanged;
+        _lifecycle.ProtectedDataAccessChanged -= OnMaintenanceSplitProtectedAccessChanged;
+        _lifecycle.ProtectedDataAccessChanged += OnMaintenanceSplitProtectedAccessChanged;
+        Closed -= OnMaintenanceSplitWindowClosed;
+        Closed += OnMaintenanceSplitWindowClosed;
+
+        if (_maintenanceSplitProgressCallbackToken == 0)
+        {
+            _maintenanceSplitProgressCallbackToken = MaintenanceProgress.RegisterPropertyChangedCallback(
+                ProgressRing.IsActiveProperty,
+                OnMaintenanceSplitProgressChanged);
+        }
+
         RefreshMaintenanceSplitSelection();
-        UpdateMaintenanceSplitAvailability();
+        _ = RefreshMaintenancePendingSplitFromUiAsync();
+    }
+
+    private void OnMaintenanceSplitArchiveSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RefreshMaintenanceSplitSelection();
+    }
+
+    private void OnMaintenanceSplitNavigationSelectionChanged(
+        NavigationView sender,
+        NavigationViewSelectionChangedEventArgs args)
+    {
+        string? tag = args.SelectedItemContainer?.Tag as string;
+        if (string.Equals(tag, "maintenance", StringComparison.Ordinal) &&
+            _lifecycle.CanAccessProtectedData)
+        {
+            _ = RefreshMaintenancePendingSplitFromUiAsync();
+        }
+    }
+
+    private void OnMaintenanceSplitProtectedAccessChanged(bool allowed)
+    {
+        void Refresh()
+        {
+            if (!allowed)
+            {
+                SetMaintenancePendingArchiveSplit(null);
+                return;
+            }
+
+            _ = RefreshMaintenancePendingSplitFromUiAsync();
+        }
+
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            Refresh();
+        }
+        else
+        {
+            DispatcherQueue.TryEnqueue(Refresh);
+        }
+    }
+
+    private void OnMaintenanceSplitWindowClosed(object sender, WindowEventArgs e)
+    {
+        MaintenanceArchiveSelector.SelectionChanged -= OnMaintenanceSplitArchiveSelectionChanged;
+        ShellNavigation.SelectionChanged -= OnMaintenanceSplitNavigationSelectionChanged;
+        _lifecycle.ProtectedDataAccessChanged -= OnMaintenanceSplitProtectedAccessChanged;
+        Closed -= OnMaintenanceSplitWindowClosed;
+
+        if (_maintenanceSplitProgressCallbackToken != 0)
+        {
+            MaintenanceProgress.UnregisterPropertyChangedCallback(
+                ProgressRing.IsActiveProperty,
+                _maintenanceSplitProgressCallbackToken);
+            _maintenanceSplitProgressCallbackToken = 0;
+        }
+    }
+
+    private void OnMaintenanceSplitProgressChanged(DependencyObject sender, DependencyProperty dp)
+    {
+        UpdateMaintenanceSplitAvailability(MaintenanceProgress.IsActive);
     }
 
     private void RefreshMaintenanceSplitSelection()
@@ -31,20 +109,20 @@ public sealed partial class JournalWindow
             MaintenanceArchiveSelector.SelectedItem is not MaintenanceArchiveListItem selected ||
             selected.Coverage.StartDate >= selected.Coverage.EndDate)
         {
-            UpdateMaintenanceSplitAvailability();
+            UpdateMaintenanceSplitAvailability(MaintenanceProgress.IsActive);
             return;
         }
 
         MaintenanceSplitBoundary.MinDate = ToMaintenanceDateTimeOffset(selected.Coverage.StartDate);
         MaintenanceSplitBoundary.MaxDate = ToMaintenanceDateTimeOffset(selected.Coverage.EndDate.AddDays(-1));
-        UpdateMaintenanceSplitAvailability();
+        UpdateMaintenanceSplitAvailability(MaintenanceProgress.IsActive);
     }
 
     private void OnMaintenanceSplitBoundaryChanged(
         CalendarDatePicker sender,
         CalendarDatePickerDateChangedEventArgs args)
     {
-        UpdateMaintenanceSplitAvailability();
+        UpdateMaintenanceSplitAvailability(MaintenanceProgress.IsActive);
     }
 
     private void UpdateMaintenanceSplitAvailability(bool busy = false)
@@ -74,8 +152,30 @@ public sealed partial class JournalWindow
             ? string.Format(
                 CultureInfo.CurrentCulture,
                 MaintenanceText("Split.Pending"),
-                _maintenancePendingArchiveSplit!.SourceFileName.FileName)
+                _maintenancePendingArchiveSplit!.SourceFileName.FileName,
+                _maintenancePendingArchiveSplit.Phase)
             : string.Empty;
+
+        if (hasPending)
+        {
+            DisableMaintenanceActionsForPendingSplit();
+        }
+    }
+
+    private void DisableMaintenanceActionsForPendingSplit()
+    {
+        MaintenanceCurrentVacuumButton.IsEnabled = false;
+        MaintenanceCurrentOptimizeButton.IsEnabled = false;
+        MaintenanceValidateCatalogButton.IsEnabled = false;
+        MaintenanceRebuildCatalogButton.IsEnabled = false;
+        MaintenanceReloadButton.IsEnabled = false;
+        MaintenanceArchiveSelector.IsEnabled = false;
+        MaintenanceStartDate.IsEnabled = false;
+        MaintenanceEndDate.IsEnabled = false;
+        MaintenanceValidateButton.IsEnabled = false;
+        MaintenanceVacuumButton.IsEnabled = false;
+        MaintenanceOptimizeButton.IsEnabled = false;
+        MaintenanceTransferButton.IsEnabled = false;
     }
 
     private void SetMaintenancePendingArchiveSplit(PendingArchiveSplitOperation? pending)
@@ -84,6 +184,10 @@ public sealed partial class JournalWindow
         if (pending is not null)
         {
             MaintenanceSplitBoundary.Date = null;
+        }
+        else
+        {
+            SetMaintenanceBusy(MaintenanceProgress.IsActive);
         }
 
         UpdateMaintenanceSplitAvailability(MaintenanceProgress.IsActive);
@@ -142,13 +246,14 @@ public sealed partial class JournalWindow
         long generation = Interlocked.Increment(ref _maintenanceGeneration);
         MaintenanceInfo.IsOpen = false;
         SetMaintenanceBusy(true);
+        UpdateMaintenanceSplitAvailability(true);
         try
         {
             var expectedSource = new ArchiveSegmentDescriptor(
                 selected!.DatabaseId,
                 selected.FileName.FileName,
                 selected.Coverage,
-                selected.IsSealed);
+                false);
 
             IReadOnlyList<ArchiveSegmentDescriptor> result =
                 await new ProtectedArchiveSplitStartService(session)
@@ -190,6 +295,7 @@ public sealed partial class JournalWindow
             if (IsCurrentMaintenanceOperation(session, generation))
             {
                 SetMaintenanceBusy(false);
+                UpdateMaintenanceSplitAvailability(false);
             }
         }
     }
@@ -235,6 +341,7 @@ public sealed partial class JournalWindow
         long generation = Interlocked.Increment(ref _maintenanceGeneration);
         MaintenanceInfo.IsOpen = false;
         SetMaintenanceBusy(true);
+        UpdateMaintenanceSplitAvailability(true);
         try
         {
             IReadOnlyList<ArchiveSegmentDescriptor> result =
@@ -271,8 +378,21 @@ public sealed partial class JournalWindow
             if (IsCurrentMaintenanceOperation(session, generation))
             {
                 SetMaintenanceBusy(false);
+                UpdateMaintenanceSplitAvailability(false);
             }
         }
+    }
+
+    private async Task RefreshMaintenancePendingSplitFromUiAsync()
+    {
+        ProtectedStorageSessionLease? session = _protectedStorageSession;
+        if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
+        {
+            SetMaintenancePendingArchiveSplit(null);
+            return;
+        }
+
+        await RefreshMaintenancePendingSplitAsync(session, showReadFailure: true);
     }
 
     private async Task<PendingArchiveSplitOperation?> ReadMaintenancePendingSplitAsync(
@@ -282,7 +402,9 @@ public sealed partial class JournalWindow
             .ReadAsync(session.CancellationToken);
     }
 
-    private async Task RefreshMaintenancePendingSplitAsync(ProtectedStorageSessionLease session)
+    private async Task RefreshMaintenancePendingSplitAsync(
+        ProtectedStorageSessionLease session,
+        bool showReadFailure = false)
     {
         try
         {
@@ -299,7 +421,13 @@ public sealed partial class JournalWindow
         }
         catch
         {
-            // A failed marker refresh must not hide the original split/recovery failure.
+            if (showReadFailure &&
+                ReferenceEquals(_protectedStorageSession, session) &&
+                session.IsActive &&
+                _lifecycle.CanAccessProtectedData)
+            {
+                ShowMaintenanceSplitError(MaintenanceText("Split.ResumeFailed"));
+            }
         }
     }
 
@@ -340,7 +468,8 @@ public sealed partial class JournalWindow
             Content = string.Format(
                 CultureInfo.CurrentCulture,
                 MaintenanceText("Split.ResumeConfirmBody"),
-                pending.SourceFileName.FileName),
+                pending.SourceFileName.FileName,
+                pending.Phase),
             PrimaryButtonText = MaintenanceText("Split.ResumeConfirmAction"),
             CloseButtonText = MaintenanceText("Split.Cancel"),
             DefaultButton = ContentDialogButton.Close,
