@@ -68,7 +68,7 @@ Plan immutable после первого commit. Phase может двигать
 
 Marker разрешено удалить только после `CatalogPublished`. Repository fail-closed валидирует Current identity/schema v9, operation ownership, canonical archive filenames, exact contiguous partition, unique names/IDs и phase transitions.
 
-Если Current содержит pending split, будущий unlock/maintenance continuation должен сначала продолжить или безопасно остановить эту операцию; обычная новая split-команда должна завершаться fail-closed.
+Если Current содержит pending split, pre-runtime recovery после unlock сначала пытается продолжить operation до durable completion; clipboard runtime остаётся suspended при failure. Maintenance UI также показывает pending phase и разрешает явное продолжение. Обычная новая split-команда при активном marker завершается fail-closed.
 
 ## 4. Staging
 
@@ -97,7 +97,7 @@ Staging не является durable source of truth сам по себе: dura
 
 До commit marker никакие Archive-файлы не изменяются.
 
-**Следующий implementation slice — pure split planner.** Он должен реализовать пункты 4–7 как детерминированное планирование без filesystem/DB mutation; caller передаёт уже валидированные source identity/coverage и snapshot занятых family filenames/sequences.
+**Реализация завершена.** `ArchiveSplitPlanner` выполняет детерминированную partition/family-name planning без filesystem/DB mutation. `ProtectedArchiveSplitStartService` под mutation lease валидирует authoritative Catalog/source snapshot, проверяет stale UI identity/coverage, строит plan и сохраняет immutable `Planned` marker одной Current transaction через internal repository transaction boundary; после commit он передаёт operation в recovery coordinator.
 
 ## 6. Построение shadow set
 
@@ -179,7 +179,7 @@ Catalog никогда не используется как источник pla
 
 ## 10. Crash recovery
 
-Recovery всегда начинается под mutation lease с чтения pending marker и проверки файлов, а не с предположения о фазе только по marker.
+`ProtectedArchiveSplitRecoveryService` выполняет read-only dispatch по durable phase и передаёт работу authoritative phase services. Все phase-changing filesystem/DB mutations выполняются под их `ProtectedStorageMutationLease` и повторно валидируют durable marker/files перед mutation; recovery не полагается только на ранее прочитанный phase snapshot.
 
 ### `Planned`
 
@@ -231,21 +231,26 @@ Marker phase может отставать от фактической filesyste
 
 ## 13. Implementation slices и текущий статус
 
-Реализация идёт последовательно:
+Последовательный Archive Split tranche завершён:
 
 1. **DONE** — Current v9 schema + `PendingArchiveSplit` repository/validation/migration/tests.
-2. **NEXT** — pure split planner: partition validation, family suffix allocation, immutable plan tests.
-3. **NOT STARTED** — shadow builder + exact source/output cross-check tests.
-4. **NOT STARTED** — publication/recovery state machine с fault-injection tests на границах каждой durable phase.
-5. **NOT STARTED** — Catalog rebuild integration и end-to-end storage tests.
-6. **NOT STARTED** — Maintenance UI: выбор Archive, split boundaries, explicit confirmation, progress/error reporting.
+2. **DONE** — pure split planner: partition validation, family suffix allocation, immutable plan tests.
+3. **DONE** — shadow builder + exact source/output cross-check tests.
+4. **DONE** — copy-first physical publication + roll-forward recovery across all durable phases.
+5. **DONE** — Catalog rebuild/publication integration + end-to-end storage validation.
+6. **DONE** — atomic start service, recovery coordinator и stale-source/pending-operation guards.
+7. **DONE (CI)** — Maintenance UI: Archive selection, two-range split boundary, explicit confirmation, progress/error reporting, pending-phase resume gate.
+8. **DONE (CI)** — unlock/startup integration: pending Archive Split recovery runs inside the existing pre-runtime clipboard suspension before policy-maintenance recovery; continuation failure remains fail-closed.
 
-Slice 1 принят на exact storage baseline `08d23672a75f85ca61c2ad62ae57395f2eadfdbc`:
+Ключевые acceptance checkpoints:
 
-- Build #408 / run `34709397765` — **SUCCESS**;
-- Native SQLCipher #73 / run `34709397774` — **SUCCESS**, включая encrypted-storage verification и published-runtime SQLCipher loading.
+- storage backend через start service: exact main `15aff534258e4302c828ea437e86113ff2d09562`; Build #426 — **SUCCESS**; Native SQLCipher #79 — **SUCCESS**;
+- Maintenance UI: exact main `7362e0ff2809a35627ac091c98e1a4380a0c0a56`; Build #428 / run `35242522130` — **SUCCESS**;
+- startup recovery integration: exact main `306599c00b29b3efefd6e18d3ab19fbca35c42ce`; Build #430 / run `35249103960` — **SUCCESS**.
 
-Storage slices требуют exact-main Build и Native SQLCipher evidence по правилам проекта.
+Для app-only UI/startup commits Native SQLCipher workflow не запускался, потому что их net diff не совпадает с его `paths` filter. Последний storage-changing baseline выше имеет exact-main Native evidence.
+
+Manual production WinUI smoke/UX остаётся **UNVERIFIED**: CI acceptance не является утверждением о ручной desktop-проверке.
 
 ## 14. Не входит в первые Archive Split slices
 
