@@ -183,6 +183,28 @@
                                 IsEnabled="False"
                                 Click="OnMaintenanceTransferClicked" />
                     </StackPanel>
+                    <StackPanel x:Name="MaintenanceArchiveSplitPanel"
+                                Spacing="8"
+                                Loaded="OnMaintenanceArchiveSplitPanelLoaded">
+                        <TextBlock x:Name="MaintenanceSplitTitle"
+                                   Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Name="MaintenanceSplitBody"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <CalendarDatePicker x:Name="MaintenanceSplitBoundary"
+                                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceArchiveSelector}"
+                                                DateChanged="OnMaintenanceSplitBoundaryChanged" />
+                            <Button x:Name="MaintenanceSplitButton"
+                                    IsEnabled="False"
+                                    VerticalAlignment="Bottom"
+                                    Click="OnMaintenanceSplitClicked" />
+                        </StackPanel>
+                        <Button x:Name="MaintenanceSplitResumeButton"
+                                HorizontalAlignment="Left"
+                                Visibility="Collapsed"
+                                IsEnabled="{Binding IsEnabled, ElementName=MaintenanceValidateCatalogButton}"
+                                Click="OnMaintenanceSplitResumeClicked" />
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
 
