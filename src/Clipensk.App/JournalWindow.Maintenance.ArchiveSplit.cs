@@ -12,6 +12,12 @@ public sealed partial class JournalWindow
     private CalendarDatePicker? _maintenanceSplitDate;
     private Button? _maintenanceSplitButton;
 
+    private void OnMaintenanceContentPanelWithSplitLoaded(object sender, RoutedEventArgs e)
+    {
+        OnMaintenanceContentPanelLoaded(sender, e);
+        InitializeMaintenanceArchiveSplitUi();
+    }
+
     private void InitializeMaintenanceArchiveSplitUi()
     {
         if (_maintenanceSplitDate is not null || _maintenanceSplitButton is not null)
@@ -245,34 +251,4 @@ public sealed partial class JournalWindow
         _maintenanceSplitDate.IsEnabled = !busy && protectedAccess && canSplit;
         _maintenanceSplitButton.IsEnabled = !busy && protectedAccess && canSplit && validBoundary;
     }
-
-    private async Task<MaintenanceArchiveLoadResult> LoadMaintenanceArchiveSnapshotAsync(
-        ProtectedStorageSessionLease session,
-        DateOnly currentCalendarDate,
-        CancellationToken cancellationToken)
-    {
-        PendingArchiveSplitOperation? pending =
-            await new SqlitePendingArchiveSplitRepository(session)
-                .ReadAsync(cancellationToken);
-
-        if (pending is null)
-        {
-            IReadOnlyList<ArchiveSegmentDescriptor> archives =
-                await new ProtectedArchiveSegmentCatalog(session)
-                    .ReadAsync(cancellationToken);
-            return new MaintenanceArchiveLoadResult(archives, RecoveredPendingSplit: false);
-        }
-
-        IReadOnlyList<ArchiveSegmentDescriptor> recovered =
-            await new ProtectedArchiveSplitRecoveryService(session)
-                .RecoverAsync(
-                    pending.OperationId,
-                    currentCalendarDate,
-                    cancellationToken);
-        return new MaintenanceArchiveLoadResult(recovered, RecoveredPendingSplit: true);
-    }
-
-    private sealed record MaintenanceArchiveLoadResult(
-        IReadOnlyList<ArchiveSegmentDescriptor> Archives,
-        bool RecoveredPendingSplit);
 }
