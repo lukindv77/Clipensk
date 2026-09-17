@@ -1,0 +1,161 @@
+using Clipensk.Core.Settings;
+using Clipensk.Infrastructure.Settings;
+using Xunit;
+
+namespace Clipensk.Infrastructure.Tests;
+
+public sealed class JsonApplicationSettingsStoreTests
+{
+    [Fact]
+    public async Task LoadAsync_LegacySettingsWithoutArchiveRotation_PreservesDisabledDefault()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "DataRootPath": "C:\\Data",
+                  "TrashRetentionDays": 30,
+                  "PasswordHint": ""
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Equal(1, loaded.SchemaVersion);
+            Assert.Equal("C:\\Data", loaded.DataRootPath);
+            Assert.Null(loaded.ArchiveRotation);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAndLoadAsync_ConfiguredArchiveRotation_RoundTrips()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var expectedRotation = new ArchiveRotationSettings
+            {
+                MaxRecordCount = 100_000,
+                MaxBytes = 512L * 1024 * 1024,
+                MaxCalendarDays = 30,
+            };
+            var expected = new ApplicationSettings
+            {
+                DataRootPath = "C:\\Data",
+                ArchiveRotation = expectedRotation,
+            };
+            var store = new JsonApplicationSettingsStore(path);
+
+            await store.SaveAsync(expected);
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Equal(expectedRotation, loaded.ArchiveRotation);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAndLoadAsync_SingleArchiveRotationThreshold_IsAccepted()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var expectedRotation = new ArchiveRotationSettings
+            {
+                MaxCalendarDays = 14,
+            };
+            var store = new JsonApplicationSettingsStore(path);
+
+            await store.SaveAsync(new ApplicationSettings { ArchiveRotation = expectedRotation });
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Equal(expectedRotation, loaded.ArchiveRotation);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_NonPositiveArchiveRotationThreshold_FailsClosed()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "ArchiveRotation": {
+                    "MaxBytes": 0
+                  }
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.LoadAsync());
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_EmptyArchiveRotation_FailsBeforeCreatingSettingsFile()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var store = new JsonApplicationSettingsStore(path);
+            var settings = new ApplicationSettings
+            {
+                ArchiveRotation = new ArchiveRotationSettings(),
+            };
+
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(settings));
+
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    private static string CreateTemporaryDirectory()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "clipensk-settings-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
+    private static void DeleteDirectory(string directory)
+    {
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}
