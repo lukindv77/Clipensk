@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/archive-split-maintenance-ui-v2 ]
   workflow_dispatch:
 
 permissions:
