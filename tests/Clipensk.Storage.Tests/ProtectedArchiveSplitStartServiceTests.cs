@@ -88,8 +88,7 @@ public sealed class ProtectedArchiveSplitStartServiceTests
             environment.Factory).ReadAsync());
         DatabaseIdentity identity = await new ProtectedArchiveDatabaseService(
             environment.Session,
-            environment.Factory).ValidateAsync(
-                ArchiveFileName.Parse(source.FileName));
+            environment.Factory).ValidateAsync(Parse(source.FileName));
         Assert.Equal(source.DatabaseId, identity.DatabaseId);
         Assert.Equal(source.Coverage.StartDate, identity.CoverageStartDate);
         Assert.Equal(source.Coverage.EndDate, identity.CoverageEndDate);
@@ -126,7 +125,7 @@ public sealed class ProtectedArchiveSplitStartServiceTests
         using GlobalPolicyTestEnvironment environment =
             await GlobalPolicyTestEnvironment.CreateAsync();
         ArchiveSegmentDescriptor source = await CreateSourceAndCatalogAsync(environment, 93);
-        ArchiveFileName sourceFileName = ArchiveFileName.Parse(source.FileName);
+        ArchiveFileName sourceFileName = Parse(source.FileName);
         IReadOnlyList<JournalDateRange> ranges = SplitInHalf(source.Coverage);
         IReadOnlyList<PendingArchiveSplitSegment> segments = new ArchiveSplitPlanner().Build(
             sourceFileName,
@@ -162,7 +161,7 @@ public sealed class ProtectedArchiveSplitStartServiceTests
 
     private static async Task<ArchiveSegmentDescriptor> CreateSourceAndCatalogAsync(
         GlobalPolicyTestEnvironment environment,
-        long baseNumber)
+        int baseNumber)
     {
         var sourceFileName = new ArchiveFileName(baseNumber, ArchiveFileName.NoSplit);
         var sourceCoverage = new JournalDateRange(
@@ -178,6 +177,13 @@ public sealed class ProtectedArchiveSplitStartServiceTests
         return Assert.Single(
             catalog,
             descriptor => descriptor.FileName == sourceFileName.FileName);
+    }
+
+    private static ArchiveFileName Parse(string fileName)
+    {
+        Assert.True(ArchiveFileName.TryParse(fileName, out ArchiveFileName parsed));
+        Assert.Equal(fileName, parsed.FileName);
+        return parsed;
     }
 
     private static IReadOnlyList<JournalDateRange> SplitInHalf(JournalDateRange coverage) =>
