@@ -283,6 +283,13 @@ Repositories schema не создают и не мигрируют. Это пр�
 - `SqliteExternalPayloadAddressIndex`: Catalog v2+;
 - `ProtectedArchiveSegmentCatalog`: Catalog v3 + active Current history schema.
 
+## Acceptance evidence for Current v10
+
+Current v10 + pending Archive Rotation marker был продвинут в `main` на storage baseline `e9dcd575996a284778b11df6ad30c480f838383c` и принят на этом exact SHA:
+
+- Build #445, run `35365996480`: **SUCCESS**;
+- Native SQLCipher #83, run `35365996498`: **SUCCESS**, включая pinned SQLCipher x64 build/provenance, encrypted-storage verification и published-runtime SQLCipher loading.
+
 ## Acceptance evidence for Current v9
 
 Current v9 + pending Archive Split marker was promoted to `main` at storage baseline `08d23672a75f85ca61c2ad62ae57395f2eadfdbc` and accepted on that exact SHA by:
