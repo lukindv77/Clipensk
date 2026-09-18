@@ -136,16 +136,46 @@ internal static class ArchiveShadowWriter
         SqliteConnection target,
         SqliteTransaction transaction,
         JournalDateRange coverage,
-        CancellationToken token)
+        CancellationToken token,
+        bool mergeApplicationRows = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(transaction);
 
-        CopyApplicationIdentities(source, target, transaction, coverage, token);
-        CopyApplicationAliases(source, target, transaction, coverage, token);
+        CopyApplicationIdentities(source, target, transaction, coverage, token, mergeApplicationRows);
+        CopyApplicationAliases(source, target, transaction, coverage, token, mergeApplicationRows);
         CopyHistoryEvents(source, target, transaction, coverage, token);
         CopyHistoryPayloads(source, target, transaction, coverage, token);
+    }
+
+    /// <summary>
+    /// Rewrites staging-only coverage while a rotation candidate shadow is still being extended
+    /// day by day. Final assigned coverage becomes immutable once the durable marker is committed,
+    /// so this must never be used on a published Archive.
+    /// </summary>
+    public static void UpdateStagingCoverage(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        JournalDateRange coverage)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE DatabaseIdentity
+            SET CoverageStartDate = $coverageStart,
+                CoverageEndDate = $coverageEnd
+            WHERE SingletonId = 1;
+            """;
+        command.Parameters.AddWithValue("$coverageStart", FormatDate(coverage.StartDate));
+        command.Parameters.AddWithValue("$coverageEnd", FormatDate(coverage.EndDate));
+        if (command.ExecuteNonQuery() != 1)
+        {
+            throw new InvalidDataException("Staged Archive identity row is missing.");
+        }
     }
 
     /// <summary>
@@ -453,7 +483,8 @@ internal static class ArchiveShadowWriter
         SqliteConnection target,
         SqliteTransaction transaction,
         JournalDateRange coverage,
-        CancellationToken token)
+        CancellationToken token,
+        bool mergeApplicationRows)
     {
         using SqliteCommand read = CreateCoverageCommand(source, ApplicationIdentitySourceSql, coverage);
         using SqliteDataReader reader = read.ExecuteReader();
@@ -462,10 +493,18 @@ internal static class ArchiveShadowWriter
             token.ThrowIfCancellationRequested();
             using SqliteCommand insert = target.CreateCommand();
             insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
-                VALUES ($applicationId, $createdAtUtc);
-                """;
+            // Extending a rotation candidate re-encounters identities seen on earlier days; those
+            // rows are deduplicated by definition, and the final cross-check still verifies the
+            // complete coverage exactly.
+            insert.CommandText = mergeApplicationRows
+                ? """
+                  INSERT OR IGNORE INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
+                  VALUES ($applicationId, $createdAtUtc);
+                  """
+                : """
+                  INSERT INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
+                  VALUES ($applicationId, $createdAtUtc);
+                  """;
             insert.Parameters.AddWithValue("$applicationId", reader.GetString(0));
             insert.Parameters.AddWithValue("$createdAtUtc", reader.GetString(1));
             insert.ExecuteNonQuery();
@@ -477,7 +516,8 @@ internal static class ArchiveShadowWriter
         SqliteConnection target,
         SqliteTransaction transaction,
         JournalDateRange coverage,
-        CancellationToken token)
+        CancellationToken token,
+        bool mergeApplicationRows)
     {
         using SqliteCommand read = CreateCoverageCommand(source, ApplicationAliasSourceSql, coverage);
         using SqliteDataReader reader = read.ExecuteReader();
@@ -486,12 +526,19 @@ internal static class ArchiveShadowWriter
             token.ThrowIfCancellationRequested();
             using SqliteCommand insert = target.CreateCommand();
             insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO ApplicationIdentityAlias (
-                    AliasType, AliasValue, ApplicationId, CreatedAtUtc)
-                VALUES (
-                    $aliasType, $aliasValue, $applicationId, $createdAtUtc);
-                """;
+            insert.CommandText = mergeApplicationRows
+                ? """
+                  INSERT OR IGNORE INTO ApplicationIdentityAlias (
+                      AliasType, AliasValue, ApplicationId, CreatedAtUtc)
+                  VALUES (
+                      $aliasType, $aliasValue, $applicationId, $createdAtUtc);
+                  """
+                : """
+                  INSERT INTO ApplicationIdentityAlias (
+                      AliasType, AliasValue, ApplicationId, CreatedAtUtc)
+                  VALUES (
+                      $aliasType, $aliasValue, $applicationId, $createdAtUtc);
+                  """;
             insert.Parameters.AddWithValue("$aliasType", reader.GetString(0));
             insert.Parameters.AddWithValue("$aliasValue", reader.GetString(1));
             insert.Parameters.AddWithValue("$applicationId", reader.GetString(2));
