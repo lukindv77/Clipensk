@@ -160,9 +160,10 @@ Allocation:
 3. первый новый base = `max + 1`, либо `1`, если Archive set пуст;
 4. каждый следующий ready segment получает следующий base number;
 5. gaps в старых base numbers автоматически не переиспользуются;
-6. если canonical six-digit namespace исчерпан, operation завершается fail-closed.
+6. filenames готовых segments внутри одной operation имеют строго последовательные `BaseNumber` без пропусков;
+7. если canonical six-digit namespace исчерпан, operation завершается fail-closed.
 
-Filename и новый non-empty `DatabaseId` становятся immutable частью rotation plan.
+Filename и новый non-empty `DatabaseId` становятся immutable частью rotation plan. Repository валидирует unsplit canonical names, uniqueness и последовательность base numbers; preparation service дополнительно сверяет первый выделенный base с фактическим maximum physical Archive set.
 
 ## 7. Preparation и staging
 
