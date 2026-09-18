@@ -273,6 +273,13 @@ Threshold оценивается после добавления полного 
 
 Crash-safe planning/publication/recovery contract зафиксирован в `ARCHIVE_ROTATION_PROTOCOL.md`.
 
+Durable план и phase ротации хранятся в Current v10 через `PendingArchiveRotation` /
+`PendingArchiveRotationTarget`. Phases: `Planned → ReadyToPublish → PhysicalPublished →
+SourcePurged → CatalogPublished`. Pending rotation и pending Archive Split взаимно блокируют старт
+друг друга. Settings/pure planner, Current v10 marker и его repository реализованы; storage-backed
+shadow construction, publication, source purge, Catalog integration, recovery, scheduler и
+Settings UI пока не реализованы.
+
 ## 12. Именование архивов
 
 Основные архивы получают имена:

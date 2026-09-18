@@ -1,6 +1,6 @@
 # Archive Rotation protocol
 
-Status: **DESIGN CONTRACT — implementation pending beyond the existing settings/pure-planner foundation.**
+Status: **DESIGN CONTRACT — implemented through the durable Current v10 pending-rotation marker; storage-backed planning, publication, purge, Catalog and recovery remain pending.**
 
 This document defines crash-safe automatic Archive rotation for Clipensk. It complements
 `ARCHIVE_DATABASE_SCHEMA.md`, `STORAGE_CATALOG_SCHEMA.md`,
@@ -83,10 +83,10 @@ Consequences:
   predicates are reached;
 - the final candidate whose combination rule is still false is an **open tail** and stays in Current.
 
-The existing pure `ArchiveRotationPlanner` on main is only a foundation. Before it is used by
-automatic rotation it must be corrected to return ready ranges separately from the open tail and to
-use the post-day `>=` semantics above. Its current `MaxBytes` fail-closed behavior remains
-correct: physical-size planning belongs to storage-backed shadow construction.
+The pure `ArchiveRotationPlanner` on main now implements these semantics: it returns ready ranges
+separately from the open tail and triggers on the post-day `>=` rule above. Its `MaxBytes`
+fail-closed behavior remains correct: physical-size planning belongs to storage-backed shadow
+construction.
 
 ## 3. Eligible Current window
 
@@ -142,29 +142,41 @@ coverage before final publication.
 
 ## 5. Durable pending marker
 
-Rotation requires a protected marker in Current, conceptually introduced by the next Current schema
-version after v9.
+Rotation requires a protected marker in Current, introduced by Current schema v10 and described in
+`CURRENT_DATABASE_SCHEMA.md`.
 
 At most one `PendingArchiveRotation` operation may exist.
 
-Operation row:
+`PendingArchiveRotation` operation row:
 
 - `OperationId`;
 - durable `Phase`;
-- policy snapshot: nullable record/byte/day thresholds plus threshold mode;
+- policy snapshot: nullable `MaxRecordCount`, `MaxBytes`, `MaxCalendarDays` plus nullable
+  `ThresholdMode`;
 - `CreatedAtUtc`.
 
-Ordered target rows:
+Ordered `PendingArchiveRotationTarget` rows:
 
 - `SegmentOrder`;
-- canonical `FileName`;
+- canonical unsplit `FileName`;
 - planned `DatabaseId`;
 - `CoverageStartDate`;
 - `CoverageEndDate`;
-- expected record count;
-- measured shadow physical size.
+- `ExpectedRecordCount`;
+- `ShadowPhysicalSizeBytes` — measured physical size of the validated staging shadow.
 
-The immutable target rows are recovery metadata, not Catalog projection.
+The immutable target rows are recovery metadata, not Catalog projection. The committed policy
+snapshot is what recovery honours; it never re-plans from whatever settings are current at recovery
+time.
+
+`SqlitePendingArchiveRotationRepository` enforces the durable plan contract: canonical unsplit
+filenames, strictly increasing base numbers, coverage contiguous by whole `CalendarDate`, unique
+filenames/DatabaseIds, positive measured shadow size, single-step phase advance, and clearing only
+after `CatalogPublished`. A zero-record target is accepted, because a ready range may legitimately
+consist of zero-record days inside the candidate window.
+
+Starting a rotation while a pending Archive Split marker exists is fail-closed, and starting a split
+while a pending rotation exists is fail-closed as well.
 
 Durable phases:
 
@@ -419,6 +431,14 @@ Current accepted foundation on exact main `ef96c1aba2eaad7a2af853a85981ac1be9d4a
 - multi-threshold configuration requires explicit `Any` or `All`;
 - pure planner supports count/day inputs and fails closed on `MaxBytes`;
 - exact-main Build #438 and Native SQLCipher #81 are **SUCCESS**.
+
+Accepted since then:
+
+- **Pure planner correction** — ready ranges vs open tail with post-day `>=` trigger semantics,
+  accepted on exact main `8f28c8fb187e20b85ef906b7f75a1ba2179e837e` by Build #442
+  (run `35297570135`) and Native SQLCipher #82 (run `35297570220`);
+- **Current schema v10 + pending rotation repository** — durable operation/target plan, migration
+  and mutual exclusion with pending Archive Split.
 
 Remaining slices, in order:
 

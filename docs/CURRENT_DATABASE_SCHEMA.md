@@ -6,11 +6,11 @@ Schema versions принадлежат конкретной роли БД, а н
 
 Текущее production состояние:
 
-- `current.db`: schema version **9**;
+- `current.db`: schema version **10**;
 - `storage-catalog.db`: schema version **3**;
 - Archive DB: schema version **1**.
 
-`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration, pending policy maintenance, discovered application formats, pending archive split state или assigned Archive coverage.
+`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration, pending policy maintenance, discovered application formats, pending archive split state, pending archive rotation state или assigned Archive coverage.
 
 ## Current v2 — durable application identity
 
@@ -115,16 +115,55 @@ Current v9 добавила crash-recovery foundation для Archive Split из 
 
 Schema v9 и repository **не реализуют** сам split planner, shadow DB build, filesystem publication или Catalog switch; это последующие slices.
 
+## Current v10 — durable pending archive-rotation state
+
+Current v10 добавила crash-recovery foundation для Archive Rotation из `ARCHIVE_ROTATION_PROTOCOL.md`.
+
+`PendingArchiveRotation` хранит ровно одну активную операцию:
+
+- `OperationId`;
+- policy snapshot: nullable `MaxRecordCount`, `MaxBytes`, `MaxCalendarDays` и nullable `ThresholdMode` (`1 = Any`, `2 = All`);
+- durable phase;
+- `CreatedAtUtc`;
+- table-level CHECK требует хотя бы один настроенный threshold.
+
+Policy snapshot фиксирует пороги, действовавшие в момент commit плана. Recovery выполняет уже зафиксированный план и никогда не перепланирует операцию по текущим настройкам.
+
+`PendingArchiveRotationTarget` хранит immutable ordered output plan:
+
+- `(OperationId, SegmentOrder)` как PK;
+- canonical unsplit base `FileName`;
+- planned `DatabaseId`;
+- coverage start/end;
+- `ExpectedRecordCount` (допускается `0`, потому что zero-record дни внутри candidate window входят в coverage);
+- `ShadowPhysicalSizeBytes` — измеренный физический размер валидированного staging shadow DB, а не сумма clipboard payload bytes;
+- уникальность filename и DatabaseId внутри операции;
+- FK на operation с `ON DELETE CASCADE`.
+
+Допустимые persisted phases идут строго по порядку:
+
+1. `Planned`;
+2. `ReadyToPublish`;
+3. `PhysicalPublished`;
+4. `SourcePurged`;
+5. `CatalogPublished`.
+
+`SqlitePendingArchiveRotationRepository` валидирует Current identity/schema, policy snapshot, canonical unsplit archive filenames, strictly increasing base numbers, непрерывность coverage по целым `CalendarDate`, положительный shadow size, operation ownership и разрешает phase advance только на один шаг. Marker можно очистить только после `CatalogPublished`.
+
+Pending rotation и pending split взаимно исключаются: start любой из двух операций fail-closed, если другой durable marker уже существует.
+
+Schema v10 и repository **не реализуют** rotation scheduler, storage-backed shadow construction, physical publication, source purge, Catalog publication или recovery coordinator; это последующие slices.
+
 ## New storage initialization
 
 Новая storage pair создаётся staging-операцией:
 
-1. `current.db` создаётся сразу как v9 со всеми Current v2-v9 contracts, включая пустые `PendingPolicyMaintenance`, `ApplicationDiscoveredFormat`, `PendingArchiveSplit` и `PendingArchiveSplitSegment`;
+1. `current.db` создаётся сразу как v10 со всеми Current v2-v10 contracts, включая пустые `PendingPolicyMaintenance`, `ApplicationDiscoveredFormat`, `PendingArchiveSplit`, `PendingArchiveSplitSegment`, `PendingArchiveRotation` и `PendingArchiveRotationTarget`;
 2. `storage-catalog.db` создаётся сразу как v3 с `ExternalPayloadAddressIndex` и пустой `ArchiveSegmentIndex`;
 3. обе БД полностью валидируются;
 4. только затем staging `Current` перемещается на final path.
 
-Policy, custom-binary mappings, pending maintenance, discovered formats и pending archive split state не seed-ятся defaults. Catalog archive projection не строится из догадок: она восстанавливается/обновляется отдельно из authoritative Archive DB state.
+Policy, custom-binary mappings, pending maintenance, discovered formats, pending archive split и pending archive rotation state не seed-ятся defaults. Catalog archive projection не строится из догадок: она восстанавливается/обновляется отдельно из authoritative Archive DB state.
 
 ## Resumable legacy migration
 
@@ -188,7 +227,14 @@ Policy, custom-binary mappings, pending maintenance, discovered formats и pendi
 3. version `8 → 9` и `user_version = 9`;
 4. cancellation check и COMMIT.
 
-Existing identity/application policy, history, global policy, custom-binary mappings, pending policy-maintenance state, discovered formats и Catalog rows не переписываются соответствующими последующими migration steps.
+### Current v9 → v10
+
+1. валидировать все Current v9 contracts;
+2. создать пустые `PendingArchiveRotation` и `PendingArchiveRotationTarget`;
+3. version `9 → 10` и `user_version = 10`;
+4. cancellation check и COMMIT.
+
+Existing identity/application policy, history, global policy, custom-binary mappings, pending policy-maintenance state, discovered formats, pending archive split state и Catalog rows не переписываются соответствующими последующими migration steps.
 
 ### Catalog v1 → v2 → v3
 
@@ -201,7 +247,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 
 Ошибка/отмена до COMMIT оставляет полноценную предыдущую schema version, поэтому следующий unlock может повторить конкретный step.
 
-Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7→8→9`, Catalog — `1→2→3`; durable boundaries не схлопываются.
+Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7→8→9→10`, Catalog — `1→2→3`; durable boundaries не схлопываются.
 
 ## Fail-closed validation
 
@@ -215,6 +261,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 - Current v7+ pending policy-maintenance contract.
 - Current v8+ application-discovered-format contract.
 - Current v9+ pending archive-split operation/segment contracts.
+- Current v10+ pending archive-rotation operation/target contracts.
 - Catalog v2+ обязан иметь external-payload address contract.
 - Catalog v3+ дополнительно обязан иметь archive-segment projection table/index contract.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
@@ -232,6 +279,7 @@ Repositories schema не создают и не мигрируют. Это пр�
 - pending-maintenance composition/repository: Current v7+;
 - `SqliteApplicationDiscoveredFormatRepository`: Current v8+;
 - `SqlitePendingArchiveSplitRepository`: Current v9+;
+- `SqlitePendingArchiveRotationRepository`: Current v10+;
 - `SqliteExternalPayloadAddressIndex`: Catalog v2+;
 - `ProtectedArchiveSegmentCatalog`: Catalog v3 + active Current history schema.
 
