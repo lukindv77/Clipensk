@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, claude/affectionate-brahmagupta-vtgfm9 ]
   workflow_dispatch:
 
 permissions:
