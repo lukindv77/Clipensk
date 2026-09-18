@@ -247,7 +247,7 @@ public sealed class ProtectedArchiveSplitShadowBuilder
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (!IsCanonicalArchiveFileName(expectedFileName) ||
+        if (!ArchiveShadowWriter.IsCanonicalArchiveFileName(expectedFileName) ||
             expectedDatabaseId == Guid.Empty)
         {
             throw new ArgumentException("Expected Archive identity is invalid.");
@@ -274,276 +274,13 @@ public sealed class ProtectedArchiveSplitShadowBuilder
             SqliteOpenMode.ReadOnly,
             token);
 
-        using (SqliteCommand keyProbe = connection.CreateCommand())
-        {
-            keyProbe.CommandText = "SELECT count(*) FROM sqlite_master;";
-            _ = keyProbe.ExecuteScalar();
-        }
-
-        using (SqliteCommand quickCheck = connection.CreateCommand())
-        {
-            quickCheck.CommandText = "PRAGMA quick_check;";
-            if (quickCheck.ExecuteScalar() is not string result ||
-                !string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException("Archive SQLite quick_check failed.");
-            }
-        }
-
-        ValidateDatabaseIdentityColumns(connection);
-
-        using (SqliteCommand count = connection.CreateCommand())
-        {
-            count.CommandText = "SELECT COUNT(*) FROM DatabaseIdentity;";
-            if (Convert.ToInt64(
-                    count.ExecuteScalar(),
-                    CultureInfo.InvariantCulture) != 1)
-            {
-                throw new InvalidDataException(
-                    "Archive DatabaseIdentity must contain exactly one row.");
-            }
-        }
-
-        DatabaseIdentity identity = ReadAndValidateIdentity(
+        return ArchiveShadowWriter.ValidateShadowDatabase(
             connection,
+            _session.StorageId,
             expectedFileName,
             expectedDatabaseId,
-            expectedCoverage);
-
-        using (SqliteCommand userVersion = connection.CreateCommand())
-        {
-            userVersion.CommandText = "PRAGMA user_version;";
-            if (Convert.ToInt32(
-                    userVersion.ExecuteScalar(),
-                    CultureInfo.InvariantCulture) !=
-                ProtectedArchiveDatabaseService.ArchiveSchemaVersion)
-            {
-                throw new InvalidDataException(
-                    "Archive user_version does not match schema version.");
-            }
-        }
-
-        ApplicationIdentitySqlSchema.ValidateTables(connection);
-        ClipboardHistorySqlSchema.ValidateTables(connection);
-        ValidateForeignKeys(connection);
-        ValidateHistoryCoverage(connection, identity, token);
-
-        token.ThrowIfCancellationRequested();
-        return identity;
-    }
-
-    private DatabaseIdentity ReadAndValidateIdentity(
-        SqliteConnection connection,
-        ArchiveFileName expectedFileName,
-        Guid expectedDatabaseId,
-        JournalDateRange expectedCoverage)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT StorageId,
-                   DatabaseId,
-                   DatabaseRole,
-                   SchemaVersion,
-                   EncryptionVersion,
-                   CreatedAtUtc,
-                   ArchiveBaseNumber,
-                   ArchiveSplitSequence,
-                   CoverageStartDate,
-                   CoverageEndDate
-            FROM DatabaseIdentity
-            WHERE SingletonId = 1;
-            """;
-
-        using SqliteDataReader reader = command.ExecuteReader();
-        if (!reader.Read())
-        {
-            throw new InvalidDataException("Archive DatabaseIdentity is missing.");
-        }
-
-        if (!Guid.TryParse(reader.GetString(0), out Guid storageId) ||
-            storageId != _session.StorageId ||
-            !Guid.TryParse(reader.GetString(1), out Guid databaseId) ||
-            databaseId != expectedDatabaseId ||
-            !Enum.TryParse(
-                reader.GetString(2),
-                ignoreCase: false,
-                out DatabaseRole role) ||
-            role != DatabaseRole.Archive ||
-            reader.GetInt32(3) != ProtectedArchiveDatabaseService.ArchiveSchemaVersion ||
-            reader.GetInt32(4) != ProtectedStorageDatabaseService.CurrentEncryptionVersion ||
-            !DateTimeOffset.TryParse(
-                reader.GetString(5),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind,
-                out DateTimeOffset createdAtUtc) ||
-            createdAtUtc.Offset != TimeSpan.Zero)
-        {
-            throw new InvalidDataException(
-                "Archive DatabaseIdentity does not match the planned identity.");
-        }
-
-        if (reader.IsDBNull(6) ||
-            reader.GetInt32(6) != expectedFileName.BaseNumber)
-        {
-            throw new InvalidDataException(
-                "Archive base number does not match the planned file name.");
-        }
-
-        int? splitSequence = reader.IsDBNull(7)
-            ? null
-            : reader.GetInt32(7);
-        if (expectedFileName.SplitSequence == ArchiveFileName.NoSplit)
-        {
-            if (splitSequence is not null)
-            {
-                throw new InvalidDataException(
-                    "Unsplit archive must store a null split sequence.");
-            }
-        }
-        else if (splitSequence != expectedFileName.SplitSequence ||
-                 splitSequence <= 0)
-        {
-            throw new InvalidDataException(
-                "Archive split sequence does not match the planned file name.");
-        }
-
-        if (reader.IsDBNull(8) ||
-            reader.IsDBNull(9) ||
-            !DateOnly.TryParseExact(
-                reader.GetString(8),
-                "yyyy-MM-dd",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out DateOnly coverageStart) ||
-            !DateOnly.TryParseExact(
-                reader.GetString(9),
-                "yyyy-MM-dd",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out DateOnly coverageEnd) ||
-            coverageEnd < coverageStart)
-        {
-            throw new InvalidDataException("Archive coverage is invalid.");
-        }
-
-        var coverage = new JournalDateRange(coverageStart, coverageEnd);
-        if (coverage != expectedCoverage)
-        {
-            throw new InvalidDataException(
-                "Archive coverage does not match the planned range.");
-        }
-
-        return new DatabaseIdentity(
-            storageId,
-            databaseId,
-            DatabaseRole.Archive,
-            ProtectedArchiveDatabaseService.ArchiveSchemaVersion,
-            ProtectedStorageDatabaseService.CurrentEncryptionVersion,
-            createdAtUtc,
-            expectedFileName.BaseNumber,
-            splitSequence,
-            coverageStart,
-            coverageEnd);
-    }
-
-    private static void ValidateDatabaseIdentityColumns(
-        SqliteConnection connection)
-    {
-        ExpectedIdentityColumn[] expected =
-        [
-            new("SingletonId", "INTEGER", NotNull: true, PrimaryKeyOrder: 1),
-            new("StorageId", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
-            new("DatabaseId", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
-            new("DatabaseRole", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
-            new("SchemaVersion", "INTEGER", NotNull: true, PrimaryKeyOrder: 0),
-            new("EncryptionVersion", "INTEGER", NotNull: true, PrimaryKeyOrder: 0),
-            new("CreatedAtUtc", "TEXT", NotNull: true, PrimaryKeyOrder: 0),
-            new("ArchiveBaseNumber", "INTEGER", NotNull: false, PrimaryKeyOrder: 0),
-            new("ArchiveSplitSequence", "INTEGER", NotNull: false, PrimaryKeyOrder: 0),
-            new("CoverageStartDate", "TEXT", NotNull: false, PrimaryKeyOrder: 0),
-            new("CoverageEndDate", "TEXT", NotNull: false, PrimaryKeyOrder: 0),
-        ];
-
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "PRAGMA table_info('DatabaseIdentity');";
-        using SqliteDataReader reader = command.ExecuteReader();
-
-        int index = 0;
-        while (reader.Read())
-        {
-            if (index >= expected.Length)
-            {
-                throw new InvalidDataException(
-                    "Archive DatabaseIdentity contains unexpected columns.");
-            }
-
-            ExpectedIdentityColumn column = expected[index++];
-            if (!string.Equals(
-                    reader.GetString(1),
-                    column.Name,
-                    StringComparison.Ordinal) ||
-                !string.Equals(
-                    reader.GetString(2),
-                    column.Type,
-                    StringComparison.OrdinalIgnoreCase) ||
-                reader.GetInt32(3) != (column.NotNull ? 1 : 0) ||
-                reader.GetInt32(5) != column.PrimaryKeyOrder)
-            {
-                throw new InvalidDataException(
-                    "Archive DatabaseIdentity column contract is invalid.");
-            }
-        }
-
-        if (index != expected.Length)
-        {
-            throw new InvalidDataException(
-                "Archive DatabaseIdentity is missing required columns.");
-        }
-    }
-
-    private static void ValidateForeignKeys(SqliteConnection connection)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "PRAGMA foreign_key_check;";
-        using SqliteDataReader reader = command.ExecuteReader();
-        if (reader.Read())
-        {
-            throw new InvalidDataException(
-                "Archive contains invalid foreign-key references.");
-        }
-    }
-
-    private static void ValidateHistoryCoverage(
-        SqliteConnection connection,
-        DatabaseIdentity identity,
-        CancellationToken token)
-    {
-        if (identity.CoverageStartDate is not DateOnly start ||
-            identity.CoverageEndDate is not DateOnly end)
-        {
-            throw new InvalidDataException("Archive coverage is missing.");
-        }
-
-        var coverage = new JournalDateRange(start, end);
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText =
-            "SELECT DISTINCT CalendarDate FROM ClipboardHistoryEvent;";
-        using SqliteDataReader reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            token.ThrowIfCancellationRequested();
-            if (!DateOnly.TryParseExact(
-                    reader.GetString(0),
-                    "yyyy-MM-dd",
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out DateOnly calendarDate) ||
-                !coverage.Contains(calendarDate))
-            {
-                throw new InvalidDataException(
-                    "Archive history contains an event outside assigned coverage.");
-            }
-        }
+            expectedCoverage,
+            token);
     }
 
     private void RecheckFinalArchiveReservations(
@@ -650,7 +387,7 @@ public sealed class ProtectedArchiveSplitShadowBuilder
 
     private string GetFinalArchivePath(ArchiveFileName fileName)
     {
-        if (!IsCanonicalArchiveFileName(fileName))
+        if (!ArchiveShadowWriter.IsCanonicalArchiveFileName(fileName))
         {
             throw new InvalidDataException(
                 "Archive split plan contains a noncanonical filename.");
@@ -663,7 +400,7 @@ public sealed class ProtectedArchiveSplitShadowBuilder
         string stagingDirectory,
         ArchiveFileName fileName)
     {
-        if (!IsCanonicalArchiveFileName(fileName))
+        if (!ArchiveShadowWriter.IsCanonicalArchiveFileName(fileName))
         {
             throw new InvalidDataException(
                 "Archive split plan contains a noncanonical filename.");
@@ -671,16 +408,6 @@ public sealed class ProtectedArchiveSplitShadowBuilder
 
         return Path.Combine(stagingDirectory, fileName.FileName);
     }
-
-    private static bool IsCanonicalArchiveFileName(ArchiveFileName fileName) =>
-        ArchiveFileName.TryParse(
-            fileName.FileName,
-            out ArchiveFileName parsed) &&
-        parsed == fileName &&
-        string.Equals(
-            parsed.FileName,
-            fileName.FileName,
-            StringComparison.Ordinal);
 
     private static void EnableForeignKeys(SqliteConnection connection)
     {
@@ -692,9 +419,4 @@ public sealed class ProtectedArchiveSplitShadowBuilder
     private static string FormatDate(DateOnly date) =>
         date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    private sealed record ExpectedIdentityColumn(
-        string Name,
-        string Type,
-        bool NotNull,
-        int PrimaryKeyOrder);
 }
