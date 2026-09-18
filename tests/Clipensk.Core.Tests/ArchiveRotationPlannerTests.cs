@@ -8,22 +8,26 @@ namespace Clipensk.Core.Tests;
 public sealed class ArchiveRotationPlannerTests
 {
     private static readonly DateOnly Start = new(2026, 1, 1);
+    private static readonly DateOnly CurrentLocalDate = new(2026, 2, 1);
 
     [Fact]
-    public void Build_NoDays_ReturnsNoRanges()
+    public void Build_NoDays_ReturnsNoReadySegmentsAndNoTail()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings { MaxCalendarDays = 7 };
 
-        IReadOnlyList<JournalDateRange> result = planner.Build(
+        ArchiveRotationPlan result = planner.Build(
             Array.Empty<ArchiveRotationDayMetrics>(),
-            settings);
+            settings,
+            CurrentLocalDate);
 
-        Assert.Empty(result);
+        Assert.Empty(result.ReadySegments);
+        Assert.Null(result.Tail);
+        Assert.False(result.HasReadySegments);
     }
 
     [Fact]
-    public void Build_MaxCalendarDays_PartitionsOnlyBetweenWholeDays()
+    public void Build_MaxCalendarDays_LeavesNewestUnderThresholdTail()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings { MaxCalendarDays = 2 };
@@ -36,17 +40,40 @@ public sealed class ArchiveRotationPlannerTests
             Day(4, 1),
         ];
 
-        IReadOnlyList<JournalDateRange> result = planner.Build(days, settings);
+        ArchiveRotationPlan result = planner.Build(days, settings, CurrentLocalDate);
 
         AssertRanges(
-            result,
+            result.ReadySegments,
             new JournalDateRange(Start, Start.AddDays(1)),
-            new JournalDateRange(Start.AddDays(2), Start.AddDays(3)),
-            new JournalDateRange(Start.AddDays(4), Start.AddDays(4)));
+            new JournalDateRange(Start.AddDays(2), Start.AddDays(3)));
+        Assert.Equal(
+            new JournalDateRange(Start.AddDays(4), Start.AddDays(4)),
+            result.Tail);
     }
 
     [Fact]
-    public void Build_RecordCount_ExactThresholdRemainsInCurrentRange()
+    public void Build_SparseCalendarGap_DoesNotCreateEmptyArchive()
+    {
+        var planner = new ArchiveRotationPlanner();
+        var settings = new ArchiveRotationSettings { MaxCalendarDays = 3 };
+        ArchiveRotationDayMetrics[] days =
+        [
+            Day(0, 1),
+            Day(5, 1),
+        ];
+
+        ArchiveRotationPlan result = planner.Build(days, settings, CurrentLocalDate);
+
+        AssertRanges(
+            result.ReadySegments,
+            new JournalDateRange(Start, Start));
+        Assert.Equal(
+            new JournalDateRange(Start.AddDays(5), Start.AddDays(5)),
+            result.Tail);
+    }
+
+    [Fact]
+    public void Build_RecordCount_ExactThresholdRemainsInCurrentSegment()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings
@@ -60,16 +87,18 @@ public sealed class ArchiveRotationPlannerTests
             Day(2, 1),
         ];
 
-        IReadOnlyList<JournalDateRange> result = planner.Build(days, settings);
+        ArchiveRotationPlan result = planner.Build(days, settings, CurrentLocalDate);
 
         AssertRanges(
-            result,
-            new JournalDateRange(Start, Start.AddDays(1)),
-            new JournalDateRange(Start.AddDays(2), Start.AddDays(2)));
+            result.ReadySegments,
+            new JournalDateRange(Start, Start.AddDays(1)));
+        Assert.Equal(
+            new JournalDateRange(Start.AddDays(2), Start.AddDays(2)),
+            result.Tail);
     }
 
     [Fact]
-    public void Build_AnyMode_AnyConfiguredThresholdCanStartNextRange()
+    public void Build_AnyMode_AnyConfiguredThresholdCanCloseSegment()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings
@@ -85,12 +114,14 @@ public sealed class ArchiveRotationPlannerTests
             Day(2, 1),
         ];
 
-        IReadOnlyList<JournalDateRange> result = planner.Build(days, settings);
+        ArchiveRotationPlan result = planner.Build(days, settings, CurrentLocalDate);
 
         AssertRanges(
-            result,
-            new JournalDateRange(Start, Start.AddDays(1)),
-            new JournalDateRange(Start.AddDays(2), Start.AddDays(2)));
+            result.ReadySegments,
+            new JournalDateRange(Start, Start.AddDays(1)));
+        Assert.Equal(
+            new JournalDateRange(Start.AddDays(2), Start.AddDays(2)),
+            result.Tail);
     }
 
     [Fact]
@@ -105,41 +136,84 @@ public sealed class ArchiveRotationPlannerTests
         };
         ArchiveRotationDayMetrics[] days =
         [
-            Day(0, 4),
-            Day(1, 4),
-            Day(2, 3),
+            Day(0, 6),
+            Day(1, 5),
+            Day(2, 1),
             Day(3, 1),
         ];
 
-        IReadOnlyList<JournalDateRange> result = planner.Build(days, settings);
+        ArchiveRotationPlan result = planner.Build(days, settings, CurrentLocalDate);
 
         AssertRanges(
-            result,
-            new JournalDateRange(Start, Start.AddDays(1)),
-            new JournalDateRange(Start.AddDays(2), Start.AddDays(3)));
+            result.ReadySegments,
+            new JournalDateRange(Start, Start.AddDays(1)));
+        Assert.Equal(
+            new JournalDateRange(Start.AddDays(2), Start.AddDays(3)),
+            result.Tail);
     }
 
     [Fact]
-    public void Build_OversizedSingleDay_RemainsWhole()
+    public void Build_OversizedSingleDay_IsReadyWithoutSplittingDay()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings
         {
             MaxRecordCount = 10,
         };
-        ArchiveRotationDayMetrics[] days =
-        [
-            Day(0, 11),
-            Day(1, 1),
-            Day(2, 1),
-        ];
 
-        IReadOnlyList<JournalDateRange> result = planner.Build(days, settings);
+        ArchiveRotationPlan result = planner.Build(
+            [Day(0, 11)],
+            settings,
+            CurrentLocalDate);
 
         AssertRanges(
-            result,
-            new JournalDateRange(Start, Start),
-            new JournalDateRange(Start.AddDays(1), Start.AddDays(2)));
+            result.ReadySegments,
+            new JournalDateRange(Start, Start));
+        Assert.Null(result.Tail);
+    }
+
+    [Fact]
+    public void Build_UnderThresholdHistory_RemainsTail()
+    {
+        var planner = new ArchiveRotationPlanner();
+        var settings = new ArchiveRotationSettings
+        {
+            MaxRecordCount = 10,
+        };
+
+        ArchiveRotationPlan result = planner.Build(
+            [Day(0, 2), Day(1, 3)],
+            settings,
+            CurrentLocalDate);
+
+        Assert.Empty(result.ReadySegments);
+        Assert.Equal(
+            new JournalDateRange(Start, Start.AddDays(1)),
+            result.Tail);
+    }
+
+    [Fact]
+    public void Build_RecordCountOverflowBoundary_FailsSafeWithoutArithmeticOverflow()
+    {
+        var planner = new ArchiveRotationPlanner();
+        var settings = new ArchiveRotationSettings
+        {
+            MaxRecordCount = long.MaxValue,
+        };
+        ArchiveRotationDayMetrics[] days =
+        [
+            Day(0, long.MaxValue),
+            Day(1, 1),
+        ];
+
+        ArchiveRotationPlan result = planner.Build(days, settings, CurrentLocalDate);
+
+        AssertRanges(
+            result.ReadySegments,
+            new JournalDateRange(Start, Start));
+        Assert.Equal(
+            new JournalDateRange(Start.AddDays(1), Start.AddDays(1)),
+            result.Tail);
     }
 
     [Fact]
@@ -152,7 +226,7 @@ public sealed class ArchiveRotationPlannerTests
         };
 
         Assert.Throws<NotSupportedException>(
-            () => planner.Build([Day(0, 1)], settings));
+            () => planner.Build([Day(0, 1)], settings, CurrentLocalDate));
     }
 
     [Fact]
@@ -166,42 +240,54 @@ public sealed class ArchiveRotationPlannerTests
         };
 
         Assert.Throws<ArgumentException>(
-            () => planner.Build([Day(0, 1)], settings));
+            () => planner.Build([Day(0, 1)], settings, CurrentLocalDate));
     }
 
     [Fact]
-    public void Build_GapInMetrics_FailsClosed()
+    public void Build_DuplicateOrOutOfOrderMetrics_FailClosed()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings { MaxCalendarDays = 7 };
-        ArchiveRotationDayMetrics[] days =
-        [
-            Day(0, 1),
-            Day(2, 1),
-        ];
 
-        Assert.Throws<ArgumentException>(() => planner.Build(days, settings));
+        Assert.Throws<ArgumentException>(
+            () => planner.Build(
+                [Day(1, 1), Day(0, 1)],
+                settings,
+                CurrentLocalDate));
+
+        Assert.Throws<ArgumentException>(
+            () => planner.Build(
+                [Day(0, 1), Day(0, 2)],
+                settings,
+                CurrentLocalDate));
     }
 
-    [Fact]
-    public void Build_DuplicateOrOutOfOrderMetrics_FailsClosed()
-    {
-        var planner = new ArchiveRotationPlanner();
-        var settings = new ArchiveRotationSettings { MaxCalendarDays = 7 };
-        ArchiveRotationDayMetrics[] days =
-        [
-            Day(1, 1),
-            Day(0, 1),
-        ];
-
-        Assert.Throws<ArgumentException>(() => planner.Build(days, settings));
-    }
-
-    [Fact]
-    public void DayMetrics_NegativeRecordCount_IsRejected()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void DayMetrics_NonPositiveRecordCount_IsRejected(long recordCount)
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ArchiveRotationDayMetrics(Start, -1));
+            () => new ArchiveRotationDayMetrics(Start, recordCount));
+    }
+
+    [Fact]
+    public void Build_CurrentOrFutureDay_FailsClosed()
+    {
+        var planner = new ArchiveRotationPlanner();
+        var settings = new ArchiveRotationSettings { MaxCalendarDays = 7 };
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => planner.Build(
+                [new ArchiveRotationDayMetrics(CurrentLocalDate, 1)],
+                settings,
+                CurrentLocalDate));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => planner.Build(
+                [new ArchiveRotationDayMetrics(CurrentLocalDate.AddDays(1), 1)],
+                settings,
+                CurrentLocalDate));
     }
 
     [Fact]
@@ -210,7 +296,10 @@ public sealed class ArchiveRotationPlannerTests
         var planner = new ArchiveRotationPlanner();
 
         Assert.Throws<ArgumentException>(
-            () => planner.Build([Day(0, 1)], new ArchiveRotationSettings()));
+            () => planner.Build(
+                [Day(0, 1)],
+                new ArchiveRotationSettings(),
+                CurrentLocalDate));
     }
 
     private static ArchiveRotationDayMetrics Day(int offset, long records) =>
