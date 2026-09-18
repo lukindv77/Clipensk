@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, fix/archive-rotation-threshold-mode ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
