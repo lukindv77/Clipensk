@@ -4,10 +4,8 @@ using Clipensk.Core.Settings;
 namespace Clipensk.Core.Storage;
 
 /// <summary>
-/// Additive rotation metrics for one complete calendar day. Callers must include zero-record
-/// days when they are part of the intended coverage so the planner can preserve contiguous ranges.
-/// Physical Archive database size is intentionally not represented here because it is not an
-/// additive per-day metric and must be measured by storage-backed rotation orchestration.
+/// Rotation metrics for one completed calendar day that contains at least one Current event.
+/// Sparse calendar dates are expected; missing days are represented by gaps between metrics.
 /// </summary>
 public readonly record struct ArchiveRotationDayMetrics
 {
@@ -15,11 +13,11 @@ public readonly record struct ArchiveRotationDayMetrics
         DateOnly calendarDate,
         long recordCount)
     {
-        if (recordCount < 0)
+        if (recordCount <= 0)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(recordCount),
-                "Archive rotation record count cannot be negative.");
+                "Archive rotation record count must be positive for an observed event day.");
         }
 
         CalendarDate = calendarDate;
@@ -31,18 +29,37 @@ public readonly record struct ArchiveRotationDayMetrics
     public long RecordCount { get; }
 }
 
+public sealed record ArchiveRotationPlan
+{
+    public ArchiveRotationPlan(
+        IReadOnlyList<JournalDateRange> readySegments,
+        JournalDateRange? tail)
+    {
+        ArgumentNullException.ThrowIfNull(readySegments);
+        ReadySegments = readySegments;
+        Tail = tail;
+    }
+
+    public IReadOnlyList<JournalDateRange> ReadySegments { get; }
+
+    public JournalDateRange? Tail { get; }
+
+    public bool HasReadySegments => ReadySegments.Count > 0;
+}
+
 /// <summary>
-/// Deterministically partitions ordered, contiguous calendar-day metrics using the thresholds that
-/// can be evaluated without materializing Archive files. Physical-size rotation is fail-closed here
-/// and belongs to storage-backed orchestration that measures the actual Archive database file.
+/// Plans threshold-ready Archive ranges from ordered completed Current event days.
+/// The newest under-threshold range remains as Tail and is not considered ready for automatic
+/// rotation. Physical-size rotation is storage-backed and intentionally fails closed here.
 /// </summary>
 public sealed class ArchiveRotationPlanner
 {
-    public IReadOnlyList<JournalDateRange> Build(
-        IReadOnlyList<ArchiveRotationDayMetrics> orderedDays,
-        ArchiveRotationSettings settings)
+    public ArchiveRotationPlan Build(
+        IReadOnlyList<ArchiveRotationDayMetrics> orderedEventDays,
+        ArchiveRotationSettings settings,
+        DateOnly currentLocalDate)
     {
-        ArgumentNullException.ThrowIfNull(orderedDays);
+        ArgumentNullException.ThrowIfNull(orderedEventDays);
         ArgumentNullException.ThrowIfNull(settings);
         settings.Validate();
 
@@ -52,87 +69,194 @@ public sealed class ArchiveRotationPlanner
                 "Physical Archive size rotation requires storage-backed measurement of the actual database file.");
         }
 
-        if (orderedDays.Count == 0)
+        if (orderedEventDays.Count == 0)
         {
-            return Array.Empty<JournalDateRange>();
+            return new ArchiveRotationPlan(
+                Array.Empty<JournalDateRange>(),
+                tail: null);
         }
 
-        ValidateContiguousOrder(orderedDays);
+        ValidateOrderedClosedEventDays(orderedEventDays, currentLocalDate);
 
-        var ranges = new List<JournalDateRange>();
-        ArchiveRotationDayMetrics first = orderedDays[0];
-        DateOnly segmentStart = first.CalendarDate;
-        DateOnly segmentEnd = first.CalendarDate;
-        int segmentDayCount = 1;
-        long segmentRecordCount = settings.MaxRecordCount.HasValue ? first.RecordCount : 0;
+        var readySegments = new List<JournalDateRange>();
+        DateOnly? segmentStart = null;
+        DateOnly segmentEnd = default;
+        long segmentRecordCount = 0;
+        bool segmentRecordCountExceeded = false;
 
-        for (int index = 1; index < orderedDays.Count; index++)
+        foreach (ArchiveRotationDayMetrics day in orderedEventDays)
         {
-            ArchiveRotationDayMetrics day = orderedDays[index];
-            if (ShouldStartNextRange(
-                    segmentDayCount,
-                    segmentRecordCount,
+            if (segmentStart is null)
+            {
+                StartSegment(
                     day,
+                    settings,
+                    out segmentStart,
+                    out segmentEnd,
+                    out segmentRecordCount,
+                    out segmentRecordCountExceeded);
+
+                if (CurrentSegmentTriggers(
+                        segmentStart.Value,
+                        segmentEnd,
+                        segmentRecordCountExceeded,
+                        settings))
+                {
+                    readySegments.Add(new JournalDateRange(segmentStart.Value, segmentEnd));
+                    segmentStart = null;
+                }
+
+                continue;
+            }
+
+            bool candidateRecordCountExceeded = segmentRecordCountExceeded;
+            long candidateRecordCount = segmentRecordCount;
+            if (settings.MaxRecordCount is long maxRecords && !candidateRecordCountExceeded)
+            {
+                if (day.RecordCount > maxRecords - candidateRecordCount)
+                {
+                    candidateRecordCountExceeded = true;
+                }
+                else
+                {
+                    candidateRecordCount += day.RecordCount;
+                }
+            }
+
+            bool candidateCalendarSpanExceeded =
+                settings.MaxCalendarDays is int maxDays &&
+                day.CalendarDate.DayNumber - segmentStart.Value.DayNumber + 1 > maxDays;
+
+            if (ThresholdCombinationTriggers(
+                    candidateRecordCountExceeded,
+                    candidateCalendarSpanExceeded,
                     settings))
             {
-                ranges.Add(new JournalDateRange(segmentStart, segmentEnd));
-                segmentStart = day.CalendarDate;
-                segmentEnd = day.CalendarDate;
-                segmentDayCount = 1;
-                segmentRecordCount = settings.MaxRecordCount.HasValue ? day.RecordCount : 0;
+                readySegments.Add(new JournalDateRange(segmentStart.Value, segmentEnd));
+
+                StartSegment(
+                    day,
+                    settings,
+                    out segmentStart,
+                    out segmentEnd,
+                    out segmentRecordCount,
+                    out segmentRecordCountExceeded);
+
+                if (CurrentSegmentTriggers(
+                        segmentStart.Value,
+                        segmentEnd,
+                        segmentRecordCountExceeded,
+                        settings))
+                {
+                    readySegments.Add(new JournalDateRange(segmentStart.Value, segmentEnd));
+                    segmentStart = null;
+                }
+
                 continue;
             }
 
             segmentEnd = day.CalendarDate;
-            segmentDayCount++;
-            if (settings.MaxRecordCount.HasValue)
-            {
-                segmentRecordCount += day.RecordCount;
-            }
+            segmentRecordCount = candidateRecordCount;
+            segmentRecordCountExceeded = candidateRecordCountExceeded;
         }
 
-        ranges.Add(new JournalDateRange(segmentStart, segmentEnd));
-        return ranges;
+        JournalDateRange? tail = segmentStart is DateOnly tailStart
+            ? new JournalDateRange(tailStart, segmentEnd)
+            : null;
+
+        return new ArchiveRotationPlan(
+            readySegments.ToArray(),
+            tail);
     }
 
-    private static void ValidateContiguousOrder(
-        IReadOnlyList<ArchiveRotationDayMetrics> orderedDays)
+    private static void ValidateOrderedClosedEventDays(
+        IReadOnlyList<ArchiveRotationDayMetrics> orderedEventDays,
+        DateOnly currentLocalDate)
     {
-        for (int index = 1; index < orderedDays.Count; index++)
+        DateOnly? previous = null;
+        foreach (ArchiveRotationDayMetrics day in orderedEventDays)
         {
-            DateOnly previous = orderedDays[index - 1].CalendarDate;
-            DateOnly current = orderedDays[index].CalendarDate;
-            if (current.DayNumber != previous.DayNumber + 1)
+            if (day.CalendarDate >= currentLocalDate)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(orderedEventDays),
+                    "Archive rotation accepts only completed calendar days.");
+            }
+
+            if (previous is DateOnly previousDate &&
+                day.CalendarDate <= previousDate)
             {
                 throw new ArgumentException(
-                    "Archive rotation day metrics must be strictly ordered and contiguous by calendar date.",
-                    nameof(orderedDays));
+                    "Archive rotation day metrics must be strictly increasing by calendar date.",
+                    nameof(orderedEventDays));
             }
+
+            previous = day.CalendarDate;
         }
     }
 
-    private static bool ShouldStartNextRange(
-        int segmentDayCount,
-        long segmentRecordCount,
-        ArchiveRotationDayMetrics nextDay,
+    private static void StartSegment(
+        ArchiveRotationDayMetrics day,
+        ArchiveRotationSettings settings,
+        out DateOnly? segmentStart,
+        out DateOnly segmentEnd,
+        out long segmentRecordCount,
+        out bool segmentRecordCountExceeded)
+    {
+        segmentStart = day.CalendarDate;
+        segmentEnd = day.CalendarDate;
+
+        if (settings.MaxRecordCount is long maxRecords)
+        {
+            segmentRecordCountExceeded = day.RecordCount > maxRecords;
+            segmentRecordCount = segmentRecordCountExceeded
+                ? 0
+                : day.RecordCount;
+        }
+        else
+        {
+            segmentRecordCountExceeded = false;
+            segmentRecordCount = 0;
+        }
+    }
+
+    private static bool CurrentSegmentTriggers(
+        DateOnly segmentStart,
+        DateOnly segmentEnd,
+        bool recordCountExceeded,
+        ArchiveRotationSettings settings)
+    {
+        bool calendarSpanExceeded =
+            settings.MaxCalendarDays is int maxDays &&
+            segmentEnd.DayNumber - segmentStart.DayNumber + 1 > maxDays;
+
+        return ThresholdCombinationTriggers(
+            recordCountExceeded,
+            calendarSpanExceeded,
+            settings);
+    }
+
+    private static bool ThresholdCombinationTriggers(
+        bool recordCountExceeded,
+        bool calendarSpanExceeded,
         ArchiveRotationSettings settings)
     {
         int configuredThresholdCount = 0;
         int exceededThresholdCount = 0;
 
-        if (settings.MaxCalendarDays is int maxDays)
+        if (settings.MaxRecordCount.HasValue)
         {
             configuredThresholdCount++;
-            if (segmentDayCount >= maxDays)
+            if (recordCountExceeded)
             {
                 exceededThresholdCount++;
             }
         }
 
-        if (settings.MaxRecordCount is long maxRecords)
+        if (settings.MaxCalendarDays.HasValue)
         {
             configuredThresholdCount++;
-            if (WouldExceed(segmentRecordCount, nextDay.RecordCount, maxRecords))
+            if (calendarSpanExceeded)
             {
                 exceededThresholdCount++;
             }
@@ -143,13 +267,5 @@ public sealed class ArchiveRotationPlanner
         return mode == ArchiveRotationThresholdMode.All
             ? exceededThresholdCount == configuredThresholdCount
             : exceededThresholdCount > 0;
-    }
-
-    private static bool WouldExceed(long current, long next, long maximum)
-    {
-        // Keep one oversized day intact. This method is only used when the current segment
-        // already contains at least one day, so an oversized next day starts a new segment
-        // when the configured threshold combination says it is time to rotate.
-        return next > maximum || current > maximum - next;
     }
 }
