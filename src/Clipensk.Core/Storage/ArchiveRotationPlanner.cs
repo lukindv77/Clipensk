@@ -73,7 +73,7 @@ public sealed class ArchiveRotationPlanner
         for (int index = 1; index < orderedDays.Count; index++)
         {
             ArchiveRotationDayMetrics day = orderedDays[index];
-            if (WouldExceedConfiguredThreshold(
+            if (ShouldStartNextRange(
                     segmentDayCount,
                     segmentRecordCount,
                     segmentByteCount,
@@ -122,32 +122,55 @@ public sealed class ArchiveRotationPlanner
         }
     }
 
-    private static bool WouldExceedConfiguredThreshold(
+    private static bool ShouldStartNextRange(
         int segmentDayCount,
         long segmentRecordCount,
         long segmentByteCount,
         ArchiveRotationDayMetrics nextDay,
         ArchiveRotationSettings settings)
     {
-        if (settings.MaxCalendarDays is int maxDays && segmentDayCount >= maxDays)
+        int configuredThresholdCount = 0;
+        int exceededThresholdCount = 0;
+
+        if (settings.MaxCalendarDays is int maxDays)
         {
-            return true;
+            configuredThresholdCount++;
+            if (segmentDayCount >= maxDays)
+            {
+                exceededThresholdCount++;
+            }
         }
 
-        if (settings.MaxRecordCount is long maxRecords &&
-            WouldExceed(segmentRecordCount, nextDay.RecordCount, maxRecords))
+        if (settings.MaxRecordCount is long maxRecords)
         {
-            return true;
+            configuredThresholdCount++;
+            if (WouldExceed(segmentRecordCount, nextDay.RecordCount, maxRecords))
+            {
+                exceededThresholdCount++;
+            }
         }
 
-        return settings.MaxBytes is long maxBytes &&
-            WouldExceed(segmentByteCount, nextDay.ByteCount, maxBytes);
+        if (settings.MaxBytes is long maxBytes)
+        {
+            configuredThresholdCount++;
+            if (WouldExceed(segmentByteCount, nextDay.ByteCount, maxBytes))
+            {
+                exceededThresholdCount++;
+            }
+        }
+
+        ArchiveRotationThresholdMode mode =
+            settings.ThresholdMode ?? ArchiveRotationThresholdMode.Any;
+        return mode == ArchiveRotationThresholdMode.All
+            ? exceededThresholdCount == configuredThresholdCount
+            : exceededThresholdCount > 0;
     }
 
     private static bool WouldExceed(long current, long next, long maximum)
     {
         // Keep one oversized day intact. This method is only used when the current segment
-        // already contains at least one day, so an oversized next day starts a new segment.
+        // already contains at least one day, so an oversized next day starts a new segment
+        // when the configured threshold combination says it is time to rotate.
         return next > maximum || current > maximum - next;
     }
 }
