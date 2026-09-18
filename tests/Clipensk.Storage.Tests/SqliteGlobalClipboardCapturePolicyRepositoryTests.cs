@@ -183,7 +183,9 @@ public sealed class SqliteGlobalClipboardCapturePolicyRepositoryTests
     [InlineData("UPDATE DatabaseIdentity SET StorageId = '00000000-0000-0000-0000-000000000001';")]
     [InlineData("UPDATE DatabaseIdentity SET DatabaseRole = 'StorageCatalog';")]
     [InlineData("UPDATE DatabaseIdentity SET SchemaVersion = 4; PRAGMA user_version = 4;")]
-    [InlineData("PRAGMA user_version = 10;")]
+    // Deliberately far above any released schema version so a future Current bump cannot turn this
+    // user_version mismatch into a matching value and silently neuter the case.
+    [InlineData("PRAGMA user_version = 4242;")]
     [InlineData("ALTER TABLE GlobalCapturePolicy ADD COLUMN Unexpected TEXT;")]
     public async Task InvalidIdentityOrSchema_FailsReadAndWrite(string corruption)
     {
