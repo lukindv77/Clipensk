@@ -49,6 +49,7 @@ public sealed class JsonApplicationSettingsStoreTests
                 MaxRecordCount = 100_000,
                 MaxBytes = 512L * 1024 * 1024,
                 MaxCalendarDays = 30,
+                ThresholdMode = ArchiveRotationThresholdMode.Any,
             };
             var expected = new ApplicationSettings
             {
@@ -85,6 +86,34 @@ public sealed class JsonApplicationSettingsStoreTests
             ApplicationSettings loaded = await store.LoadAsync();
 
             Assert.Equal(expectedRotation, loaded.ArchiveRotation);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_MultipleArchiveRotationThresholdsWithoutMode_FailsClosed()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "ArchiveRotation": {
+                    "MaxRecordCount": 1000,
+                    "MaxCalendarDays": 30
+                  }
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            await Assert.ThrowsAsync<ArgumentException>(() => store.LoadAsync());
         }
         finally
         {
