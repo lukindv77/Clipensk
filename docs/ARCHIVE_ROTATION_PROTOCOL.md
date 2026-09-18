@@ -93,8 +93,9 @@ Input inventory содержит ordered unique event dates с record count. Cal
 1. полностью валидируется весь physical Archive set;
 2. coverage не должна пересекаться;
 3. определяется maximum существующий `CoverageEndDate`;
-4. любой closed Current event с датой, которая уже попадает в существующую Archive coverage, является признаком незавершённого/несогласованного transfer state и завершает новую rotation fail-closed;
-5. automatic rotation не используется для произвольного заполнения старых historical gaps между уже существующими Archive.
+4. если Archive set не пуст, любой eligible closed Current event с `CalendarDate <= maximum CoverageEndDate` завершает automatic rotation fail-closed; rotation является append-only и не заполняет старые gaps;
+5. Current event, который дополнительно попадает внутрь конкретной существующей Archive coverage, трактуется как возможный interrupted/duplicate transfer state и также требует explicit recovery;
+6. automatic rotation не используется для произвольного заполнения historical gaps между уже существующими Archive.
 
 Сложные historical gap/repair cases остаются explicit maintenance/recovery задачей, а не скрытой автоматической эвристикой.
 
