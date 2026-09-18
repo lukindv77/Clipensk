@@ -258,7 +258,7 @@ public sealed class ProtectedStorageCatalogRecoveryService
             connection,
             storageId,
             DatabaseRole.Current,
-            [1, 2, 3, 4, 5, ProtectedStorageDatabaseService.CurrentSchemaVersion]);
+            SupportedCurrentSchemaVersions);
         ValidateUserVersion(connection, identity.SchemaVersion, "Current");
 
         if (identity.SchemaVersion >= 2)
@@ -277,7 +277,7 @@ public sealed class ProtectedStorageCatalogRecoveryService
         {
             GlobalCapturePolicySqlSchema.ValidateTables(connection);
         }
-        if (identity.SchemaVersion >= ProtectedStorageDatabaseService.CurrentSchemaVersion)
+        if (identity.SchemaVersion >= CustomBinaryFormatConfigurationSqlSchema.MinimumCurrentSchemaVersion)
         {
             CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
         }
@@ -345,6 +345,13 @@ public sealed class ProtectedStorageCatalogRecoveryService
             new JournalDateRange(start, end),
             IsSealed: false));
     }
+
+    /// <summary>
+    /// Every released Current schema version stays recoverable. Listing only the newest version
+    /// would silently strand storages that are still on the previous Current schema.
+    /// </summary>
+    private static readonly int[] SupportedCurrentSchemaVersions =
+        [.. Enumerable.Range(1, ProtectedStorageDatabaseService.CurrentSchemaVersion)];
 
     private static SourceIdentity ReadNonArchiveIdentity(
         SqliteConnection connection,

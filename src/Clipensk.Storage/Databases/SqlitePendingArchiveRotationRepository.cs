@@ -1,18 +1,25 @@
 using System.Globalization;
 using Clipensk.Core.History;
+using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
 
 namespace Clipensk.Storage.Databases;
 
-public sealed class SqlitePendingArchiveSplitRepository
+/// <summary>
+/// Durable pending Archive Rotation marker store described by <c>docs/ARCHIVE_ROTATION_PROTOCOL.md</c>.
+/// The committed plan is immutable recovery metadata: filenames, planned DatabaseIds, coverage,
+/// expected record counts and measured shadow sizes are never recalculated after commit, and the
+/// phase may only advance one step forward.
+/// </summary>
+public sealed class SqlitePendingArchiveRotationRepository
 {
     private readonly ProtectedStorageSessionLease _session;
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
     private readonly string _currentDatabasePath;
 
-    public SqlitePendingArchiveSplitRepository(
+    public SqlitePendingArchiveRotationRepository(
         ProtectedStorageSessionLease session,
         IKeyedSqliteConnectionFactory? connectionFactory = null)
     {
@@ -24,7 +31,7 @@ public sealed class SqlitePendingArchiveSplitRepository
             "current.db");
     }
 
-    public ValueTask<PendingArchiveSplitOperation?> ReadAsync(
+    public ValueTask<PendingArchiveRotationOperation?> ReadAsync(
         CancellationToken cancellationToken = default)
     {
         using CancellationTokenSource linked = CreateLinkedCancellation(cancellationToken);
@@ -32,19 +39,17 @@ public sealed class SqlitePendingArchiveSplitRepository
         token.ThrowIfCancellationRequested();
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadOnly, token);
-        PendingArchiveSplitOperation? operation = ReadInTransaction(connection, null, token);
+        PendingArchiveRotationOperation? operation = ReadInTransaction(connection, null, token);
         token.ThrowIfCancellationRequested();
         return ValueTask.FromResult(operation);
     }
 
-    public async ValueTask<PendingArchiveSplitOperation> StartAsync(
-        ArchiveFileName sourceFileName,
-        Guid sourceDatabaseId,
-        JournalDateRange sourceCoverage,
-        IReadOnlyList<PendingArchiveSplitSegment> segments,
+    public async ValueTask<PendingArchiveRotationOperation> StartAsync(
+        ArchiveRotationSettings policySnapshot,
+        IReadOnlyList<PendingArchiveRotationTarget> targets,
         CancellationToken cancellationToken = default)
     {
-        ValidatePlan(sourceFileName, sourceDatabaseId, sourceCoverage, segments);
+        ValidatePlan(policySnapshot, targets);
 
         using CancellationTokenSource linked = CreateLinkedCancellation(cancellationToken);
         CancellationToken token = linked.Token;
@@ -53,13 +58,11 @@ public sealed class SqlitePendingArchiveSplitRepository
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
         using SqliteTransaction transaction = connection.BeginTransaction();
-        PendingArchiveSplitOperation operation = StartInTransaction(
+        PendingArchiveRotationOperation operation = StartInTransaction(
             connection,
             transaction,
-            sourceFileName,
-            sourceDatabaseId,
-            sourceCoverage,
-            segments,
+            policySnapshot,
+            targets,
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             token);
@@ -68,10 +71,10 @@ public sealed class SqlitePendingArchiveSplitRepository
         return operation;
     }
 
-    public async ValueTask<PendingArchiveSplitOperation> AdvancePhaseAsync(
+    public async ValueTask<PendingArchiveRotationOperation> AdvancePhaseAsync(
         Guid operationId,
-        ArchiveSplitPhase expectedPhase,
-        ArchiveSplitPhase nextPhase,
+        ArchiveRotationPhase expectedPhase,
+        ArchiveRotationPhase nextPhase,
         CancellationToken cancellationToken = default)
     {
         ValidateOperationId(operationId, nameof(operationId));
@@ -84,7 +87,7 @@ public sealed class SqlitePendingArchiveSplitRepository
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
         using SqliteTransaction transaction = connection.BeginTransaction();
-        PendingArchiveSplitOperation updated = AdvancePhaseInTransaction(
+        PendingArchiveRotationOperation updated = AdvancePhaseInTransaction(
             connection,
             transaction,
             operationId,
@@ -114,13 +117,11 @@ public sealed class SqlitePendingArchiveSplitRepository
         transaction.Commit();
     }
 
-    internal static PendingArchiveSplitOperation StartInTransaction(
+    internal static PendingArchiveRotationOperation StartInTransaction(
         SqliteConnection connection,
         SqliteTransaction transaction,
-        ArchiveFileName sourceFileName,
-        Guid sourceDatabaseId,
-        JournalDateRange sourceCoverage,
-        IReadOnlyList<PendingArchiveSplitSegment> segments,
+        ArchiveRotationSettings policySnapshot,
+        IReadOnlyList<PendingArchiveRotationTarget> targets,
         Guid operationId,
         DateTimeOffset createdAtUtc,
         CancellationToken token)
@@ -129,91 +130,95 @@ public sealed class SqlitePendingArchiveSplitRepository
         ArgumentNullException.ThrowIfNull(transaction);
         ValidateOperationId(operationId, nameof(operationId));
         ValidateUtc(createdAtUtc, nameof(createdAtUtc));
-        ValidatePlan(sourceFileName, sourceDatabaseId, sourceCoverage, segments);
+        ValidatePlan(policySnapshot, targets);
         token.ThrowIfCancellationRequested();
 
         if (ReadInTransaction(connection, transaction, token) is not null)
         {
-            throw new InvalidOperationException("A pending archive split already exists.");
+            throw new InvalidOperationException("A pending archive rotation already exists.");
         }
 
-        if (PendingArchiveRotationSqlSchema.HasPendingOperation(connection, transaction))
+        if (PendingArchiveSplitSqlSchema.HasPendingOperation(connection, transaction))
         {
             throw new InvalidOperationException(
-                "A pending archive rotation blocks starting archive split.");
+                "A pending archive split blocks starting archive rotation.");
         }
 
         using (SqliteCommand operation = connection.CreateCommand())
         {
             operation.Transaction = transaction;
             operation.CommandText = """
-                INSERT INTO PendingArchiveSplit (
-                    SingletonId, OperationId, SourceFileName, SourceDatabaseId,
-                    SourceCoverageStartDate, SourceCoverageEndDate, Phase, CreatedAtUtc)
-                VALUES (1, $operationId, $sourceFileName, $sourceDatabaseId,
-                    $coverageStart, $coverageEnd, $phase, $createdAtUtc);
+                INSERT INTO PendingArchiveRotation (
+                    SingletonId, OperationId, MaxRecordCount, MaxBytes, MaxCalendarDays,
+                    ThresholdMode, Phase, CreatedAtUtc)
+                VALUES (1, $operationId, $maxRecordCount, $maxBytes, $maxCalendarDays,
+                    $thresholdMode, $phase, $createdAtUtc);
                 """;
             operation.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
-            operation.Parameters.AddWithValue("$sourceFileName", sourceFileName.FileName);
-            operation.Parameters.AddWithValue("$sourceDatabaseId", sourceDatabaseId.ToString("D"));
-            operation.Parameters.AddWithValue("$coverageStart", FormatDate(sourceCoverage.StartDate));
-            operation.Parameters.AddWithValue("$coverageEnd", FormatDate(sourceCoverage.EndDate));
-            operation.Parameters.AddWithValue("$phase", (int)ArchiveSplitPhase.Planned);
+            operation.Parameters.AddWithValue("$maxRecordCount", ToDbValue(policySnapshot.MaxRecordCount));
+            operation.Parameters.AddWithValue("$maxBytes", ToDbValue(policySnapshot.MaxBytes));
+            operation.Parameters.AddWithValue("$maxCalendarDays", ToDbValue(policySnapshot.MaxCalendarDays));
+            operation.Parameters.AddWithValue(
+                "$thresholdMode",
+                ToDbValue((int?)policySnapshot.ThresholdMode));
+            operation.Parameters.AddWithValue("$phase", (int)ArchiveRotationPhase.Planned);
             operation.Parameters.AddWithValue("$createdAtUtc", FormatUtc(createdAtUtc));
             operation.ExecuteNonQuery();
         }
 
-        foreach (PendingArchiveSplitSegment segment in segments)
+        foreach (PendingArchiveRotationTarget target in targets)
         {
             token.ThrowIfCancellationRequested();
             using SqliteCommand insert = connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText = """
-                INSERT INTO PendingArchiveSplitSegment (
+                INSERT INTO PendingArchiveRotationTarget (
                     OperationId, SegmentOrder, FileName, DatabaseId,
-                    CoverageStartDate, CoverageEndDate)
+                    CoverageStartDate, CoverageEndDate, ExpectedRecordCount, ShadowPhysicalSizeBytes)
                 VALUES ($operationId, $segmentOrder, $fileName, $databaseId,
-                    $coverageStart, $coverageEnd);
+                    $coverageStart, $coverageEnd, $expectedRecordCount, $shadowPhysicalSizeBytes);
                 """;
             insert.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
-            insert.Parameters.AddWithValue("$segmentOrder", segment.SegmentOrder);
-            insert.Parameters.AddWithValue("$fileName", segment.FileName.FileName);
-            insert.Parameters.AddWithValue("$databaseId", segment.DatabaseId.ToString("D"));
-            insert.Parameters.AddWithValue("$coverageStart", FormatDate(segment.Coverage.StartDate));
-            insert.Parameters.AddWithValue("$coverageEnd", FormatDate(segment.Coverage.EndDate));
+            insert.Parameters.AddWithValue("$segmentOrder", target.SegmentOrder);
+            insert.Parameters.AddWithValue("$fileName", target.FileName.FileName);
+            insert.Parameters.AddWithValue("$databaseId", target.DatabaseId.ToString("D"));
+            insert.Parameters.AddWithValue("$coverageStart", FormatDate(target.Coverage.StartDate));
+            insert.Parameters.AddWithValue("$coverageEnd", FormatDate(target.Coverage.EndDate));
+            insert.Parameters.AddWithValue("$expectedRecordCount", target.ExpectedRecordCount);
+            insert.Parameters.AddWithValue(
+                "$shadowPhysicalSizeBytes",
+                target.ShadowPhysicalSizeBytes);
             insert.ExecuteNonQuery();
         }
 
-        return new PendingArchiveSplitOperation(
+        return new PendingArchiveRotationOperation(
             operationId,
-            sourceFileName,
-            sourceDatabaseId,
-            sourceCoverage,
-            ArchiveSplitPhase.Planned,
+            policySnapshot,
+            ArchiveRotationPhase.Planned,
             createdAtUtc,
-            segments.ToArray());
+            targets.ToArray());
     }
 
-    internal static PendingArchiveSplitOperation AdvancePhaseInTransaction(
+    internal static PendingArchiveRotationOperation AdvancePhaseInTransaction(
         SqliteConnection connection,
         SqliteTransaction transaction,
         Guid operationId,
-        ArchiveSplitPhase expectedPhase,
-        ArchiveSplitPhase nextPhase,
+        ArchiveRotationPhase expectedPhase,
+        ArchiveRotationPhase nextPhase,
         CancellationToken token)
     {
         ValidateOperationId(operationId, nameof(operationId));
         ValidatePhaseTransition(expectedPhase, nextPhase);
-        PendingArchiveSplitOperation current = ReadRequired(connection, transaction, operationId, token);
+        PendingArchiveRotationOperation current = ReadRequired(connection, transaction, operationId, token);
         if (current.Phase != expectedPhase)
         {
-            throw new InvalidOperationException("Pending archive split phase changed before update.");
+            throw new InvalidOperationException("Pending archive rotation phase changed before update.");
         }
 
         using SqliteCommand update = connection.CreateCommand();
         update.Transaction = transaction;
         update.CommandText = """
-            UPDATE PendingArchiveSplit
+            UPDATE PendingArchiveRotation
             SET Phase = $nextPhase
             WHERE SingletonId = 1
               AND OperationId = $operationId COLLATE BINARY
@@ -224,7 +229,7 @@ public sealed class SqlitePendingArchiveSplitRepository
         update.Parameters.AddWithValue("$expectedPhase", (int)expectedPhase);
         if (update.ExecuteNonQuery() != 1)
         {
-            throw new InvalidOperationException("Pending archive split changed before phase update.");
+            throw new InvalidOperationException("Pending archive rotation changed before phase update.");
         }
 
         return current with { Phase = nextPhase };
@@ -236,27 +241,27 @@ public sealed class SqlitePendingArchiveSplitRepository
         Guid operationId,
         CancellationToken token)
     {
-        PendingArchiveSplitOperation current = ReadRequired(connection, transaction, operationId, token);
-        if (current.Phase != ArchiveSplitPhase.CatalogPublished)
+        PendingArchiveRotationOperation current = ReadRequired(connection, transaction, operationId, token);
+        if (current.Phase != ArchiveRotationPhase.CatalogPublished)
         {
             throw new InvalidOperationException(
-                "Pending archive split can be cleared only after CatalogPublished.");
+                "Pending archive rotation can be cleared only after CatalogPublished.");
         }
 
         using SqliteCommand delete = connection.CreateCommand();
         delete.Transaction = transaction;
         delete.CommandText = """
-            DELETE FROM PendingArchiveSplit
+            DELETE FROM PendingArchiveRotation
             WHERE SingletonId = 1 AND OperationId = $operationId COLLATE BINARY;
             """;
         delete.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
         if (delete.ExecuteNonQuery() != 1)
         {
-            throw new InvalidOperationException("Pending archive split changed before clear.");
+            throw new InvalidOperationException("Pending archive rotation changed before clear.");
         }
     }
 
-    internal static PendingArchiveSplitOperation? ReadInTransaction(
+    internal static PendingArchiveRotationOperation? ReadInTransaction(
         SqliteConnection connection,
         SqliteTransaction? transaction,
         CancellationToken token)
@@ -264,9 +269,9 @@ public sealed class SqlitePendingArchiveSplitRepository
         using SqliteCommand operationCommand = connection.CreateCommand();
         operationCommand.Transaction = transaction;
         operationCommand.CommandText = """
-            SELECT SingletonId, OperationId, SourceFileName, SourceDatabaseId,
-                   SourceCoverageStartDate, SourceCoverageEndDate, Phase, CreatedAtUtc
-            FROM PendingArchiveSplit
+            SELECT SingletonId, OperationId, MaxRecordCount, MaxBytes, MaxCalendarDays,
+                   ThresholdMode, Phase, CreatedAtUtc
+            FROM PendingArchiveRotation
             ORDER BY SingletonId
             LIMIT 2;
             """;
@@ -280,84 +285,87 @@ public sealed class SqlitePendingArchiveSplitRepository
         if (operationReader.GetInt64(0) != 1 ||
             !Guid.TryParseExact(operationReader.GetString(1), "D", out Guid operationId) ||
             operationId == Guid.Empty ||
-            !ArchiveFileName.TryParse(operationReader.GetString(2), out ArchiveFileName sourceFileName) ||
-            !string.Equals(sourceFileName.FileName, operationReader.GetString(2), StringComparison.Ordinal) ||
-            !Guid.TryParseExact(operationReader.GetString(3), "D", out Guid sourceDatabaseId) ||
-            sourceDatabaseId == Guid.Empty ||
-            !TryParseDate(operationReader.GetString(4), out DateOnly sourceStart) ||
-            !TryParseDate(operationReader.GetString(5), out DateOnly sourceEnd) ||
-            sourceEnd < sourceStart ||
-            !Enum.IsDefined((ArchiveSplitPhase)operationReader.GetInt32(6)))
+            !Enum.IsDefined((ArchiveRotationPhase)operationReader.GetInt32(6)))
         {
-            throw new InvalidDataException("Pending archive split operation state is invalid.");
+            throw new InvalidDataException("Pending archive rotation operation state is invalid.");
         }
 
-        ArchiveSplitPhase phase = (ArchiveSplitPhase)operationReader.GetInt32(6);
+        var policySnapshot = new ArchiveRotationSettings
+        {
+            MaxRecordCount = operationReader.IsDBNull(2) ? null : (long?)operationReader.GetInt64(2),
+            MaxBytes = operationReader.IsDBNull(3) ? null : (long?)operationReader.GetInt64(3),
+            MaxCalendarDays = operationReader.IsDBNull(4) ? null : (int?)operationReader.GetInt32(4),
+            ThresholdMode = operationReader.IsDBNull(5)
+                ? null
+                : (ArchiveRotationThresholdMode?)operationReader.GetInt32(5),
+        };
+
+        ArchiveRotationPhase phase = (ArchiveRotationPhase)operationReader.GetInt32(6);
         DateTimeOffset createdAtUtc = ParseUtc(operationReader.GetString(7));
         if (operationReader.Read())
         {
-            throw new InvalidDataException("PendingArchiveSplit contains more than one operation.");
+            throw new InvalidDataException("PendingArchiveRotation contains more than one operation.");
         }
         operationReader.Close();
 
-        var segments = new List<PendingArchiveSplitSegment>();
-        using SqliteCommand segmentCommand = connection.CreateCommand();
-        segmentCommand.Transaction = transaction;
-        segmentCommand.CommandText = """
-            SELECT SegmentOrder, FileName, DatabaseId, CoverageStartDate, CoverageEndDate
-            FROM PendingArchiveSplitSegment
+        var targets = new List<PendingArchiveRotationTarget>();
+        using SqliteCommand targetCommand = connection.CreateCommand();
+        targetCommand.Transaction = transaction;
+        targetCommand.CommandText = """
+            SELECT SegmentOrder, FileName, DatabaseId, CoverageStartDate, CoverageEndDate,
+                   ExpectedRecordCount, ShadowPhysicalSizeBytes
+            FROM PendingArchiveRotationTarget
             WHERE OperationId = $operationId COLLATE BINARY
             ORDER BY SegmentOrder;
             """;
-        segmentCommand.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
-        using SqliteDataReader segmentReader = segmentCommand.ExecuteReader();
-        while (segmentReader.Read())
+        targetCommand.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+        using SqliteDataReader targetReader = targetCommand.ExecuteReader();
+        while (targetReader.Read())
         {
-            if (!ArchiveFileName.TryParse(segmentReader.GetString(1), out ArchiveFileName fileName) ||
-                !string.Equals(fileName.FileName, segmentReader.GetString(1), StringComparison.Ordinal) ||
-                !Guid.TryParseExact(segmentReader.GetString(2), "D", out Guid databaseId) ||
+            if (!ArchiveFileName.TryParse(targetReader.GetString(1), out ArchiveFileName fileName) ||
+                !string.Equals(fileName.FileName, targetReader.GetString(1), StringComparison.Ordinal) ||
+                !Guid.TryParseExact(targetReader.GetString(2), "D", out Guid databaseId) ||
                 databaseId == Guid.Empty ||
-                !TryParseDate(segmentReader.GetString(3), out DateOnly start) ||
-                !TryParseDate(segmentReader.GetString(4), out DateOnly end) ||
+                !TryParseDate(targetReader.GetString(3), out DateOnly start) ||
+                !TryParseDate(targetReader.GetString(4), out DateOnly end) ||
                 end < start)
             {
-                throw new InvalidDataException("Pending archive split segment state is invalid.");
+                throw new InvalidDataException("Pending archive rotation target state is invalid.");
             }
 
-            segments.Add(new PendingArchiveSplitSegment(
-                segmentReader.GetInt32(0),
+            targets.Add(new PendingArchiveRotationTarget(
+                targetReader.GetInt32(0),
                 fileName,
                 databaseId,
-                new JournalDateRange(start, end)));
+                new JournalDateRange(start, end),
+                targetReader.GetInt64(5),
+                targetReader.GetInt64(6)));
         }
 
-        var sourceCoverage = new JournalDateRange(sourceStart, sourceEnd);
-        ValidatePersistedPlan(sourceFileName, sourceDatabaseId, sourceCoverage, segments);
+        ValidatePersistedPlan(policySnapshot, targets);
         token.ThrowIfCancellationRequested();
-        return new PendingArchiveSplitOperation(
+        return new PendingArchiveRotationOperation(
             operationId,
-            sourceFileName,
-            sourceDatabaseId,
-            sourceCoverage,
+            policySnapshot,
             phase,
             createdAtUtc,
-            segments.ToArray());
+            targets.ToArray());
     }
 
-    private static PendingArchiveSplitOperation ReadRequired(
+    private static PendingArchiveRotationOperation ReadRequired(
         SqliteConnection connection,
         SqliteTransaction transaction,
         Guid operationId,
         CancellationToken token)
     {
-        PendingArchiveSplitOperation? current = ReadInTransaction(connection, transaction, token);
+        PendingArchiveRotationOperation? current = ReadInTransaction(connection, transaction, token);
         if (current is null)
         {
-            throw new InvalidOperationException("No pending archive split exists.");
+            throw new InvalidOperationException("No pending archive rotation exists.");
         }
         if (current.OperationId != operationId)
         {
-            throw new InvalidOperationException("Pending archive split ownership does not match.");
+            throw new InvalidOperationException("Pending archive rotation ownership does not match.");
         }
         return current;
     }
@@ -393,19 +401,19 @@ public sealed class SqlitePendingArchiveSplitRepository
                     storageId != _session.StorageId ||
                     !string.Equals(reader.GetString(2), DatabaseRole.Current.ToString(), StringComparison.Ordinal))
                 {
-                    throw new InvalidDataException("Pending archive split requires the expected Current identity.");
+                    throw new InvalidDataException("Pending archive rotation requires the expected Current identity.");
                 }
 
                 version = reader.GetInt32(3);
                 if (reader.Read())
                 {
-                    throw new InvalidDataException("Pending archive split requires exactly one Current identity row.");
+                    throw new InvalidDataException("Pending archive rotation requires exactly one Current identity row.");
                 }
             }
 
-            if (version < PendingArchiveSplitSqlSchema.MinimumCurrentSchemaVersion)
+            if (version < PendingArchiveRotationSqlSchema.MinimumCurrentSchemaVersion)
             {
-                throw new InvalidDataException("Pending archive split requires Current schema v9 or later.");
+                throw new InvalidDataException("Pending archive rotation requires Current schema v10 or later.");
             }
 
             using (SqliteCommand userVersion = connection.CreateCommand())
@@ -416,7 +424,7 @@ public sealed class SqlitePendingArchiveSplitRepository
                     throw new InvalidDataException("Current user_version does not match its identity.");
                 }
             }
-            PendingArchiveSplitSqlSchema.ValidateTables(connection);
+            PendingArchiveRotationSqlSchema.ValidateTables(connection);
             token.ThrowIfCancellationRequested();
             return connection;
         }
@@ -431,86 +439,83 @@ public sealed class SqlitePendingArchiveSplitRepository
         CancellationTokenSource.CreateLinkedTokenSource(_session.CancellationToken, callerToken);
 
     private static void ValidatePlan(
-        ArchiveFileName sourceFileName,
-        Guid sourceDatabaseId,
-        JournalDateRange sourceCoverage,
-        IReadOnlyList<PendingArchiveSplitSegment> segments)
+        ArchiveRotationSettings policySnapshot,
+        IReadOnlyList<PendingArchiveRotationTarget> targets)
     {
-        ArgumentNullException.ThrowIfNull(segments);
-        if (!IsCanonicalArchiveFileName(sourceFileName) || sourceDatabaseId == Guid.Empty)
+        ArgumentNullException.ThrowIfNull(policySnapshot);
+        ArgumentNullException.ThrowIfNull(targets);
+        policySnapshot.Validate();
+
+        if (targets.Count == 0)
         {
-            throw new ArgumentException("Archive split source identity is invalid.");
-        }
-        if (segments.Count < 2)
-        {
-            throw new ArgumentException("Archive split requires at least two result segments.", nameof(segments));
+            throw new ArgumentException(
+                "Archive rotation requires at least one planned target.",
+                nameof(targets));
         }
 
         var fileNames = new HashSet<string>(StringComparer.Ordinal);
         var databaseIds = new HashSet<Guid>();
-        DateOnly expectedStart = sourceCoverage.StartDate;
-        for (int index = 0; index < segments.Count; index++)
+        for (int index = 0; index < targets.Count; index++)
         {
-            PendingArchiveSplitSegment segment = segments[index];
-            if (segment.SegmentOrder != index ||
-                !IsCanonicalArchiveFileName(segment.FileName) ||
-                segment.FileName.BaseNumber != sourceFileName.BaseNumber ||
-                segment.DatabaseId == Guid.Empty ||
-                segment.Coverage.StartDate != expectedStart ||
-                !fileNames.Add(segment.FileName.FileName) ||
-                !databaseIds.Add(segment.DatabaseId))
+            PendingArchiveRotationTarget target = targets[index];
+            if (target.SegmentOrder != index ||
+                !IsCanonicalBaseArchiveFileName(target.FileName) ||
+                target.DatabaseId == Guid.Empty ||
+                target.ExpectedRecordCount < 0 ||
+                target.ShadowPhysicalSizeBytes <= 0 ||
+                !fileNames.Add(target.FileName.FileName) ||
+                !databaseIds.Add(target.DatabaseId))
             {
-                throw new ArgumentException("Archive split plan is not canonical or contiguous.", nameof(segments));
+                throw new ArgumentException(
+                    "Archive rotation plan target is not canonical.",
+                    nameof(targets));
             }
 
             if (index == 0)
             {
-                if (segment.FileName != sourceFileName || segment.DatabaseId != sourceDatabaseId)
-                {
-                    throw new ArgumentException("First split segment must preserve source filename and DatabaseId.", nameof(segments));
-                }
+                continue;
             }
-            else if (segment.FileName.SplitSequence <= 0 || segment.DatabaseId == sourceDatabaseId)
+
+            PendingArchiveRotationTarget previous = targets[index - 1];
+            if (target.FileName.BaseNumber <= previous.FileName.BaseNumber ||
+                target.Coverage.StartDate.DayNumber != previous.Coverage.EndDate.DayNumber + 1)
             {
-                throw new ArgumentException("Additional split segments require new canonical identity.", nameof(segments));
+                throw new ArgumentException(
+                    "Archive rotation plan must allocate increasing base numbers over contiguous coverage.",
+                    nameof(targets));
             }
-
-            expectedStart = segment.Coverage.EndDate.AddDays(1);
-        }
-
-        if (segments[0].Coverage.StartDate != sourceCoverage.StartDate ||
-            segments[^1].Coverage.EndDate != sourceCoverage.EndDate)
-        {
-            throw new ArgumentException("Archive split plan must exactly partition source coverage.", nameof(segments));
         }
     }
 
-    private static bool IsCanonicalArchiveFileName(ArchiveFileName fileName) =>
+    /// <summary>
+    /// Rotation only ever creates new unsplit base Archive files. Split suffixes stay reserved for
+    /// Archive Split, so a suffixed name in a rotation plan is fail-closed.
+    /// </summary>
+    private static bool IsCanonicalBaseArchiveFileName(ArchiveFileName fileName) =>
+        fileName.SplitSequence == ArchiveFileName.NoSplit &&
         ArchiveFileName.TryParse(fileName.FileName, out ArchiveFileName parsed) &&
         parsed == fileName &&
         string.Equals(parsed.FileName, fileName.FileName, StringComparison.Ordinal);
 
     private static void ValidatePersistedPlan(
-        ArchiveFileName sourceFileName,
-        Guid sourceDatabaseId,
-        JournalDateRange sourceCoverage,
-        IReadOnlyList<PendingArchiveSplitSegment> segments)
+        ArchiveRotationSettings policySnapshot,
+        IReadOnlyList<PendingArchiveRotationTarget> targets)
     {
         try
         {
-            ValidatePlan(sourceFileName, sourceDatabaseId, sourceCoverage, segments);
+            ValidatePlan(policySnapshot, targets);
         }
         catch (ArgumentException exception)
         {
-            throw new InvalidDataException("Persisted archive split plan is invalid.", exception);
+            throw new InvalidDataException("Persisted archive rotation plan is invalid.", exception);
         }
     }
 
-    private static void ValidatePhaseTransition(ArchiveSplitPhase expected, ArchiveSplitPhase next)
+    private static void ValidatePhaseTransition(ArchiveRotationPhase expected, ArchiveRotationPhase next)
     {
         if (!Enum.IsDefined(expected) || !Enum.IsDefined(next) || (int)next != (int)expected + 1)
         {
-            throw new ArgumentException("Archive split phase must advance exactly one step.");
+            throw new ArgumentException("Archive rotation phase must advance exactly one step.");
         }
     }
 
@@ -529,6 +534,9 @@ public sealed class SqlitePendingArchiveSplitRepository
             throw new ArgumentException("Timestamp must use UTC offset zero.", parameterName);
         }
     }
+
+    private static object ToDbValue<T>(T? value)
+        where T : struct => (object?)value ?? DBNull.Value;
 
     private static string FormatDate(DateOnly date) =>
         date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -554,7 +562,7 @@ public sealed class SqlitePendingArchiveSplitRepository
                 out DateTimeOffset parsed) ||
             parsed.Offset != TimeSpan.Zero)
         {
-            throw new InvalidDataException("Pending archive split timestamp is not canonical UTC.");
+            throw new InvalidDataException("Pending archive rotation timestamp is not canonical UTC.");
         }
         return parsed;
     }
