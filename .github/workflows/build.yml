@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, feat/archive-rotation-planner ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
