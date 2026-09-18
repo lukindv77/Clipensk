@@ -53,6 +53,7 @@ public sealed class ArchiveRotationPlannerTests
         {
             MaxRecordCount = 10,
             MaxBytes = 100,
+            ThresholdMode = ArchiveRotationThresholdMode.Any,
         };
         ArchiveRotationDayMetrics[] days =
         [
@@ -70,7 +71,7 @@ public sealed class ArchiveRotationPlannerTests
     }
 
     [Fact]
-    public void Build_AnyConfiguredThresholdCanStartNextRange()
+    public void Build_AnyMode_AnyConfiguredThresholdCanStartNextRange()
     {
         var planner = new ArchiveRotationPlanner();
         var settings = new ArchiveRotationSettings
@@ -78,6 +79,7 @@ public sealed class ArchiveRotationPlannerTests
             MaxRecordCount = 100,
             MaxBytes = 10,
             MaxCalendarDays = 30,
+            ThresholdMode = ArchiveRotationThresholdMode.Any,
         };
         ArchiveRotationDayMetrics[] days =
         [
@@ -95,6 +97,31 @@ public sealed class ArchiveRotationPlannerTests
     }
 
     [Fact]
+    public void Build_AllMode_WaitsUntilAllConfiguredThresholdsWouldBeExceeded()
+    {
+        var planner = new ArchiveRotationPlanner();
+        var settings = new ArchiveRotationSettings
+        {
+            MaxRecordCount = 10,
+            MaxBytes = 100,
+            ThresholdMode = ArchiveRotationThresholdMode.All,
+        };
+        ArchiveRotationDayMetrics[] days =
+        [
+            Day(0, 6, 30),
+            Day(1, 5, 30),
+            Day(2, 1, 50),
+        ];
+
+        IReadOnlyList<JournalDateRange> result = planner.Build(days, settings);
+
+        AssertRanges(
+            result,
+            new JournalDateRange(Start, Start.AddDays(1)),
+            new JournalDateRange(Start.AddDays(2), Start.AddDays(2)));
+    }
+
+    [Fact]
     public void Build_OversizedSingleDay_RemainsWhole()
     {
         var planner = new ArchiveRotationPlanner();
@@ -102,6 +129,7 @@ public sealed class ArchiveRotationPlannerTests
         {
             MaxRecordCount = 10,
             MaxBytes = 100,
+            ThresholdMode = ArchiveRotationThresholdMode.Any,
         };
         ArchiveRotationDayMetrics[] days =
         [
@@ -116,6 +144,20 @@ public sealed class ArchiveRotationPlannerTests
             result,
             new JournalDateRange(Start, Start),
             new JournalDateRange(Start.AddDays(1), Start.AddDays(2)));
+    }
+
+    [Fact]
+    public void Build_MultipleThresholdsWithoutMode_FailsClosed()
+    {
+        var planner = new ArchiveRotationPlanner();
+        var settings = new ArchiveRotationSettings
+        {
+            MaxRecordCount = 10,
+            MaxCalendarDays = 7,
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => planner.Build([Day(0, 1, 1)], settings));
     }
 
     [Fact]
