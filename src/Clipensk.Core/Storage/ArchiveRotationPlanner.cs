@@ -4,15 +4,16 @@ using Clipensk.Core.Settings;
 namespace Clipensk.Core.Storage;
 
 /// <summary>
-/// Additive rotation metrics for one complete calendar day. Callers must include zero-metric
+/// Additive rotation metrics for one complete calendar day. Callers must include zero-record
 /// days when they are part of the intended coverage so the planner can preserve contiguous ranges.
+/// Physical Archive database size is intentionally not represented here because it is not an
+/// additive per-day metric and must be measured by storage-backed rotation orchestration.
 /// </summary>
 public readonly record struct ArchiveRotationDayMetrics
 {
     public ArchiveRotationDayMetrics(
         DateOnly calendarDate,
-        long recordCount,
-        long byteCount)
+        long recordCount)
     {
         if (recordCount < 0)
         {
@@ -21,29 +22,19 @@ public readonly record struct ArchiveRotationDayMetrics
                 "Archive rotation record count cannot be negative.");
         }
 
-        if (byteCount < 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(byteCount),
-                "Archive rotation byte count cannot be negative.");
-        }
-
         CalendarDate = calendarDate;
         RecordCount = recordCount;
-        ByteCount = byteCount;
     }
 
     public DateOnly CalendarDate { get; }
 
     public long RecordCount { get; }
-
-    public long ByteCount { get; }
 }
 
 /// <summary>
-/// Deterministically partitions ordered, contiguous calendar-day metrics into Archive ranges.
-/// A threshold may start a new range only between whole calendar days. If one day alone exceeds
-/// a configured count/byte limit, that day remains intact in its own range.
+/// Deterministically partitions ordered, contiguous calendar-day metrics using the thresholds that
+/// can be evaluated without materializing Archive files. Physical-size rotation is fail-closed here
+/// and belongs to storage-backed orchestration that measures the actual Archive database file.
 /// </summary>
 public sealed class ArchiveRotationPlanner
 {
@@ -54,6 +45,12 @@ public sealed class ArchiveRotationPlanner
         ArgumentNullException.ThrowIfNull(orderedDays);
         ArgumentNullException.ThrowIfNull(settings);
         settings.Validate();
+
+        if (settings.MaxBytes.HasValue)
+        {
+            throw new NotSupportedException(
+                "Physical Archive size rotation requires storage-backed measurement of the actual database file.");
+        }
 
         if (orderedDays.Count == 0)
         {
@@ -68,7 +65,6 @@ public sealed class ArchiveRotationPlanner
         DateOnly segmentEnd = first.CalendarDate;
         int segmentDayCount = 1;
         long segmentRecordCount = settings.MaxRecordCount.HasValue ? first.RecordCount : 0;
-        long segmentByteCount = settings.MaxBytes.HasValue ? first.ByteCount : 0;
 
         for (int index = 1; index < orderedDays.Count; index++)
         {
@@ -76,7 +72,6 @@ public sealed class ArchiveRotationPlanner
             if (ShouldStartNextRange(
                     segmentDayCount,
                     segmentRecordCount,
-                    segmentByteCount,
                     day,
                     settings))
             {
@@ -85,7 +80,6 @@ public sealed class ArchiveRotationPlanner
                 segmentEnd = day.CalendarDate;
                 segmentDayCount = 1;
                 segmentRecordCount = settings.MaxRecordCount.HasValue ? day.RecordCount : 0;
-                segmentByteCount = settings.MaxBytes.HasValue ? day.ByteCount : 0;
                 continue;
             }
 
@@ -94,11 +88,6 @@ public sealed class ArchiveRotationPlanner
             if (settings.MaxRecordCount.HasValue)
             {
                 segmentRecordCount += day.RecordCount;
-            }
-
-            if (settings.MaxBytes.HasValue)
-            {
-                segmentByteCount += day.ByteCount;
             }
         }
 
@@ -125,7 +114,6 @@ public sealed class ArchiveRotationPlanner
     private static bool ShouldStartNextRange(
         int segmentDayCount,
         long segmentRecordCount,
-        long segmentByteCount,
         ArchiveRotationDayMetrics nextDay,
         ArchiveRotationSettings settings)
     {
@@ -145,15 +133,6 @@ public sealed class ArchiveRotationPlanner
         {
             configuredThresholdCount++;
             if (WouldExceed(segmentRecordCount, nextDay.RecordCount, maxRecords))
-            {
-                exceededThresholdCount++;
-            }
-        }
-
-        if (settings.MaxBytes is long maxBytes)
-        {
-            configuredThresholdCount++;
-            if (WouldExceed(segmentByteCount, nextDay.ByteCount, maxBytes))
             {
                 exceededThresholdCount++;
             }
