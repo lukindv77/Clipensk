@@ -269,6 +269,10 @@ ArchiveDayOwnership
 
 Граница ротации всегда проходит между календарными днями. Один день никогда не делится из-за достижения порога размера или количества записей.
 
+Threshold оценивается после добавления полного календарного дня. Достигший правила сегмент становится готовым к Archive publication; последний сегмент, который ещё не достиг правила, остаётся open tail в Current. Для size-threshold используется фактический размер закрытого SQLCipher Archive DB, а не сумма logical payload bytes.
+
+Crash-safe planning/publication/recovery contract зафиксирован в `ARCHIVE_ROTATION_PROTOCOL.md`.
+
 ## 12. Именование архивов
 
 Основные архивы получают имена:
