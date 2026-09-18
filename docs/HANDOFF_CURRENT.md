@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-17.
+Checkpoint prepared: 2026-09-18.
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -18,160 +18,172 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## B. User intent
 
-Пользователь ожидает автономное продолжение разработки без повторения уже завершённых этапов и без уточняющих вопросов, если нет реального blocker.
+Пользователь ожидает автономное продолжение разработки без повторения завершённых этапов и без лишних уточняющих вопросов.
 
-Постоянные требования работы:
+Постоянные требования:
 
 - promotion в `main` только fast-forward, `force=false`, без merge commit;
-- нельзя объявлять PASS/build/release/promotion без exact-SHA CI evidence;
+- PASS/build/release/promotion только по exact-SHA CI evidence;
 - при Actions failure сначала connector logs/artifacts, затем `docs/CI_LOG_ACCESS.md`; причину не угадывать;
 - временные feature triggers/diagnostics перед promotion восстанавливать byte-for-byte к fresh canonical workflow;
 - manual production WinUI UX/smoke не считать проверенным без отдельного durable evidence.
 
 ## C. Current authoritative state
 
-Последний принятый product code baseline на момент подготовки checkpoint:
+Последний полностью принятый main product baseline на момент этого checkpoint:
 
-`306599c00b29b3efefd6e18d3ab19fbca35c42ce`
+`ef96c1aba2eaad7a2af853a85981ac1be9d4a45e`
 
-Это `main` после Archive Split Maintenance UI и startup recovery integration.
+Он содержит Archive Rotation settings/planner foundation:
 
-Exact-main CI для этого product SHA:
+- `ArchiveRotationSettings` с `MaxRecordCount`, `MaxBytes`, `MaxCalendarDays`;
+- explicit `ArchiveRotationThresholdMode.Any | All` для multi-threshold policy;
+- JSON persistence validation;
+- pure `ArchiveRotationPlanner` для count/day inputs;
+- pure planner fail-closed на `MaxBytes`, потому что requirement/architecture определяют size как physical Archive DB size.
 
-- Build #430;
-- run `35249103960`;
-- job `105296726619`;
-- Restore / Build / Test / diagnostics / complete job: **SUCCESS**.
+Exact-main CI для `ef96c1ab…`:
 
-Native SQLCipher для `306599c0…` не запускался и не требовался: net product diff startup-recovery затрагивал только `src/Clipensk.App/App.PolicyMaintenance.cs`, а native workflow `paths` filter покрывает storage/Core.Storage/App.csproj/native tooling, но не этот файл.
+- Build #438 / run `35293366264` — **SUCCESS**;
+- Native SQLCipher #81 / run `35293366256` — **SUCCESS**.
 
-Последний storage-changing accepted baseline:
+Canonical Build workflow blob:
 
-`15aff534258e4302c828ea437e86113ff2d09562`
+`6bb0e8b8eda657c082738a64a4ba80acd857daf4`
 
-Evidence:
+Active docs-only branch:
 
-- Build #426 — **SUCCESS**;
-- Native SQLCipher #79 — **SUCCESS**.
+`docs/archive-rotation-protocol-20260918`
 
-Canonical workflow blobs:
+At checkpoint time its latest known head was:
 
-- `.github/workflows/build.yml`: `6bb0e8b8eda657c082738a64a4ba80acd857daf4`;
-- `.github/workflows/sqlcipher-native.yml`: `e8968b283cc747aa3a9ba5f566538066b89f01be`.
+`bb0bf5c4d31379b58f089ec25fba5fbf88c916fe`
 
-Active docs-only refresh branch during checkpoint preparation:
+Branch already contains:
 
-`docs/archive-split-status-refresh-20260917`
+- new `docs/ARCHIVE_ROTATION_PROTOCOL.md`;
+- `docs/ARCHITECTURE.md` rotation cross-reference/open-tail semantics update.
 
-It was created directly from product baseline `306599c0…`; `docs/ARCHIVE_SPLIT_PROTOCOL.md` has already been refreshed on that branch. Because this handoff update and later docs promotion advance mutable refs, the next chat must fresh-check actual `main` and branch heads rather than assuming this paragraph contains the final docs SHA.
+This handoff update itself advances that docs branch, so the next chat must fresh-check its actual head before any write/promotion.
 
 ## D. Current owner / active task
 
-Archive Split engineering tranche is complete in code and CI. The active task at checkpoint time is documentation/status closure only:
+Archive Rotation is the active engineering tranche.
 
-- synchronize `docs/ARCHIVE_SPLIT_PROTOCOL.md` with implemented planner → shadow → publication/recovery → Catalog → start/recovery orchestration → Maintenance UI → startup recovery;
-- replace stale `docs/HANDOFF_CURRENT.md` marker/planner checkpoint with this current checkpoint;
-- promote the docs-only branch after fresh compare if it remains a clean descendant of current `main`.
+The immediate task is docs/protocol closure before storage implementation:
 
-Acceptance criteria for the docs tranche:
+1. finalize `ARCHIVE_ROTATION_PROTOCOL.md`;
+2. keep `ARCHITECTURE.md` aligned;
+3. refresh this handoff;
+4. promote the docs-only branch after fresh compare;
+5. require exact-main Build after docs promotion.
 
-- net diff contains only intended docs;
-- no workflow or product-code changes;
-- `behind_by=0` and merge-base exactly current `main` before promotion;
-- promotion fast-forward only;
-- Archive Split manual WinUI smoke remains explicitly `UNVERIFIED`.
+After protocol acceptance, the next product slice is a **pure planner correction**, not storage mutation yet.
 
 ## E. What has been completed
 
-Archive Split implementation is complete across these layers:
+Archive Split remains complete and must not be reimplemented without evidence-driven cause:
 
-1. Current v9 durable `PendingArchiveSplit` schema/repository/migration/validation.
-2. `ArchiveSplitPlanner` with exact partition validation and family suffix allocation.
-3. `ProtectedArchiveSplitShadowBuilder` with staged SQLCipher Archive construction and exact source/output cross-check.
-4. `ProtectedArchiveSplitPublisher` with copy-first, replacement-backup and roll-forward physical publication.
-5. `ProtectedArchiveSplitCatalogPublisher` with Catalog rebuild/validation and durable completion cleanup.
-6. `ProtectedArchiveSplitRecoveryService` coordinating continuation from every persisted phase.
-7. `ProtectedArchiveSplitStartService` atomically validating the selected source snapshot, planning and persisting `Planned`, then handing off to recovery.
-8. WinUI Maintenance split UI with archive selection, one internal split boundary producing two contiguous ranges, explicit confirmation, busy/error state and pending-operation recovery gate.
-9. Startup/unlock integration in `App.PolicyMaintenance.cs`: pending Archive Split recovery runs inside the existing pre-runtime clipboard suspension before policy-maintenance recovery; continuation failure remains fail-closed and does not resume clipboard runtime.
+- Current v9 pending split schema/repository/migration;
+- pure split planner;
+- shadow builder;
+- copy-first physical publisher;
+- Catalog publisher;
+- recovery coordinator;
+- atomic start service;
+- Maintenance UI;
+- startup pre-runtime split recovery.
 
-Important exact acceptance checkpoints:
+Important Archive Split checkpoints remain documented in `ARCHIVE_SPLIT_PROTOCOL.md`.
 
-- recovery coordinator main `4d254c13e6ce8fd157fa02fb32ce3ae9730d8580`: Build #424 **SUCCESS**, Native SQLCipher #78 **SUCCESS**;
-- start service main `15aff534258e4302c828ea437e86113ff2d09562`: Build #426 **SUCCESS**, Native SQLCipher #79 **SUCCESS**;
-- Maintenance UI main `7362e0ff2809a35627ac091c98e1a4380a0c0a56`: Build #428 / run `35242522130` **SUCCESS**;
-- startup recovery main `306599c00b29b3efefd6e18d3ab19fbca35c42ce`: Build #430 / run `35249103960` **SUCCESS**.
+Archive Rotation completed foundation:
 
-Do not reopen or reimplement these slices without new evidence-driven cause.
+1. additive optional settings contract and persistence;
+2. positive-threshold validation;
+3. explicit ANY/ALL multi-threshold mode;
+4. pure count/day planning foundation;
+5. physical-size path intentionally rejected by pure planner;
+6. exact-main Build/Native acceptance on `ef96c1ab…`.
 
-## F. Current conclusions
+## F. Current Archive Rotation conclusions
 
-Archive Split uses a copy-first / roll-forward-only crash-safe protocol.
+Requirements and architecture establish:
 
-Key decisions:
+- rotation by record count, physical Archive DB size, and/or calendar span;
+- whole-day boundaries only;
+- physical size means actual SQLCipher Archive `.db` length, not logical clipboard payload bytes;
+- ANY/ALL combination belongs to policy;
+- Catalog is rebuildable projection and not durable operation journal;
+- existing Current→Archive transfer is copy-first/idempotent but expects an already-created Archive whose assigned coverage contains the transfer range;
+- existing `ProtectedArchiveDatabaseService.CreateAsync` publishes immediately and generates DatabaseId internally.
 
-- Current durable marker, not Catalog, is the source of truth for unfinished split state.
-- Source canonical filename and source DatabaseId are preserved for the first result segment.
-- New family suffixes and new DatabaseIds are allocated at planning time and stored immutably.
-- Shadow set is fully built and cross-checked before publication.
-- Additional outputs publish before replacement of the source; the old full source remains backed up until physical + Catalog validation succeeds.
-- After `ReadyToPublish`, recovery rolls forward; cancellation is not represented as rollback.
-- Catalog remains rebuildable projection, never the sole holder of split metadata.
-- UI currently exposes the common two-segment operation through one split-boundary date. Backend supports multi-segment plans; repeated UI splits can further subdivide archives.
-- Pending split is integrated into startup pre-runtime recovery so clipboard monitoring is not resumed over an unfinished durable split.
+The new protocol branch fixes the intended rotation model:
 
-Earlier docs saying planner was NEXT or later slices NOT STARTED are superseded.
+- threshold predicates are evaluated after a complete day;
+- predicate is reached at `metric >= threshold`;
+- once ANY/ALL rule is reached, that segment is ready for Archive rotation;
+- last not-yet-reached segment is an open tail and remains in Current;
+- zero-record dates inside a candidate range count toward calendar span;
+- only closed dates are eligible;
+- new rotation outputs use new unsplit base Archive names;
+- physical-size planning requires storage-backed shadow DB construction;
+- rotation needs a durable Current pending marker and roll-forward recovery before clipboard runtime resumes;
+- final source purge should reuse/refactor existing exact Current→Archive compare/purge logic rather than create a parallel transfer implementation.
 
 ## G. Important invariants
 
 - Before every durable repository write: fresh target branch/ref, fresh `AGENTS.md`, fresh relevant files/refs.
 - Before promotion: fresh `main`, fresh feature ref, fresh compare; require `behind_by=0`; merge-base must equal current `main`; review full net diff.
 - `main` update only fast-forward with `force=false`.
-- Temporary workflow changes must be restored byte-for-byte before promotion.
-- Storage-changing promotion requires exact-main Build + Native SQLCipher according to current workflow path contract.
-- Archive Split immutable plan and durable phase ownership must remain fail-closed.
-- No overwrite of unexpected canonical Archive files.
-- No deletion of source backup/staging/marker before final physical/Catalog validation required by the protocol.
-- Clipboard runtime suspension must remain held after startup maintenance recovery failure.
-- Manual desktop UX status is independent from CI status.
+- Temporary workflow changes restored byte-for-byte before promotion.
+- Any `src/Clipensk.Storage/**` or `src/Clipensk.Core/Storage/**` promotion requires exact-main Build + Native SQLCipher according to current path filter.
+- No automatic rotation may split a CalendarDate.
+- No source purge before validated Archive durability.
+- Assigned Archive coverage is authoritative in Archive DB and is not casually extended in-place.
+- Unexpected canonical Archive filename/identity collision is fail-closed.
+- Pending rotation must block conflicting Archive layout/history maintenance.
+- Manual WinUI smoke remains independent from CI.
 
-## H. Known risks and unresolved questions
+## H. Known risks / unresolved questions
 
-- Manual production WinUI Archive Split smoke/UX is **UNVERIFIED**. CI confirms build/tests, not interactive desktop behavior.
-- The Maintenance UI intentionally provides a two-segment split boundary, while backend supports arbitrary multi-segment plans. This is a product-scope choice, not a backend limitation.
-- `docs/REQUIREMENTS.md` contains broader requirements beyond Archive Split. A fresh gap audit is needed before selecting the next engineering tranche; do not assume Archive Split completion means all project requirements are complete.
-- Archive rotation configuration by record count/size/day span is explicitly required by `docs/REQUIREMENTS.md` §4.2; no current implementation was established by this checkpoint. Treat its implementation status as **UNVERIFIED / candidate next gap** until fresh code audit confirms it.
+- Manual production WinUI Archive Split smoke remains **UNVERIFIED**.
+- Archive Rotation storage implementation does not yet exist.
+- Current pure `ArchiveRotationPlanner` still has a known semantic gap relative to the new protocol: it partitions and returns the final tail instead of distinguishing ready ranges vs open tail, and its existing tests use pre-threshold lookahead semantics. It must be corrected before automatic rotation consumes it.
+- Pending Archive Rotation durable schema/repository is not implemented; likely next Current schema version after v9.
+- Storage-backed physical-size shadow planning, deterministic base-name allocation, planned DatabaseId creation, copy-first publication, source purge integration, Catalog publication, recovery, scheduler, and Settings UI are all still pending.
+- Existing transfer acquires its own mutation lease; future rotation coordinator must refactor/expose a lease-aware exact compare/purge core rather than nest lease acquisition.
 
 ## I. Remaining work
 
-Immediate mandatory work:
+Priority order:
 
-1. Finish the active docs-only refresh branch.
-2. Fresh-check current `main`, docs branch, `AGENTS.md`, canonical workflows and compare.
-3. Require a docs-only net diff and clean fast-forward relationship.
-4. Fast-forward the docs branch into `main` with `force=false` if still valid.
-
-Next engineering work after docs closure:
-
-1. Perform a focused requirements-to-code gap audit, starting with `docs/REQUIREMENTS.md` §4.2 Archive rotation thresholds/configuration and related §9 scheduled transfer / §10 maintenance requirements.
-2. Select the first demonstrably missing requirement as the next bounded tranche; do not implement based only on prose without verifying current code.
-3. Preserve the existing storage/CI promotion rules for any storage-changing tranche.
-
-Optional/manual validation:
-
-- run real WinUI Maintenance split smoke on Windows against a disposable protected storage and record durable evidence if/when the environment permits it.
+1. Finish docs-only protocol branch:
+   - fresh-check `main`, docs branch, `AGENTS.md`, canonical workflows;
+   - compare and require `behind_by=0`, merge-base exact current main;
+   - verify net diff docs-only;
+   - fast-forward `main`, `force=false`;
+   - wait for exact-main Build and record evidence.
+2. New product branch from accepted docs main:
+   - correct pure rotation planner to produce ready ranges + open tail;
+   - adopt post-day `>=` threshold semantics for count/day;
+   - preserve physical-size fail-closed behavior;
+   - tests for equality, oversized day, ANY/ALL, zero-record span, empty/no-ready case.
+3. Current pending rotation schema/repository/migration.
+4. Storage-backed source scanner + shadow planner/builder.
+5. Copy-first publication + lease-aware transfer purge.
+6. Catalog/recovery/startup integration.
+7. Scheduler/manual trigger + Settings UI.
+8. Manual production smoke evidence remains separate.
 
 ## J. Exact resume point
 
-Следующий чат должен начать с: **fresh проверить `main` и `docs/archive-split-status-refresh-20260917`, прочитать `AGENTS.md`, затем сравнить docs branch с current `main`; если `behind_by=0`, merge-base exact current main и net diff только `docs/ARCHIVE_SPLIT_PROTOCOL.md` + `docs/HANDOFF_CURRENT.md`, fast-forward docs branch в `main`. После docs closure выполнить focused requirements/code gap audit, начиная с Archive rotation requirements §4.2, а Archive Split implementation не повторять.**
+Fresh-check current `main` and `docs/archive-rotation-protocol-20260918`. Read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/HANDOFF_CURRENT.md`, and `docs/ARCHIVE_SPLIT_PROTOCOL.md`. If the docs branch remains a clean descendant of `main` with net diff limited to `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHITECTURE.md`, and this handoff, fast-forward it into `main` and require exact-main Build success. Then begin the pure planner correction slice on a new branch; do not start storage mutation code before that planner contract is corrected.
 
-## K. First-turn bootstrap instructions
+## K. Bootstrap rules
 
-1. Не доверять этому handoff вместо свежего GitHub state там, где ref/CI могли измениться.
-2. Сначала проверить current `main`, active docs branch и relevant Actions results.
-3. Прочитать fresh `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/REQUIREMENTS.md`.
-4. Не повторять completed Archive Split backend/UI/startup work без evidence-driven причины.
-5. При противоречии handoff и repository state считать repository source of truth приоритетным.
-6. При CI failure получить logs/artifacts до любых fixes.
-7. Сохранить `UNVERIFIED` для manual WinUI smoke до фактической ручной проверки.
-8. Продолжить ровно с Exact resume point выше.
+1. Repository state beats this handoff if refs/CI moved.
+2. Do not repeat accepted Archive Split work.
+3. Do not treat current pure planner as ready for automatic executor use until ready-tail semantics are fixed.
+4. Do not interpret `MaxBytes` as payload byte sum.
+5. On CI failure, retrieve evidence before fixes.
+6. Keep manual desktop UX status `UNVERIFIED` until actual manual evidence exists.
