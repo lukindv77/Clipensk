@@ -6,6 +6,12 @@ public readonly partial record struct ArchiveFileName(int BaseNumber, int SplitS
 {
     public const int NoSplit = 0;
 
+    /// <summary>
+    /// Canonical archive names carry exactly six base digits, so the allocatable base-number space
+    /// is 1..999999. Rotation allocates monotonically and must fail closed once it is exhausted.
+    /// </summary>
+    public const int MaxBaseNumber = 999999;
+
     public string FileName => SplitSequence == NoSplit
         ? $"archive_{BaseNumber:000000}.db"
         : $"archive_{BaseNumber:000000}_{SplitSequence:0000}.db";
