@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-18.
+Checkpoint prepared: 2026-09-18 (Archive Rotation durable marker tranche).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -13,8 +13,8 @@ Clipensk — resident Windows clipboard-history manager.
 - Windows x64/AMD64 only; ARM64 вне scope;
 - C# / .NET 10 / WinUI 3 / Windows App SDK;
 - protected SQLite uses SQLCipher; один MasterKey на storage;
-- Current schema v9, Storage Catalog schema v3, Archive schema v1;
-- обязательные правила: `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/CI_LOG_ACCESS.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`.
+- **Current schema v10**, Storage Catalog schema v3, Archive schema v1;
+- обязательные правила: `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/CI_LOG_ACCESS.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/ARCHIVE_ROTATION_PROTOCOL.md`.
 
 ## B. User intent
 
@@ -26,164 +26,137 @@ Clipensk — resident Windows clipboard-history manager.
 - PASS/build/release/promotion только по exact-SHA CI evidence;
 - при Actions failure сначала connector logs/artifacts, затем `docs/CI_LOG_ACCESS.md`; причину не угадывать;
 - временные feature triggers/diagnostics перед promotion восстанавливать byte-for-byte к fresh canonical workflow;
-- manual production WinUI UX/smoke не считать проверенным без отдельного durable evidence.
+- manual production WinUI UX/smoke не считать проверенным без отдельного durable evidence;
+- основной язык взаимодействия и комментариев с пользователем — **русский**;
+- после каждой задачи сообщать рекомендуемую модель и сложность рассуждений (`AGENTS.md`).
 
 ## C. Current authoritative state
 
-Последний полностью принятый main product baseline на момент этого checkpoint:
+Последний полностью принятый main product baseline:
 
-`ef96c1aba2eaad7a2af853a85981ac1be9d4a45e`
+`e9dcd575996a284778b11df6ad30c480f838383c`
 
-Он содержит Archive Rotation settings/planner foundation:
+Exact-main CI для `e9dcd57…`:
 
-- `ArchiveRotationSettings` с `MaxRecordCount`, `MaxBytes`, `MaxCalendarDays`;
-- explicit `ArchiveRotationThresholdMode.Any | All` для multi-threshold policy;
-- JSON persistence validation;
-- pure `ArchiveRotationPlanner` для count/day inputs;
-- pure planner fail-closed на `MaxBytes`, потому что requirement/architecture определяют size как physical Archive DB size.
+- Build #445, run `35365996480` — **SUCCESS**;
+- Native SQLCipher #83, run `35365996498` — **IN PROGRESS на момент подготовки checkpoint, результат НЕ ПОДТВЕРЖДЁН**.
 
-Exact-main CI для `ef96c1ab…`:
+**Первое действие нового чата:** проверить conclusion run `35365996498`. Пока он не SUCCESS, baseline `e9dcd57…` считать **NOT ACCEPTED**: tranche трогает `src/Clipensk.Storage/**` и `src/Clipensk.Core/Storage/**`, а такие изменения требуют обоих exact-main workflow. При failure — сначала connector logs/artifacts и `docs/CI_LOG_ACCESS.md`, причину не угадывать, и только затем fix-ветка от текущего main.
 
-- Build #438 / run `35293366264` — **SUCCESS**;
-- Native SQLCipher #81 / run `35293366256` — **SUCCESS**.
+Canonical Build workflow blob: `6bb0e8b8eda657c082738a64a4ba80acd857daf4`
 
-Canonical Build workflow blob:
+Предыдущий baseline `8f28c8fb187e20b85ef906b7f75a1ba2179e837e` (Build #442 / Native #82) остаётся историческим и больше не является актуальным main.
 
-`6bb0e8b8eda657c082738a64a4ba80acd857daf4`
-
-Active docs-only branch:
-
-`docs/archive-rotation-protocol-20260918`
-
-At checkpoint time its latest known head was:
-
-`bb0bf5c4d31379b58f089ec25fba5fbf88c916fe`
-
-Branch already contains:
-
-- new `docs/ARCHIVE_ROTATION_PROTOCOL.md`;
-- `docs/ARCHITECTURE.md` rotation cross-reference/open-tail semantics update.
-
-This handoff update itself advances that docs branch, so the next chat must fresh-check its actual head before any write/promotion.
+Рабочая ветка `claude/affectionate-brahmagupta-vtgfm9` была продвинута в `main` fast-forward и после этого перезапущена от `origin/main`. PR #2 закрыт этим promotion. Новая работа — с fresh ветки от exact accepted main.
 
 ## D. Current owner / active task
 
-Archive Rotation is the active engineering tranche.
+Archive Rotation остаётся активным engineering tranche.
 
-The immediate task is docs/protocol closure before storage implementation:
+Immediate next slice — **slice 4 из `docs/ARCHIVE_ROTATION_PROTOCOL.md` §15**: rotation source scanner + shadow builder.
 
-1. finalize `ARCHIVE_ROTATION_PROTOCOL.md`;
-2. keep `ARCHITECTURE.md` aligned;
-3. refresh this handoff;
-4. promote the docs-only branch after fresh compare;
-5. require exact-main Build after docs promotion.
+Он включает:
 
-After protocol acceptance, the next product slice is a **pure planner correction**, not storage mutation yet.
+- сканирование closed Current days и их record-метрик;
+- построение Archive v1 shadow в hidden staging directory операции;
+- измерение фактического физического размера закрытого валидированного shadow `.db`;
+- exact source→shadow cross-check по §8 протокола;
+- детерминированное выделение base-номеров по §4 (`max + 1`, `SplitSequence = 0`, fail-closed при исчерпании).
 
 ## E. What has been completed
 
-Archive Split remains complete and must not be reimplemented without evidence-driven cause:
+Archive Split завершён и не подлежит повторной реализации без evidence-driven причины (Current v9 pending split schema/repository/migration, pure split planner, shadow builder, copy-first publisher, Catalog publisher, recovery coordinator, atomic start service, Maintenance UI, startup pre-runtime split recovery). Детали — в `ARCHIVE_SPLIT_PROTOCOL.md`.
 
-- Current v9 pending split schema/repository/migration;
-- pure split planner;
-- shadow builder;
-- copy-first physical publisher;
-- Catalog publisher;
-- recovery coordinator;
-- atomic start service;
-- Maintenance UI;
-- startup pre-runtime split recovery.
+Archive Rotation принято в `main`:
 
-Important Archive Split checkpoints remain documented in `ARCHIVE_SPLIT_PROTOCOL.md`.
+1. `ArchiveRotationSettings` с `MaxRecordCount`, `MaxBytes`, `MaxCalendarDays`;
+2. explicit `ArchiveRotationThresholdMode.Any | All`;
+3. JSON persistence/validation;
+4. Archive Rotation protocol (`docs/ARCHIVE_ROTATION_PROTOCOL.md`);
+5. corrected pure `ArchiveRotationPlanner`: ready ranges + open tail, post-day `>=` semantics, fail-closed на `MaxBytes`;
+6. **Current schema v10 + durable pending-rotation marker** (этот tranche).
 
-Archive Rotation completed foundation:
+### Что именно добавил slice v10
 
-1. additive optional settings contract and persistence;
-2. positive-threshold validation;
-3. explicit ANY/ALL multi-threshold mode;
-4. pure count/day planning foundation;
-5. physical-size path intentionally rejected by pure planner;
-6. exact-main Build/Native acceptance on `ef96c1ab…`.
+- `PendingArchiveRotationSqlSchema` — таблицы `PendingArchiveRotation` (singleton; `OperationId`, policy snapshot `MaxRecordCount`/`MaxBytes`/`MaxCalendarDays`/`ThresholdMode`, `Phase` 0..4, `CreatedAtUtc`, table-level CHECK на наличие хотя бы одного threshold) и `PendingArchiveRotationTarget` (`SegmentOrder`, canonical unsplit `FileName`, planned `DatabaseId`, coverage, `ExpectedRecordCount >= 0`, `ShadowPhysicalSizeBytes > 0`, FK `ON DELETE CASCADE`).
+- `PendingArchiveRotationOperation` / `PendingArchiveRotationTarget` records + `ArchiveRotationPhase` (`Planned → ReadyToPublish → PhysicalPublished → SourcePurged → CatalogPublished`).
+- `SqlitePendingArchiveRotationRepository` — Read/Start/AdvancePhase/ClearCompleted под mutation lease; валидация Current identity/schema v10, policy snapshot, canonical unsplit имён, строго возрастающих base numbers, непрерывности coverage по целым `CalendarDate`, single-step phase advance, clear только после `CatalogPublished`.
+- Взаимная блокировка pending rotation ↔ pending split в обе стороны (`HasPendingOperation` в обеих schema-классах); split-сторона учитывает, что на Current v9 rotation-таблицы физически нет.
+- Миграция `v9 → v10`, создание таблиц при инициализации новой storage pair, разведение validation gates: split-контракт от v9, rotation-контракт от v10.
+- Побочный fix: `ProtectedStorageCatalogRecoveryService` принимал Current версии `[1..5, CurrentSchemaVersion]`, из-за чего каждый bump молча лишал recovery предыдущих версий (6,7,8,9 уже были потеряны до этого tranche). Заменено на полный диапазон `1..CurrentSchemaVersion`; custom-binary contract теперь валидируется от своей реальной минимальной версии 6. Без этого bump до v10 сломал бы catalog recovery для существующих v9-хранилищ.
+- Тесты: `ProtectedStorageCurrentSchemaV10MigrationTests` (миграция с сохранением v9-состояния, invalid catalog, SQL-failure rollback+retry, cancellation rollback+retry) и `SqlitePendingArchiveRotationRepositoryTests` (14 сценариев: immutability плана, отказ второй операции, skip/stale phase, clear до финальной фазы, разрыв coverage, split-суффикс, невозрастающие base numbers, отсутствие shadow-size evidence, пустой план, policy без explicit mode, physical-size-only policy, zero-record ready range, взаимная блокировка со split, потеря target-строки, отказ на Current v9).
+- Документация: `CURRENT_DATABASE_SCHEMA.md` (раздел Current v10, миграция v9→v10, fail-closed список, repository boundaries), `ARCHIVE_ROTATION_PROTOCOL.md` §5/§15, `ARCHITECTURE.md`.
 
 ## F. Current Archive Rotation conclusions
 
-Requirements and architecture establish:
+Зафиксированная модель (полностью — в `ARCHIVE_ROTATION_PROTOCOL.md`):
 
-- rotation by record count, physical Archive DB size, and/or calendar span;
-- whole-day boundaries only;
-- physical size means actual SQLCipher Archive `.db` length, not logical clipboard payload bytes;
-- ANY/ALL combination belongs to policy;
-- Catalog is rebuildable projection and not durable operation journal;
-- existing Current→Archive transfer is copy-first/idempotent but expects an already-created Archive whose assigned coverage contains the transfer range;
-- existing `ProtectedArchiveDatabaseService.CreateAsync` publishes immediately and generates DatabaseId internally.
-
-The new protocol branch fixes the intended rotation model:
-
-- threshold predicates are evaluated after a complete day;
-- predicate is reached at `metric >= threshold`;
-- once ANY/ALL rule is reached, that segment is ready for Archive rotation;
-- last not-yet-reached segment is an open tail and remains in Current;
-- zero-record dates inside a candidate range count toward calendar span;
-- only closed dates are eligible;
-- new rotation outputs use new unsplit base Archive names;
-- physical-size planning requires storage-backed shadow DB construction;
-- rotation needs a durable Current pending marker and roll-forward recovery before clipboard runtime resumes;
-- final source purge should reuse/refactor existing exact Current→Archive compare/purge logic rather than create a parallel transfer implementation.
+- rotation по record count, физическому размеру Archive DB и/или calendar span;
+- границы только по целым `CalendarDate`; один день неделим;
+- physical size = фактическая длина закрытого валидированного SQLCipher Archive `.db`, а не сумма logical payload bytes;
+- threshold оценивается после полного дня, предикат достигнут при `metric >= threshold`;
+- ANY/ALL — это policy; последний недостигший сегмент остаётся open tail в Current;
+- zero-record даты внутри candidate window входят в span и coverage, поэтому ready range может иметь `ExpectedRecordCount = 0`;
+- rotation создаёт только новые unsplit base-файлы; split-суффиксы зарезервированы за Archive Split;
+- policy snapshot в marker — то, что исполняет recovery; перепланирование по текущим настройкам запрещено;
+- финальный source purge должен reuse/refactor существующую Current→Archive compare/purge логику, а не создавать параллельную реализацию.
 
 ## G. Important invariants
 
 - Before every durable repository write: fresh target branch/ref, fresh `AGENTS.md`, fresh relevant files/refs.
 - Before promotion: fresh `main`, fresh feature ref, fresh compare; require `behind_by=0`; merge-base must equal current `main`; review full net diff.
-- `main` update only fast-forward with `force=false`.
-- Temporary workflow changes restored byte-for-byte before promotion.
-- Any `src/Clipensk.Storage/**` or `src/Clipensk.Core/Storage/**` promotion requires exact-main Build + Native SQLCipher according to current path filter.
-- No automatic rotation may split a CalendarDate.
+- `main` update только fast-forward, `force=false`, без merge commit.
+- Temporary workflow changes восстанавливать byte-for-byte до promotion; проверять, что в net diff нет `.github/`.
+- Любой promotion, трогающий `src/Clipensk.Storage/**` или `src/Clipensk.Core/Storage/**`, требует exact-main Build **и** Native SQLCipher.
+- No automatic rotation may split a `CalendarDate`.
 - No source purge before validated Archive durability.
-- Assigned Archive coverage is authoritative in Archive DB and is not casually extended in-place.
-- Unexpected canonical Archive filename/identity collision is fail-closed.
-- Pending rotation must block conflicting Archive layout/history maintenance.
-- Manual WinUI smoke remains independent from CI.
+- Assigned Archive coverage авторитетна в Archive DB и не расширяется in-place.
+- Unexpected canonical Archive filename/DatabaseId collision — fail-closed.
+- Pending rotation блокирует конфликтующие history/archive mutations; pending rotation и pending split взаимно исключаются.
+- Catalog — rebuildable projection, не operation journal.
+- Manual WinUI smoke независим от CI.
 
 ## H. Known risks / unresolved questions
 
-- Manual production WinUI Archive Split smoke remains **UNVERIFIED**.
-- Archive Rotation storage implementation does not yet exist.
-- Current pure `ArchiveRotationPlanner` still has a known semantic gap relative to the new protocol: it partitions and returns the final tail instead of distinguishing ready ranges vs open tail, and its existing tests use pre-threshold lookahead semantics. It must be corrected before automatic rotation consumes it.
-- Pending Archive Rotation durable schema/repository is not implemented; likely next Current schema version after v9.
-- Storage-backed physical-size shadow planning, deterministic base-name allocation, planned DatabaseId creation, copy-first publication, source purge integration, Catalog publication, recovery, scheduler, and Settings UI are all still pending.
-- Existing transfer acquires its own mutation lease; future rotation coordinator must refactor/expose a lease-aware exact compare/purge core rather than nest lease acquisition.
+- Manual production WinUI Archive Split smoke остаётся **UNVERIFIED**.
+- Manual production WinUI smoke для Archive Rotation — **UNVERIFIED** (функциональности ещё нет).
+- Storage-backed physical-size shadow planning, deterministic base-name allocation, planned DatabaseId creation, copy-first publication, source purge integration, Catalog publication, recovery coordinator, startup integration, scheduler и Settings UI — **не реализованы**.
+- Существующий `ProtectedCurrentToArchiveTransferService` сам берёт mutation lease; rotation coordinator обязан отрефакторить/выставить lease-aware exact compare/purge core, а не вкладывать повторный захват lease.
+- Локальные тесты идут на `e_sqlite3`, а не на SQLCipher: поведение шифрования, native provenance и published-runtime loading локально не проверяются.
 
 ## I. Remaining work
 
-Priority order:
+Порядок по `ARCHIVE_ROTATION_PROTOCOL.md` §15:
 
-1. Finish docs-only protocol branch:
-   - fresh-check `main`, docs branch, `AGENTS.md`, canonical workflows;
-   - compare and require `behind_by=0`, merge-base exact current main;
-   - verify net diff docs-only;
-   - fast-forward `main`, `force=false`;
-   - wait for exact-main Build and record evidence.
-2. New product branch from accepted docs main:
-   - correct pure rotation planner to produce ready ranges + open tail;
-   - adopt post-day `>=` threshold semantics for count/day;
-   - preserve physical-size fail-closed behavior;
-   - tests for equality, oversized day, ANY/ALL, zero-record span, empty/no-ready case.
-3. Current pending rotation schema/repository/migration.
-4. Storage-backed source scanner + shadow planner/builder.
-5. Copy-first publication + lease-aware transfer purge.
-6. Catalog/recovery/startup integration.
-7. Scheduler/manual trigger + Settings UI.
-8. Manual production smoke evidence remains separate.
+1. **Slice 4** — rotation source scanner + shadow builder (следующая задача).
+2. Slice 5 — copy-first publication с retained staging backup и exact planned final validation.
+3. Slice 6 — lease-aware transfer integration (reuse exact compare/purge без вложенного lease).
+4. Slice 7 — Catalog publication + recovery coordinator + atomic start service.
+5. Slice 8 — startup/runtime integration: recovery pending rotation до возобновления clipboard capture.
+6. Slice 9 — scheduler/manual trigger + Settings UI для thresholds/mode.
+7. Slice 10 — manual production WinUI/storage smoke evidence (остаётся отдельным, статус `UNVERIFIED`).
 
 ## J. Exact resume point
 
-Fresh-check current `main` and `docs/archive-rotation-protocol-20260918`. Read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/HANDOFF_CURRENT.md`, and `docs/ARCHIVE_SPLIT_PROTOCOL.md`. If the docs branch remains a clean descendant of `main` with net diff limited to `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHITECTURE.md`, and this handoff, fast-forward it into `main` and require exact-main Build success. Then begin the pure planner correction slice on a new branch; do not start storage mutation code before that planner contract is corrected.
+1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/HANDOFF_CURRENT.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/CURRENT_DATABASE_SCHEMA.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — `e9dcd575996a284778b11df6ad30c480f838383c` или его потомок.
+3. Прочитать реальный код перед изменениями: `src/Clipensk.Core/Storage/ArchiveRotationPlanner.cs`, `src/Clipensk.Storage/Databases/PendingArchiveRotationSqlSchema.cs`, `SqlitePendingArchiveRotationRepository.cs`, `ProtectedArchiveSplitShadowBuilder.cs`, `ProtectedArchiveDatabaseService.cs`, `ProtectedCurrentToArchiveTransferService.cs`.
+4. Создать fresh ветку от exact accepted main и начать slice 4.
+5. Не начинать заново pure planner correction и Current v10 marker — они приняты.
 
 ## K. Bootstrap rules
 
 1. Repository state beats this handoff if refs/CI moved.
-2. Do not repeat accepted Archive Split work.
-3. Do not treat current pure planner as ready for automatic executor use until ready-tail semantics are fixed.
-4. Do not interpret `MaxBytes` as payload byte sum.
-5. On CI failure, retrieve evidence before fixes.
-6. Keep manual desktop UX status `UNVERIFIED` until actual manual evidence exists.
+2. Не повторять принятые Archive Split и Archive Rotation slices 1-3.
+3. Не трактовать `MaxBytes` как сумму payload bytes.
+4. На CI failure сначала получить evidence, потом чинить; «flake» причиной не считать.
+5. Manual desktop UX статус остаётся `UNVERIFIED` до фактического manual evidence.
+6. Локальный PASS не является acceptance evidence; принятие только по exact-SHA CI.
+
+## L. Development environment note
+
+Сетевая политика cloud-окружения переведена на **Custom** с доменами SDK .NET, поэтому в сессии доступна локальная сборка и прогон `Clipensk.Core.Tests`, `Clipensk.Storage.Tests`, `Clipensk.Infrastructure.Tests`. Процедура, ограничения и диагностика — в `docs/LOCAL_BUILD_AND_TEST.md`.
+
+На момент checkpoint локально на `e9dcd57…` прошли 726 тестов (481 + 201 + 44), что совпадает с числом тестов в Windows CI.
+
+SDK в контейнере не сохраняется между сессиями: новая сессия ставит его заново по инструкции из `LOCAL_BUILD_AND_TEST.md`. Если окружение будет пересоздано, сетевую политику нужно настроить снова.
