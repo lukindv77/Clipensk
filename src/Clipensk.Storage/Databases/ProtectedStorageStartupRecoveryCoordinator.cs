@@ -1,3 +1,4 @@
+using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Clipboard;
 using Clipensk.Storage.Sqlite;
@@ -15,6 +16,10 @@ public sealed record ProtectedStorageStartupRecoveryResult(
         || ArchiveRotation.HadPendingOperation
         || PolicyMaintenance.HadPendingOperation;
 }
+
+public sealed record ProtectedStorageStartupResult(
+    ProtectedStorageStartupRecoveryResult Recovery,
+    ArchiveRotationRunResult? StartedRotation);
 
 /// <summary>
 /// Completes every durable storage operation that may have been interrupted, in the single order
@@ -43,6 +48,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
     private readonly ProtectedArchiveSplitRecoveryService _splitRecovery;
     private readonly ProtectedArchiveRotationRecoveryService _rotationRecovery;
     private readonly ProtectedPolicyMaintenanceResumeDispatcher _policyMaintenanceResume;
+    private readonly ProtectedArchiveRotationStartService _rotationStart;
 
     public ProtectedStorageStartupRecoveryCoordinator(
         ProtectedStorageSessionLease session,
@@ -55,6 +61,38 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
         _splitRecovery = new ProtectedArchiveSplitRecoveryService(session, factory);
         _rotationRecovery = new ProtectedArchiveRotationRecoveryService(session, factory);
         _policyMaintenanceResume = new ProtectedPolicyMaintenanceResumeDispatcher(session, factory);
+        _rotationStart = new ProtectedArchiveRotationStartService(session, factory);
+    }
+
+    /// <summary>
+    /// The whole storage-side startup sequence: settle every interrupted operation first, then —
+    /// and only then — evaluate the rotation thresholds and run a new rotation if one is due.
+    ///
+    /// New work never starts before recovery is complete. A pending rotation or split would block
+    /// the start anyway, and a pending policy maintenance continuation still owns the Archive
+    /// cleanup and Catalog projection that a fresh rotation would otherwise race.
+    ///
+    /// Rotation is opt-in: no configured thresholds means no rotation, per
+    /// <c>docs/OPEN_QUESTIONS.md</c> §8, which has not chosen product defaults yet.
+    /// </summary>
+    public async Task<ProtectedStorageStartupResult> RunAsync(
+        DateOnly currentLocalDate,
+        ArchiveRotationSettings? rotationSettings,
+        CancellationToken cancellationToken = default)
+    {
+        ProtectedStorageStartupRecoveryResult recovery = await RecoverAsync(
+            currentLocalDate,
+            cancellationToken).ConfigureAwait(false);
+
+        if (rotationSettings is null || !rotationSettings.IsConfigured)
+        {
+            return new ProtectedStorageStartupResult(recovery, StartedRotation: null);
+        }
+
+        ArchiveRotationRunResult rotation = await _rotationStart
+            .StartAndCompleteAsync(rotationSettings, currentLocalDate, cancellationToken)
+            .ConfigureAwait(false);
+        return new ProtectedStorageStartupResult(recovery, rotation);
     }
 
     public async Task<ProtectedStorageStartupRecoveryResult> RecoverAsync(

@@ -138,6 +138,70 @@ public sealed class ProtectedStorageStartupRecoveryCoordinatorTests
         Assert.Equal(policyOperationId, policy!.OperationId);
     }
 
+    [Fact]
+    public async Task RunAsync_StartsNoRotationWhenThresholdsAreNotConfigured()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        SeedDay(environment, new DateOnly(2026, 2, 20));
+
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, rotationSettings: null);
+
+        Assert.Null(result.StartedRotation);
+        Assert.False(result.Recovery.HadPendingWork);
+        Assert.Null(await RotationRepository(environment).ReadAsync());
+        Assert.Equal(1, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
+    [Fact]
+    public async Task RunAsync_RunsANewRotationWhenThresholdsAreConfigured()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        SeedDay(environment, new DateOnly(2026, 2, 20));
+        SeedDay(environment, new DateOnly(2026, 2, 21));
+
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, new ArchiveRotationSettings { MaxCalendarDays = 1 });
+
+        Assert.NotNull(result.StartedRotation);
+        Assert.True(result.StartedRotation!.Started);
+        Assert.Equal(2, result.StartedRotation.Targets.Count);
+        Assert.Null(await RotationRepository(environment).ReadAsync());
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
+    [Fact]
+    public async Task RunAsync_RecoversTheInterruptedRotationBeforeStartingANewOne()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        (Guid interrupted, ArchiveRotationShadowPlan plan) = await PendingRotationAsync(
+            environment,
+            ArchiveRotationPhase.ReadyToPublish,
+            [new DateOnly(2026, 2, 20)]);
+        // A second closed day that only becomes rotatable once the interrupted operation is gone.
+        SeedDay(environment, new DateOnly(2026, 2, 21));
+
+        // A new start against a pending rotation fails closed in the scanner, so completing here at
+        // all proves recovery ran first.
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, new ArchiveRotationSettings { MaxCalendarDays = 1 });
+
+        Assert.True(result.Recovery.ArchiveRotation.HadPendingOperation);
+        Assert.Equal(interrupted, result.Recovery.ArchiveRotation.OperationId);
+        Assert.NotNull(result.StartedRotation);
+        Assert.True(result.StartedRotation!.Started);
+        Assert.NotEqual(interrupted, result.StartedRotation.OperationId);
+
+        Assert.True(File.Exists(
+            Path.Combine(environment.Root, "Archive", plan.Targets[0].FileName.FileName)));
+        Assert.True(File.Exists(Path.Combine(
+            environment.Root,
+            "Archive",
+            result.StartedRotation.Targets[0].FileName.FileName)));
+        Assert.Null(await RotationRepository(environment).ReadAsync());
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
     private static ProtectedStorageStartupRecoveryCoordinator Coordinator(
         GlobalPolicyTestEnvironment environment) =>
         new(environment.Session, environment.Factory);

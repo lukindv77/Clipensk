@@ -1,5 +1,6 @@
 using Clipensk.Core.Application;
 using Clipensk.Core.Clipboard;
+using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Clipboard;
 using Clipensk.Storage.Databases;
@@ -64,9 +65,10 @@ public partial class App
             }
 
             DateOnly currentCalendarDate = DateOnly.FromDateTime(DateTime.Now);
+            ArchiveRotationSettings? rotationSettings = window.ArchiveRotationSettings;
             await Task.Run(
                 () => new ProtectedStorageStartupRecoveryCoordinator(session)
-                    .RecoverAsync(currentCalendarDate, session.CancellationToken),
+                    .RunAsync(currentCalendarDate, rotationSettings, session.CancellationToken),
                 session.CancellationToken);
         }
         catch (OperationCanceledException)

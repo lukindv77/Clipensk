@@ -158,6 +158,60 @@ public sealed class ProtectedArchiveRotationStartServiceTests
                 "SELECT COUNT(*) FROM ClipboardHistoryEvent WHERE CalendarDate = '2026-02-22';"));
     }
 
+    [Fact]
+    public async Task StartAndCompleteAsync_PublishesTheReadyRangeAndKeepsTheOpenTail()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        SeedDay(environment, new DateOnly(2026, 2, 20));
+        SeedDay(environment, new DateOnly(2026, 2, 21));
+        SeedDay(environment, new DateOnly(2026, 2, 22));
+
+        var start = new ProtectedArchiveRotationStartService(environment.Session, environment.Factory);
+        ArchiveRotationRunResult run = await start.StartAndCompleteAsync(
+            new ArchiveRotationSettings { MaxCalendarDays = 2 },
+            Today);
+
+        Assert.True(run.Started);
+        Assert.Single(run.Targets);
+        Assert.Equal(
+            new JournalDateRange(new DateOnly(2026, 2, 22), new DateOnly(2026, 2, 22)),
+            run.OpenTail);
+        Assert.Contains(
+            run.Descriptors,
+            descriptor => descriptor.FileName == run.Targets[0].FileName.FileName);
+        Assert.True(File.Exists(
+            Path.Combine(environment.Root, "Archive", run.Targets[0].FileName.FileName)));
+
+        var repository = new SqlitePendingArchiveRotationRepository(environment.Session, environment.Factory);
+        Assert.Null(await repository.ReadAsync());
+        Assert.Equal(
+            1,
+            environment.Scalar(
+                "SELECT COUNT(*) FROM ClipboardHistoryEvent WHERE CalendarDate = '2026-02-22';"));
+        Assert.Equal(1, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
+    [Fact]
+    public async Task StartAndCompleteAsync_PublishesNothingWhenNoRangeIsReady()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        SeedDay(environment, new DateOnly(2026, 2, 20));
+
+        var start = new ProtectedArchiveRotationStartService(environment.Session, environment.Factory);
+        ArchiveRotationRunResult run = await start.StartAndCompleteAsync(
+            new ArchiveRotationSettings { MaxCalendarDays = 5 },
+            Today);
+
+        Assert.False(run.Started);
+        Assert.Equal(Guid.Empty, run.OperationId);
+        Assert.Empty(run.Descriptors);
+        Assert.Empty(run.Targets);
+
+        var repository = new SqlitePendingArchiveRotationRepository(environment.Session, environment.Factory);
+        Assert.Null(await repository.ReadAsync());
+        Assert.Equal(1, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
     private static void SeedDay(GlobalPolicyTestEnvironment environment, DateOnly day)
     {
         using SqliteConnection connection = environment.Factory.Open(

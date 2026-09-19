@@ -1,3 +1,4 @@
+using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 
 namespace Clipensk.App;
@@ -8,6 +9,13 @@ public sealed partial class JournalWindow
 
     internal bool HasActiveProtectedStorageSession =>
         _protectedStorageSession?.IsActive == true;
+
+    /// <summary>
+    /// The persisted Archive rotation thresholds, read on the UI thread like every other
+    /// <see cref="ApplicationSettings"/> access in this window. Rotation stays opt-in: no
+    /// configured thresholds means startup runs recovery only.
+    /// </summary>
+    internal ArchiveRotationSettings? ArchiveRotationSettings => _settings.ArchiveRotation;
 
     internal bool TryGetActiveProtectedStorageSession(
         out ProtectedStorageSessionLease? session)

@@ -12,6 +12,13 @@ public sealed record ArchiveRotationStartResult(
     IReadOnlyList<PendingArchiveRotationTarget> Targets,
     JournalDateRange? OpenTail);
 
+public sealed record ArchiveRotationRunResult(
+    bool Started,
+    Guid OperationId,
+    IReadOnlyList<PendingArchiveRotationTarget> Targets,
+    JournalDateRange? OpenTail,
+    IReadOnlyList<ArchiveSegmentDescriptor> Descriptors);
+
 /// <summary>
 /// Atomic start of an Archive Rotation, per <c>docs/ARCHIVE_ROTATION_PROTOCOL.md</c> §7.
 ///
@@ -42,6 +49,53 @@ public sealed class ProtectedArchiveRotationStartService
             Path.GetFullPath(session.DataRootPath),
             "Current",
             "current.db");
+    }
+
+    /// <summary>
+    /// Starts a rotation and, when one was started, runs it to Catalog publication by delegating to
+    /// <see cref="ProtectedArchiveRotationRecoveryService"/>. Completion has exactly one
+    /// implementation: the roll-forward path, which is also what a crash between the two halves
+    /// would take. Nothing is started when no segment reaches the configured rule.
+    /// </summary>
+    public async Task<ArchiveRotationRunResult> StartAndCompleteAsync(
+        ArchiveRotationSettings settings,
+        DateOnly currentLocalDate,
+        CancellationToken cancellationToken = default)
+    {
+        ArchiveRotationStartResult start = await StartAsync(
+            settings,
+            currentLocalDate,
+            cancellationToken).ConfigureAwait(false);
+        if (!start.Started)
+        {
+            return new ArchiveRotationRunResult(
+                Started: false,
+                Guid.Empty,
+                start.Targets,
+                start.OpenTail,
+                Array.Empty<ArchiveSegmentDescriptor>());
+        }
+
+        ArchiveRotationRecoveryResult completed = await new ProtectedArchiveRotationRecoveryService(
+                _session,
+                _connectionFactory)
+            .RecoverAsync(currentLocalDate, cancellationToken)
+            .ConfigureAwait(false);
+
+        // The marker is a singleton, so recovery can only have continued the operation just
+        // started. Anything else means the durable state moved underneath this start.
+        if (!completed.HadPendingOperation || completed.OperationId != start.OperationId)
+        {
+            throw new InvalidOperationException(
+                "Archive rotation completion did not continue the operation that was just started.");
+        }
+
+        return new ArchiveRotationRunResult(
+            Started: true,
+            start.OperationId,
+            start.Targets,
+            start.OpenTail,
+            completed.Descriptors);
     }
 
     public async Task<ArchiveRotationStartResult> StartAsync(
