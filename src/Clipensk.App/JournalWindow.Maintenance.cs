@@ -518,6 +518,7 @@ public sealed partial class JournalWindow
         MaintenanceStartDate.IsEnabled = !busy && protectedAccess && archiveSelected;
         MaintenanceEndDate.IsEnabled = !busy && protectedAccess && archiveSelected;
         UpdateMaintenanceTransferAvailability(busy);
+        UpdateMaintenanceRotationAvailability(busy);
     }
 
     private void UpdateMaintenanceTransferAvailability(bool busy = false)

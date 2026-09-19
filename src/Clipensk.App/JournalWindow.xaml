@@ -183,6 +183,22 @@
                                 IsEnabled="False"
                                 Click="OnMaintenanceTransferClicked" />
                     </StackPanel>
+                    <StackPanel x:Name="MaintenanceArchiveRotationPanel"
+                                Spacing="8"
+                                Margin="0,12,0,0"
+                                Loaded="OnMaintenanceArchiveRotationPanelLoaded">
+                        <TextBlock x:Name="MaintenanceRotationTitle"
+                                   Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Name="MaintenanceRotationBody"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="MaintenanceRotationStatus"
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="MaintenanceRotateButton"
+                                HorizontalAlignment="Left"
+                                IsEnabled="False"
+                                Click="OnMaintenanceRotateClicked" />
+                    </StackPanel>
+
                     <StackPanel x:Name="MaintenanceArchiveSplitPanel"
                                 Spacing="8"
                                 Margin="0,12,0,0"
