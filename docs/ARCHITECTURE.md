@@ -276,9 +276,16 @@ Crash-safe planning/publication/recovery contract зафиксирован в `A
 Durable план и phase ротации хранятся в Current v10 через `PendingArchiveRotation` /
 `PendingArchiveRotationTarget`. Phases: `Planned → ReadyToPublish → PhysicalPublished →
 SourcePurged → CatalogPublished`. Pending rotation и pending Archive Split взаимно блокируют старт
-друг друга. Settings/pure planner, Current v10 marker и его repository реализованы; storage-backed
-shadow construction, publication, source purge, Catalog integration, recovery, scheduler и
-Settings UI пока не реализованы.
+друг друга.
+
+Storage-слой реализован полностью: source scanner, shadow builder с измерением фактического размера
+закрытого `.db`, copy-first publication, verified purge, Catalog publication, recovery coordinator
+и atomic start service. Purge не имеет собственной реализации переноса — он переиспользует exact
+compare/purge ядро `ProtectedCurrentToArchiveTransferService` через lease-aware точку входа, а
+построение и сверка Archive v1 shadow общие с Archive Split через `ArchiveShadowWriter`.
+
+Не реализованы: startup/runtime integration, scheduler/manual trigger и Settings UI. Таблица
+приёмки с точным CI evidence по каждому слайсу — в `ARCHIVE_ROTATION_PROTOCOL.md` §15.
 
 ## 12. Именование архивов
 

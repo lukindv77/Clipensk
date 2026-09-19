@@ -1,6 +1,6 @@
 # Archive Rotation protocol
 
-Status: **DESIGN CONTRACT — implemented through the durable Current v10 pending-rotation marker; storage-backed planning, publication, purge, Catalog and recovery remain pending.**
+Status: **IMPLEMENTED through the durable storage layer — planning, staging, publication, verified purge, Catalog projection, recovery and atomic start are accepted on exact main. Startup/runtime integration, scheduler/manual trigger and Settings UI remain pending; manual production smoke stays `UNVERIFIED`.**
 
 This document defines crash-safe automatic Archive rotation for Clipensk. It complements
 `ARCHIVE_DATABASE_SCHEMA.md`, `STORAGE_CATALOG_SCHEMA.md`,
@@ -425,34 +425,49 @@ the marker is cleared.
 
 ## 15. Implementation slices
 
-Current accepted foundation on exact main `ef96c1aba2eaad7a2af853a85981ac1be9d4a45e`:
+Status is recorded against exact-main CI evidence only. A slice counts as **accepted** when both
+Build and Native SQLCipher succeeded on the exact promoted SHA.
 
-- `ArchiveRotationSettings` persists count/physical-size/day thresholds;
-- multi-threshold configuration requires explicit `Any` or `All`;
-- pure planner supports count/day inputs and fails closed on `MaxBytes`;
-- exact-main Build #438 and Native SQLCipher #81 are **SUCCESS**.
+### Accepted
 
-Accepted since then:
+| What landed | Accepted on exact main | Build | Native SQLCipher |
+|---|---|---|---|
+| `ArchiveRotationSettings`, thresholds, explicit `Any`/`All`, JSON persistence | `ef96c1ab…` | #438 | #81 |
+| Pure planner correction — ready ranges vs open tail, post-day `>=` semantics | `8f28c8fb…` | #442 (`35297570135`) | #82 (`35297570220`) |
+| Current schema v10 + pending rotation repository, migration, mutual exclusion with pending Split | `e9dcd575…` | #445 (`35365996480`) | #83 (`35365996498`) |
+| Rotation source scanner — eligible closed-day window, deterministic base-name allocation | `ce3a128f…` | #449 (`35369508065`) | #84 (`35369508207`) |
+| Rotation shadow builder with measured physical size; shared `ArchiveShadowWriter` | `2582136c…` | #451 (`35413837787`) | #85 (`35413837679`) |
+| Copy-first publication — temporary copy, atomic no-overwrite move, retained staging backup | `dd8bf9ef…` | #453 (`35415566034`) | #86 (`35415566110`) |
+| Verified Current purge through the shared lease-aware transfer core | `4bb1f96a…` | #455 (`35416794641`) | #87 (`35416794654`) |
+| Catalog publication, staging cleanup and marker clear | `8052bf22…` | #457 (`35418099317`) | #88 (`35418099356`) |
+| Recovery coordinator — roll forward from every durable phase | `1d1e2f10…` | #459 (`35419325156`) | #89 (`35419325150`) |
 
-- **Pure planner correction** — ready ranges vs open tail with post-day `>=` trigger semantics,
-  accepted on exact main `8f28c8fb187e20b85ef906b7f75a1ba2179e837e` by Build #442
-  (run `35297570135`) and Native SQLCipher #82 (run `35297570220`);
-- **Current schema v10 + pending rotation repository** — durable operation/target plan, migration
-  and mutual exclusion with pending Archive Split.
+### Awaiting confirmation
 
-Remaining slices, in order:
+**Atomic start service** — one mutation lease over snapshot, planning, shadow construction, marker
+commit and the advance to `ReadyToPublish` — was promoted as `5efeacf8af8f21b73cc67aacace513021fb86f20`.
+Build #461 (`35420485454`) is **SUCCESS**; Native SQLCipher #90 (`35420485452`) was still running
+when this document was committed. The slice is **NOT ACCEPTED** until that run reports SUCCESS, and
+confirming it is the first action of the next working pass.
 
-1. **Protocol document** — this file.
-2. **Pure planner correction** — ready ranges vs open tail, post-day `>=` trigger semantics,
-   whole-day oversized cases, zero-record span tests.
-3. **Current schema + pending rotation repository** — durable operation/target plan and migrations.
-4. **Rotation source scanner + shadow builder** — closed-day metrics, physical-size measurement,
-   source/shadow cross-check, deterministic base-name allocation.
-5. **Copy-first publication** — retained staging backup and exact planned final validation.
-6. **Lease-aware transfer integration** — reuse exact compare/purge logic without nested mutation
-   lease acquisition.
-7. **Catalog publication + recovery coordinator + atomic start service**.
-8. **Startup/runtime integration** — recover pending rotation before clipboard capture resumes.
-9. **Scheduler/manual trigger and Settings UI** for thresholds/mode.
-10. **Manual production WinUI/storage smoke evidence** remains separate and must stay
-    `UNVERIFIED` until actually performed.
+Design decisions that fell out of the implementation and are now load-bearing:
+
+- The threshold combination rule lives **once**, in `ArchiveRotationSettings.HasReachedThresholds`,
+  so the pure planner and storage-backed rotation cannot drift apart. A configuration containing
+  `MaxBytes` fails closed when no measured file size is supplied.
+- Archive v1 shadow construction, the exact source→shadow comparison and full Archive validation
+  live **once**, in `ArchiveShadowWriter`, shared by Archive Split and Archive Rotation.
+- Source purge has no transfer implementation of its own. It reuses
+  `ProtectedCurrentToArchiveTransferService`'s exact copy-verify-compare-purge core through a
+  lease-aware entry point.
+- Every service that holds the storage mutation lease uses the repository's `…InTransaction`
+  helpers rather than its lease-acquiring entry points; re-entering the lease deadlocks.
+- Recovery from `Planned` rebuilds shadows from Current and **must reproduce the planned physical
+  size**, because that size is the evidence later publication compares published copies against.
+
+### Remaining
+
+1. **Startup/runtime integration** — recover a pending rotation before clipboard capture resumes.
+2. **Scheduler/manual trigger and Settings UI** for thresholds/mode.
+3. **Manual production WinUI/storage smoke evidence** remains separate and stays `UNVERIFIED` until
+   actually performed.
