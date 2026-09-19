@@ -117,6 +117,68 @@ public sealed class ProtectedArchiveRotationShadowBuilder
     }
 
     /// <summary>
+    /// Rebuilds every planned shadow from Current under the immutable plan, for recovery from the
+    /// <c>Planned</c> phase where staging may be incomplete but Current still holds every planned
+    /// source row.
+    ///
+    /// The rebuilt shadow must reproduce the physical size recorded when the plan was committed.
+    /// That evidence is what later publication compares published copies against, so a rebuild that
+    /// cannot reproduce it fails closed instead of quietly invalidating the plan.
+    /// </summary>
+    internal void RebuildPlannedShadows(
+        Guid operationId,
+        IReadOnlyList<PendingArchiveRotationTarget> targets,
+        ProtectedStorageMutationLease mutationLease,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateOperationId(operationId);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentNullException.ThrowIfNull(mutationLease);
+
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
+            _session.CancellationToken,
+            cancellationToken);
+        CancellationToken token = linked.Token;
+
+        ResetExactStagingDirectory(GetStagingDirectory(operationId), token);
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        using SqliteConnection current = OpenDatabase(
+            _currentDatabasePath,
+            SqliteOpenMode.ReadOnly,
+            token);
+
+        foreach (PendingArchiveRotationTarget target in targets)
+        {
+            token.ThrowIfCancellationRequested();
+            CreateShadow(operationId, target.FileName, target.DatabaseId, target.Coverage, token);
+            ExtendShadow(
+                operationId,
+                target.FileName,
+                current,
+                target.Coverage,
+                target.Coverage,
+                token);
+
+            long physicalSize = ValidateAndMeasureShadow(
+                operationId,
+                target.FileName,
+                target.DatabaseId,
+                target.Coverage,
+                token);
+            if (physicalSize != target.ShadowPhysicalSizeBytes)
+            {
+                throw new InvalidDataException(
+                    $"Rebuilt Archive rotation shadow '{target.FileName.FileName}' does not "
+                        + "reproduce the planned physical size.");
+            }
+        }
+    }
+
+    /// <summary>
     /// Revalidates every staged shadow against the plan and re-runs the exact Current cross-check.
     /// </summary>
     internal void ValidateShadowSet(
