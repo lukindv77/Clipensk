@@ -1,3 +1,4 @@
+using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Clipensk.Storage.History;
 using Xunit;
@@ -6,50 +7,107 @@ namespace Clipensk.Storage.Tests;
 
 public sealed class ClipboardRestorePlanTests
 {
+    private const string PlainText = "Text";
+
     [Fact]
     public void Create_KeepsPublishablePayloadsInOrder()
     {
         RestorableClipboardEntry entry = Entry(
-            Inline(0, "Text", ClipboardHistoryPayloadKind.Text, "copied"),
+            Inline(0, PlainText, ClipboardHistoryPayloadKind.Text, "copied"),
             External(1, "Bitmap", ClipboardHistoryPayloadKind.PngImage, "/data/Files/2026-03-01/a.png"));
 
-        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry);
+        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
 
         Assert.Empty(plan.SkippedFormatNames);
-        Assert.Equal(["Text", "Bitmap"], plan.Items.Select(item => item.FormatName));
+        Assert.Empty(plan.TextConvertedFormatNames);
+        Assert.Equal([PlainText, "Bitmap"], plan.Items.Select(item => item.FormatName));
         Assert.Equal("copied", plan.Items[0].InlineCanonicalText);
         Assert.Equal("/data/Files/2026-03-01/a.png", plan.Items[1].ExternalFilePath);
     }
 
     [Fact]
-    public void Create_SkipsStorageItemsAndReportsThem()
+    public void Create_RepublishesAFileDropAsOneFullPathPerLineInStoredOrder()
     {
-        RestorableClipboardEntry entry = Entry(
-            Inline(0, "Text", ClipboardHistoryPayloadKind.Text, "copied"),
-            Inline(1, "StorageItems", ClipboardHistoryPayloadKind.StorageItems, "{\"version\":1}"));
+        RestorableClipboardEntry entry = Entry(Inline(
+            0,
+            "StorageItems",
+            ClipboardHistoryPayloadKind.StorageItems,
+            Canonical(@"C:\reports\q3.xlsx", @"C:\reports\archive")));
 
-        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry);
+        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
 
-        Assert.Equal("StorageItems", Assert.Single(plan.SkippedFormatNames));
-        Assert.Equal("Text", Assert.Single(plan.Items).FormatName);
+        ClipboardRestoreItem item = Assert.Single(plan.Items);
+        Assert.Equal(PlainText, item.FormatName);
+        Assert.Equal(ClipboardHistoryPayloadKind.Text, item.Kind);
+        Assert.Equal("C:\\reports\\q3.xlsx\r\nC:\\reports\\archive", item.InlineCanonicalText);
+        Assert.Equal("StorageItems", Assert.Single(plan.TextConvertedFormatNames));
+        Assert.Empty(plan.SkippedFormatNames);
     }
 
     [Fact]
-    public void Create_FailsClosedWhenOnlyStorageItemsWereStored()
+    public void Create_NeverOverwritesCapturedPlainTextWithAFileList()
     {
-        // Clipensk never stores the dropped files themselves, so a file-only entry has nothing
-        // durable to republish. Replacing the user's clipboard with an empty package is worse.
+        // A clipboard holds one plain-text value, and the captured one is the user's own.
         RestorableClipboardEntry entry = Entry(
-            Inline(0, "StorageItems", ClipboardHistoryPayloadKind.StorageItems, "{\"version\":1}"));
+            Inline(0, PlainText, ClipboardHistoryPayloadKind.Text, "copied"),
+            Inline(1, "StorageItems", ClipboardHistoryPayloadKind.StorageItems, Canonical(@"C:\a.txt")));
 
-        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlan.Create(entry));
+        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
+
+        Assert.Equal("copied", Assert.Single(plan.Items).InlineCanonicalText);
+        Assert.Equal("StorageItems", Assert.Single(plan.SkippedFormatNames));
+        Assert.Empty(plan.TextConvertedFormatNames);
+    }
+
+    [Fact]
+    public void Create_ConvertsAFileDropAlongsideNonTextPayloads()
+    {
+        RestorableClipboardEntry entry = Entry(
+            External(0, "Bitmap", ClipboardHistoryPayloadKind.PngImage, "/data/Files/2026-03-01/a.png"),
+            Inline(1, "StorageItems", ClipboardHistoryPayloadKind.StorageItems, Canonical(@"C:\a.txt")));
+
+        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
+
+        Assert.Equal(["Bitmap", PlainText], plan.Items.Select(item => item.FormatName));
+        Assert.Equal("StorageItems", Assert.Single(plan.TextConvertedFormatNames));
+    }
+
+    [Fact]
+    public void Create_FailsClosedOnAnUnreadableFileDrop()
+    {
+        RestorableClipboardEntry entry = Entry(Inline(
+            0,
+            "StorageItems",
+            ClipboardHistoryPayloadKind.StorageItems,
+            "{\"version\":99,\"items\":[]}"));
+
+        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlan.Create(entry, PlainText));
     }
 
     [Fact]
     public void Create_FailsClosedOnAnEntryWithNoPayloads()
     {
-        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlan.Create(Entry()));
+        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlan.Create(Entry(), PlainText));
     }
+
+    [Fact]
+    public void Create_RequiresAPlainTextFormatName()
+    {
+        RestorableClipboardEntry entry = Entry(
+            Inline(0, PlainText, ClipboardHistoryPayloadKind.Text, "copied"));
+
+        Assert.Throws<ArgumentException>(() => ClipboardRestorePlan.Create(entry, " "));
+    }
+
+    private static string Canonical(params string[] fullPaths) =>
+        ClipboardStorageItemsCanonicalizer.Create(
+            [.. fullPaths.Select((path, index) => new ClipboardStorageItemMetadata(
+                path,
+                Path.GetFileName(path),
+                Path.GetExtension(path),
+                IsDirectory: false,
+                index,
+                ClipboardPreferredFileOperation.Copy))]).Text;
 
     private static RestorableClipboardEntry Entry(params RestorableClipboardPayload[] payloads) =>
         new(Guid.NewGuid(), payloads);

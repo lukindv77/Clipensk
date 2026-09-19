@@ -56,6 +56,100 @@ public static class ClipboardStorageItemsCanonicalizer
         return new ClipboardStorageItemsCanonicalRepresentation(text, buffer.WrittenCount);
     }
 
+    /// <summary>
+    /// Reads the full paths back out of a canonical representation, in stored item order.
+    ///
+    /// This reader lives beside the writer on purpose: the canonical schema has exactly one
+    /// producer and one consumer, and separating them is how the two drift. It fails closed on an
+    /// unknown version, because a future version may carry different semantics for the same field
+    /// names, and on any item that does not carry a usable path.
+    /// </summary>
+    public static IReadOnlyList<string> ReadFullPaths(string canonicalText)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(canonicalText);
+
+        using JsonDocument document = Parse(canonicalText);
+        JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                "Canonical storage-items representation must be a JSON object.");
+        }
+
+        if (!root.TryGetProperty("version", out JsonElement version) ||
+            version.ValueKind != JsonValueKind.Number ||
+            !version.TryGetInt32(out int versionValue))
+        {
+            throw new InvalidDataException(
+                "Canonical storage-items representation carries no readable version.");
+        }
+
+        if (versionValue != CurrentVersion)
+        {
+            throw new InvalidDataException(
+                $"Canonical storage-items representation version {versionValue} is not supported.");
+        }
+
+        if (!root.TryGetProperty("items", out JsonElement items) ||
+            items.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException(
+                "Canonical storage-items representation carries no item array.");
+        }
+
+        var paths = new List<string>(items.GetArrayLength());
+        int expectedOrder = 0;
+        foreach (JsonElement item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException("Canonical storage item must be a JSON object.");
+            }
+
+            if (!item.TryGetProperty("order", out JsonElement order) ||
+                order.ValueKind != JsonValueKind.Number ||
+                !order.TryGetInt32(out int orderValue) ||
+                orderValue != expectedOrder)
+            {
+                throw new InvalidDataException(
+                    "Canonical storage item order must be zero-based and contiguous.");
+            }
+
+            if (!item.TryGetProperty("fullPath", out JsonElement fullPath) ||
+                fullPath.ValueKind != JsonValueKind.String ||
+                fullPath.GetString() is not { Length: > 0 } path ||
+                string.IsNullOrWhiteSpace(path))
+            {
+                throw new InvalidDataException("Canonical storage item carries no full path.");
+            }
+
+            paths.Add(path);
+            expectedOrder++;
+        }
+
+        if (paths.Count == 0)
+        {
+            throw new InvalidDataException(
+                "Canonical storage-items representation contains no items.");
+        }
+
+        return paths;
+    }
+
+    private static JsonDocument Parse(string canonicalText)
+    {
+        try
+        {
+            return JsonDocument.Parse(canonicalText);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "Canonical storage-items representation is not valid JSON.",
+                exception);
+        }
+    }
+
     private static void ValidateItem(ClipboardStorageItemMetadata item, int expectedOrder)
     {
         if (item.Order != expectedOrder)

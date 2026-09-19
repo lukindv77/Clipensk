@@ -110,4 +110,66 @@ public sealed class ClipboardStorageItemsCanonicalizerTests
         Assert.Throws<InvalidDataException>(() =>
             ClipboardStorageItemsCanonicalizer.Create(items));
     }
+
+    [Fact]
+    public void ReadFullPaths_RoundTripsWhatTheWriterProduced()
+    {
+        // Writer and reader share one schema; this is the guard against them drifting apart.
+        string canonical = ClipboardStorageItemsCanonicalizer.Create(
+        [
+            new ClipboardStorageItemMetadata(
+                "C:\\reports\\q3.xlsx",
+                "q3.xlsx",
+                ".xlsx",
+                IsDirectory: false,
+                Order: 0,
+                ClipboardPreferredFileOperation.Copy),
+            new ClipboardStorageItemMetadata(
+                "C:\\reports\\archive",
+                "archive",
+                string.Empty,
+                IsDirectory: true,
+                Order: 1,
+                ClipboardPreferredFileOperation.Move),
+        ]).Text;
+
+        Assert.Equal(
+            new[] { "C:\\reports\\q3.xlsx", "C:\\reports\\archive" },
+            ClipboardStorageItemsCanonicalizer.ReadFullPaths(canonical));
+    }
+
+    [Fact]
+    public void ReadFullPaths_RejectsAnUnsupportedVersion()
+    {
+        Assert.Throws<InvalidDataException>(() => ClipboardStorageItemsCanonicalizer.ReadFullPaths(
+            "{\"version\":2,\"items\":[{\"order\":0,\"fullPath\":\"C:\\\\a.txt\"}]}"));
+    }
+
+    [Fact]
+    public void ReadFullPaths_RejectsNonContiguousOrder()
+    {
+        Assert.Throws<InvalidDataException>(() => ClipboardStorageItemsCanonicalizer.ReadFullPaths(
+            "{\"version\":1,\"items\":[{\"order\":1,\"fullPath\":\"C:\\\\a.txt\"}]}"));
+    }
+
+    [Fact]
+    public void ReadFullPaths_RejectsAnItemWithoutAPath()
+    {
+        Assert.Throws<InvalidDataException>(() => ClipboardStorageItemsCanonicalizer.ReadFullPaths(
+            "{\"version\":1,\"items\":[{\"order\":0,\"fullPath\":\"  \"}]}"));
+    }
+
+    [Fact]
+    public void ReadFullPaths_RejectsAnEmptyItemArray()
+    {
+        Assert.Throws<InvalidDataException>(() => ClipboardStorageItemsCanonicalizer.ReadFullPaths(
+            "{\"version\":1,\"items\":[]}"));
+    }
+
+    [Fact]
+    public void ReadFullPaths_RejectsMalformedJson()
+    {
+        Assert.Throws<InvalidDataException>(() =>
+            ClipboardStorageItemsCanonicalizer.ReadFullPaths("{\"version\":1,"));
+    }
 }

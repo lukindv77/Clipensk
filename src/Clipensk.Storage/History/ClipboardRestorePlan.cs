@@ -1,3 +1,4 @@
+using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 
 namespace Clipensk.Storage.History;
@@ -10,48 +11,79 @@ public sealed record ClipboardRestoreItem(
     string? ExternalFilePath);
 
 /// <summary>
-/// What a verified history entry can and cannot put back on the clipboard.
+/// What a verified history entry puts back on the clipboard.
 ///
-/// <see cref="SkippedFormatNames"/> is not a silent filter: the caller is expected to tell the user
-/// which formats were left out, because the reason is a storage decision they cannot see.
+/// Neither list is a silent filter: the caller is expected to tell the user what was converted and
+/// what was left out, because the reasons are storage decisions they cannot see.
 /// </summary>
 public sealed record ClipboardRestorePlan(
     IReadOnlyList<ClipboardRestoreItem> Items,
+    IReadOnlyList<string> TextConvertedFormatNames,
     IReadOnlyList<string> SkippedFormatNames)
 {
+    private const string PathSeparator = "\r\n";
+
     /// <summary>
     /// Builds the plan from an entry already verified by
     /// <see cref="ProtectedClipboardHistoryRestoreService"/>.
     ///
-    /// <see cref="ClipboardHistoryPayloadKind.StorageItems"/> is skipped. Clipensk stores only the
-    /// canonical metadata of a file drop and never reads or copies the file contents
-    /// (<c>docs/REQUIREMENTS.md</c> §19), so the original files may have been moved or deleted and
-    /// there is nothing durable to republish. Handing back a file list that may no longer resolve
-    /// would be worse than saying it was skipped.
+    /// A file drop cannot be republished as files. Clipensk stores only the canonical metadata and
+    /// never reads or copies the file contents (<c>docs/REQUIREMENTS.md</c> §19), so the originals
+    /// may have been moved or deleted. It is republished as plain text — one full path per line, in
+    /// the stored item order.
+    ///
+    /// That conversion never overwrites genuinely captured text: when the entry already carries a
+    /// payload in <paramref name="plainTextFormatName"/>, the file list is reported as skipped
+    /// instead, because a clipboard can hold only one plain-text value and the captured one is the
+    /// user's own.
     ///
     /// An entry with nothing publishable fails closed rather than replacing the user's current
     /// clipboard with an empty package.
     /// </summary>
-    public static ClipboardRestorePlan Create(RestorableClipboardEntry entry)
+    public static ClipboardRestorePlan Create(
+        RestorableClipboardEntry entry,
+        string plainTextFormatName)
     {
         ArgumentNullException.ThrowIfNull(entry);
+        ArgumentException.ThrowIfNullOrWhiteSpace(plainTextFormatName);
+
+        bool hasCapturedPlainText = entry.Payloads.Any(payload =>
+            payload.Kind != ClipboardHistoryPayloadKind.StorageItems &&
+            string.Equals(payload.FormatName, plainTextFormatName, StringComparison.Ordinal));
 
         var items = new List<ClipboardRestoreItem>(entry.Payloads.Count);
+        var converted = new List<string>();
         var skipped = new List<string>();
 
         foreach (RestorableClipboardPayload payload in entry.Payloads)
         {
-            if (payload.Kind == ClipboardHistoryPayloadKind.StorageItems)
+            if (payload.Kind != ClipboardHistoryPayloadKind.StorageItems)
+            {
+                items.Add(new ClipboardRestoreItem(
+                    payload.FormatName,
+                    payload.Kind,
+                    payload.InlineCanonicalText,
+                    payload.ExternalFilePath));
+                continue;
+            }
+
+            if (hasCapturedPlainText)
             {
                 skipped.Add(payload.FormatName);
                 continue;
             }
 
+            IReadOnlyList<string> paths = ClipboardStorageItemsCanonicalizer.ReadFullPaths(
+                payload.InlineCanonicalText
+                    ?? throw new InvalidDataException(
+                        "A stored file drop carries no canonical representation to convert."));
+
             items.Add(new ClipboardRestoreItem(
-                payload.FormatName,
-                payload.Kind,
-                payload.InlineCanonicalText,
-                payload.ExternalFilePath));
+                plainTextFormatName,
+                ClipboardHistoryPayloadKind.Text,
+                string.Join(PathSeparator, paths),
+                ExternalFilePath: null));
+            converted.Add(payload.FormatName);
         }
 
         if (items.Count == 0)
@@ -60,6 +92,6 @@ public sealed record ClipboardRestorePlan(
                 "This history entry has no payload that can be published to the clipboard.");
         }
 
-        return new ClipboardRestorePlan(items, skipped);
+        return new ClipboardRestorePlan(items, converted, skipped);
     }
 }
