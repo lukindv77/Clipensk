@@ -1,6 +1,6 @@
 # Archive Rotation protocol
 
-Status: **IMPLEMENTED through the durable storage layer — planning, staging, publication, verified purge, Catalog projection, recovery and atomic start are accepted on exact main. Startup/runtime integration, scheduler/manual trigger and Settings UI remain pending; manual production smoke stays `UNVERIFIED`.**
+Status: **IMPLEMENTED and wired into the runtime — planning, staging, publication, verified purge, Catalog projection, recovery, atomic start, startup recovery and the automatic due-rotation run are accepted on exact main. A manual trigger and the Settings UI for thresholds/mode remain pending; rotation stays opt-in until product defaults are chosen, and manual production smoke stays `UNVERIFIED`.**
 
 This document defines crash-safe automatic Archive rotation for Clipensk. It complements
 `ARCHIVE_DATABASE_SCHEMA.md`, `STORAGE_CATALOG_SCHEMA.md`,
@@ -442,6 +442,8 @@ Build and Native SQLCipher succeeded on the exact promoted SHA.
 | Catalog publication, staging cleanup and marker clear | `8052bf22…` | #457 (`35418099317`) | #88 (`35418099356`) |
 | Recovery coordinator — roll forward from every durable phase | `1d1e2f10…` | #459 (`35419325156`) | #89 (`35419325150`) |
 | Atomic start service — one mutation lease over snapshot, planning, shadows, marker, ReadyToPublish | `5efeacf8…` | #461 (`35420485454`) | #90 (`35420485452`) |
+| Startup recovery coordinator — split, rotation, policy maintenance in one ordered roll-forward before capture resumes | `cabc962a…` | #466 (`35436929710`) | #93 (`35436929707`) |
+| Automatic due rotation after startup recovery, opt-in on configured thresholds | `3e0d7bfb…` | #468 (`35439294648`) | #95 (`35439294649`) |
 
 Design decisions that fell out of the implementation and are now load-bearing:
 
@@ -457,10 +459,22 @@ Design decisions that fell out of the implementation and are now load-bearing:
   helpers rather than its lease-acquiring entry points; re-entering the lease deadlocks.
 - Recovery from `Planned` rebuilds shadows from Current and **must reproduce the planned physical
   size**, because that size is the evidence later publication compares published copies against.
+- Startup settles every interrupted operation **before** any new rotation may start. A pending
+  rotation or split would fail the scanner closed anyway, and a pending policy-maintenance
+  continuation still owns the Archive cleanup and Catalog projection a fresh rotation would race.
+- Completion has exactly one implementation. `StartAndCompleteAsync` delegates to the roll-forward
+  recovery path, which is also the path a crash between start and publication would take.
+- The runtime sequence lives in `Clipensk.Storage`, not in `Clipensk.App`, because only the storage
+  layer is covered by tests; `App` contributes the persisted settings and the fail-closed
+  suspension boundary.
 
 ### Remaining
 
-1. **Startup/runtime integration** — recover a pending rotation before clipboard capture resumes.
-2. **Scheduler/manual trigger and Settings UI** for thresholds/mode.
-3. **Manual production WinUI/storage smoke evidence** remains separate and stays `UNVERIFIED` until
+1. **Manual trigger** — an explicit "rotate now" action in the Maintenance UI, on the same
+   suspend-capture boundary the other durable maintenance operations already use.
+2. **Settings UI** for thresholds and Any/All mode. The mechanism and persistence exist; only the
+   editing surface is missing.
+3. **Product defaults** for rotation are still unchosen (`OPEN_QUESTIONS.md` §8). Until they are,
+   rotation is opt-in: unconfigured thresholds mean startup runs recovery only and never rotates.
+4. **Manual production WinUI/storage smoke evidence** remains separate and stays `UNVERIFIED` until
    actually performed.
