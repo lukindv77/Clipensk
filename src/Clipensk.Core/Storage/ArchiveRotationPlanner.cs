@@ -79,10 +79,10 @@ public sealed class ArchiveRotationPlanner
             openDayCount++;
             openRecordCount = SaturatingAdd(openRecordCount, day.RecordCount);
 
-            if (!HasReachedConfiguredThresholds(
+            if (!settings.HasReachedThresholds(
                     openDayCount,
                     openRecordCount,
-                    settings))
+                    physicalSizeBytes: null))
             {
                 continue;
             }
@@ -116,39 +116,6 @@ public sealed class ArchiveRotationPlanner
                     nameof(orderedDays));
             }
         }
-    }
-
-    private static bool HasReachedConfiguredThresholds(
-        int segmentDayCount,
-        long segmentRecordCount,
-        ArchiveRotationSettings settings)
-    {
-        int configuredThresholdCount = 0;
-        int reachedThresholdCount = 0;
-
-        if (settings.MaxCalendarDays is int maxDays)
-        {
-            configuredThresholdCount++;
-            if (segmentDayCount >= maxDays)
-            {
-                reachedThresholdCount++;
-            }
-        }
-
-        if (settings.MaxRecordCount is long maxRecords)
-        {
-            configuredThresholdCount++;
-            if (segmentRecordCount >= maxRecords)
-            {
-                reachedThresholdCount++;
-            }
-        }
-
-        ArchiveRotationThresholdMode mode =
-            settings.ThresholdMode ?? ArchiveRotationThresholdMode.Any;
-        return mode == ArchiveRotationThresholdMode.All
-            ? reachedThresholdCount == configuredThresholdCount
-            : reachedThresholdCount > 0;
     }
 
     private static long SaturatingAdd(long current, long next) =>

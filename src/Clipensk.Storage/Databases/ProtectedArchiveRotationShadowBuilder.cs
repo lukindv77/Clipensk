@@ -292,7 +292,10 @@ public sealed class ProtectedArchiveRotationShadowBuilder
                 candidateCoverage,
                 token);
 
-            if (!HasReachedThresholds(candidateDayCount, candidateRecordCount, physicalSize, settings))
+            if (!settings.HasReachedThresholds(
+                    candidateDayCount,
+                    candidateRecordCount,
+                    physicalSize))
             {
                 continue;
             }
@@ -461,49 +464,6 @@ public sealed class ProtectedArchiveRotationShadowBuilder
             }
         }
         return total;
-    }
-
-    private static bool HasReachedThresholds(
-        int segmentDayCount,
-        long segmentRecordCount,
-        long segmentPhysicalSize,
-        ArchiveRotationSettings settings)
-    {
-        int configured = 0;
-        int reached = 0;
-
-        if (settings.MaxCalendarDays is int maxDays)
-        {
-            configured++;
-            if (segmentDayCount >= maxDays)
-            {
-                reached++;
-            }
-        }
-
-        if (settings.MaxRecordCount is long maxRecords)
-        {
-            configured++;
-            if (segmentRecordCount >= maxRecords)
-            {
-                reached++;
-            }
-        }
-
-        if (settings.MaxBytes is long maxBytes)
-        {
-            configured++;
-            if (segmentPhysicalSize >= maxBytes)
-            {
-                reached++;
-            }
-        }
-
-        ArchiveRotationThresholdMode mode =
-            settings.ThresholdMode ?? ArchiveRotationThresholdMode.Any;
-        return mode == ArchiveRotationThresholdMode.All
-            ? reached == configured
-            : reached > 0;
     }
 
     private static long SaturatingAdd(long current, long next) =>
