@@ -30,19 +30,23 @@ public sealed class ProtectedCurrentToArchiveTransferService
         _connectionFactory = connectionFactory ?? new SqlCipherConnectionFactory();
     }
 
+    public Task<CurrentToArchiveTransferResult> TransferAsync(
+        ArchiveFileName archiveFileName,
+        JournalDateRange transferRange,
+        CancellationToken cancellationToken = default) =>
+        TransferAsync(
+            archiveFileName,
+            transferRange,
+            DateOnly.FromDateTime(DateTime.Now),
+            cancellationToken);
+
     public async Task<CurrentToArchiveTransferResult> TransferAsync(
         ArchiveFileName archiveFileName,
         JournalDateRange transferRange,
+        DateOnly currentLocalDate,
         CancellationToken cancellationToken = default)
     {
-        ValidateArchiveFileNameValue(archiveFileName);
-        DateOnly currentLocalDate = DateOnly.FromDateTime(DateTime.Now);
-        if (transferRange.EndDate >= currentLocalDate)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(transferRange),
-                "Current-to-Archive transfer accepts only completed calendar days.");
-        }
+        ValidateTransferRange(archiveFileName, transferRange, currentLocalDate);
 
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
             _session.CancellationToken,
@@ -51,12 +55,8 @@ public sealed class ProtectedCurrentToArchiveTransferService
         token.ThrowIfCancellationRequested();
 
         var archiveService = new ProtectedArchiveDatabaseService(_session, _connectionFactory);
-        DatabaseIdentity archiveIdentity = await ValidateArchiveSetAsync(
-                archiveService,
-                archiveFileName,
-                token)
+        await ValidateTransferTargetAsync(archiveService, archiveFileName, transferRange, token)
             .ConfigureAwait(false);
-        EnsureTransferRangeInsideArchiveCoverage(transferRange, archiveIdentity);
 
         // Archive-set/coverage validation is read-only. Serialize from the first Current
         // observation through Archive publication, verification and exact Current purge so
@@ -72,6 +72,68 @@ public sealed class ProtectedCurrentToArchiveTransferService
                 archiveService,
                 token),
             CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs the exact copy-verify-compare-purge core for a caller that already holds the storage
+    /// mutation lease, such as Archive Rotation's source purge phase.
+    ///
+    /// Archive Rotation must reuse this core rather than carry a parallel transfer implementation,
+    /// and it must not call the lease-acquiring entry point above: re-entering the lease it already
+    /// owns would deadlock. <paramref name="currentLocalDate"/> is supplied by the caller so the
+    /// closed-day rule is evaluated against the same date the rotation was planned with instead of
+    /// the system clock.
+    /// </summary>
+    internal CurrentToArchiveTransferResult TransferUnderMutationLease(
+        ArchiveFileName archiveFileName,
+        JournalDateRange transferRange,
+        DateOnly currentLocalDate,
+        ProtectedStorageMutationLease mutationLease,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutationLease);
+        ValidateTransferRange(archiveFileName, transferRange, currentLocalDate);
+
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
+            _session.CancellationToken,
+            cancellationToken);
+        CancellationToken token = linked.Token;
+        token.ThrowIfCancellationRequested();
+
+        var archiveService = new ProtectedArchiveDatabaseService(_session, _connectionFactory);
+        ValidateTransferTargetAsync(archiveService, archiveFileName, transferRange, token)
+            .GetAwaiter()
+            .GetResult();
+
+        return TransferCore(archiveFileName, transferRange, archiveService, token);
+    }
+
+    private static void ValidateTransferRange(
+        ArchiveFileName archiveFileName,
+        JournalDateRange transferRange,
+        DateOnly currentLocalDate)
+    {
+        ValidateArchiveFileNameValue(archiveFileName);
+        if (transferRange.EndDate >= currentLocalDate)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(transferRange),
+                "Current-to-Archive transfer accepts only completed calendar days.");
+        }
+    }
+
+    private async Task ValidateTransferTargetAsync(
+        ProtectedArchiveDatabaseService archiveService,
+        ArchiveFileName archiveFileName,
+        JournalDateRange transferRange,
+        CancellationToken token)
+    {
+        DatabaseIdentity archiveIdentity = await ValidateArchiveSetAsync(
+                archiveService,
+                archiveFileName,
+                token)
+            .ConfigureAwait(false);
+        EnsureTransferRangeInsideArchiveCoverage(transferRange, archiveIdentity);
     }
 
     private async Task<DatabaseIdentity> ValidateArchiveSetAsync(
