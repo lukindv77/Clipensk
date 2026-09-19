@@ -16,7 +16,7 @@ public sealed class ClipboardRestorePlanTests
             Inline(0, PlainText, ClipboardHistoryPayloadKind.Text, "copied"),
             External(1, "Bitmap", ClipboardHistoryPayloadKind.PngImage, "/data/Files/2026-03-01/a.png"));
 
-        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
+        ClipboardRestorePlan plan = ClipboardRestorePlanFactory.Create(entry, PlainText);
 
         Assert.Empty(plan.SkippedFormatNames);
         Assert.Empty(plan.TextConvertedFormatNames);
@@ -34,7 +34,7 @@ public sealed class ClipboardRestorePlanTests
             ClipboardHistoryPayloadKind.StorageItems,
             Canonical(@"C:\reports\q3.xlsx", @"C:\reports\archive")));
 
-        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
+        ClipboardRestorePlan plan = ClipboardRestorePlanFactory.Create(entry, PlainText);
 
         ClipboardRestoreItem item = Assert.Single(plan.Items);
         Assert.Equal(PlainText, item.FormatName);
@@ -52,7 +52,7 @@ public sealed class ClipboardRestorePlanTests
             Inline(0, PlainText, ClipboardHistoryPayloadKind.Text, "copied"),
             Inline(1, "StorageItems", ClipboardHistoryPayloadKind.StorageItems, Canonical(@"C:\a.txt")));
 
-        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
+        ClipboardRestorePlan plan = ClipboardRestorePlanFactory.Create(entry, PlainText);
 
         Assert.Equal("copied", Assert.Single(plan.Items).InlineCanonicalText);
         Assert.Equal("StorageItems", Assert.Single(plan.SkippedFormatNames));
@@ -66,7 +66,7 @@ public sealed class ClipboardRestorePlanTests
             External(0, "Bitmap", ClipboardHistoryPayloadKind.PngImage, "/data/Files/2026-03-01/a.png"),
             Inline(1, "StorageItems", ClipboardHistoryPayloadKind.StorageItems, Canonical(@"C:\a.txt")));
 
-        ClipboardRestorePlan plan = ClipboardRestorePlan.Create(entry, PlainText);
+        ClipboardRestorePlan plan = ClipboardRestorePlanFactory.Create(entry, PlainText);
 
         Assert.Equal(["Bitmap", PlainText], plan.Items.Select(item => item.FormatName));
         Assert.Equal("StorageItems", Assert.Single(plan.TextConvertedFormatNames));
@@ -81,13 +81,13 @@ public sealed class ClipboardRestorePlanTests
             ClipboardHistoryPayloadKind.StorageItems,
             "{\"version\":99,\"items\":[]}"));
 
-        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlan.Create(entry, PlainText));
+        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlanFactory.Create(entry, PlainText));
     }
 
     [Fact]
     public void Create_FailsClosedOnAnEntryWithNoPayloads()
     {
-        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlan.Create(Entry(), PlainText));
+        Assert.Throws<InvalidDataException>(() => ClipboardRestorePlanFactory.Create(Entry(), PlainText));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class ClipboardRestorePlanTests
         RestorableClipboardEntry entry = Entry(
             Inline(0, PlainText, ClipboardHistoryPayloadKind.Text, "copied"));
 
-        Assert.Throws<ArgumentException>(() => ClipboardRestorePlan.Create(entry, " "));
+        Assert.Throws<ArgumentException>(() => ClipboardRestorePlanFactory.Create(entry, " "));
     }
 
     private static string Canonical(params string[] fullPaths) =>

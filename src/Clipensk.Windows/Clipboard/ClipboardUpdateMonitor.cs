@@ -11,6 +11,7 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
     private readonly object _gate = new();
     private readonly ResidentMessageWindow _messageWindow;
     private readonly ClipboardCaptureQueue _captureQueue;
+    private readonly ClipboardSelfWriteSuppressor _selfWriteSuppressor = new();
     private long _captureEpoch;
     private bool _isListenerRegistered;
     private bool _acceptUpdates;
@@ -58,6 +59,7 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
                 _isListenerRegistered = true;
             }
 
+            _selfWriteSuppressor.Reset();
             _captureEpoch = _captureQueue.BeginCaptureEpoch();
             _acceptUpdates = true;
         }
@@ -74,6 +76,7 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
             }
 
             _acceptUpdates = false;
+            _selfWriteSuppressor.Reset();
             _captureQueue.InvalidateCaptureEpoch(_captureEpoch);
 
             if (_isListenerRegistered)
@@ -115,6 +118,18 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Arms suppression of the clipboard state Clipensk itself just published, so republishing a
+    /// stored entry is not captured again as a brand-new event. The caller must read the sequence
+    /// number and call this on the message-loop thread, without yielding after the write: the
+    /// pending <c>WM_CLIPBOARDUPDATE</c> cannot be dispatched until that thread returns to the
+    /// loop, so arming stays ahead of the update it is meant for.
+    /// </summary>
+    public void SuppressSelfWrite(uint sequenceNumber) =>
+        _selfWriteSuppressor.SuppressSequenceNumber(sequenceNumber);
+
+    public static uint ReadClipboardSequenceNumber() => GetClipboardSequenceNumber();
+
     private void OnClipboardUpdated()
     {
         long captureEpoch;
@@ -126,6 +141,11 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
             }
 
             captureEpoch = _captureEpoch;
+        }
+
+        if (!_selfWriteSuppressor.ShouldCapture(GetClipboardSequenceNumber()))
+        {
+            return;
         }
 
         _captureQueue.TryEnqueue(
@@ -140,4 +160,7 @@ internal sealed class ClipboardUpdateMonitor : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool RemoveClipboardFormatListener(nint window);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
 }

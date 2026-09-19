@@ -25,6 +25,7 @@ public sealed partial class JournalWindow
         JournalEndDate.Header = JournalText("EndDate");
         JournalLoadButton.Content = JournalText("Load");
         JournalLoadMoreButton.Content = JournalText("LoadMore");
+        JournalCopyButton.Content = JournalText("Copy.Action");
 
         ShellNavigation.SelectionChanged -= OnJournalNavigationSelectionChanged;
         ShellNavigation.SelectionChanged += OnJournalNavigationSelectionChanged;
@@ -134,6 +135,7 @@ public sealed partial class JournalWindow
         _journalPeriod = null;
         _journalCursor = null;
         JournalEntriesList.ItemsSource = null;
+        UpdateJournalCopyAvailability();
         JournalLoadMoreButton.Visibility = Visibility.Collapsed;
         JournalInfo.Severity = InfoBarSeverity.Informational;
         JournalInfo.Message = JournalText("PeriodChanged");
@@ -244,6 +246,7 @@ public sealed partial class JournalWindow
             }
 
             JournalEntriesList.ItemsSource = _journalItems.ToArray();
+            UpdateJournalCopyAvailability();
             JournalLoadMoreButton.Visibility = entries.Count == JournalPageSize
                 ? Visibility.Visible
                 : Visibility.Collapsed;
@@ -319,6 +322,7 @@ public sealed partial class JournalWindow
         JournalStartDate.IsEnabled = !busy;
         JournalEndDate.IsEnabled = !busy;
         JournalLoadMoreButton.IsEnabled = !busy;
+        UpdateJournalCopyAvailability(busy);
     }
 
     private void ClearJournalUi()
@@ -327,6 +331,7 @@ public sealed partial class JournalWindow
         _journalPeriod = null;
         _journalCursor = null;
         JournalEntriesList.ItemsSource = null;
+        UpdateJournalCopyAvailability();
         JournalInfo.IsOpen = false;
         JournalLoadMoreButton.Visibility = Visibility.Collapsed;
         SetJournalBusy(false);
@@ -339,7 +344,8 @@ public sealed partial class JournalWindow
             entry.EventTime.Timestamp.ToString("dd.MM.yyyy HH:mm:ss zzz", CultureInfo.CurrentCulture),
             BuildJournalSource(entry),
             BuildJournalPreview(entry),
-            BuildJournalDetails(unified));
+            BuildJournalDetails(unified),
+            entry);
     }
 
     private string BuildJournalSource(ClipboardHistoryEntry entry)
@@ -450,5 +456,6 @@ public sealed partial class JournalWindow
         string TimestampText,
         string SourceText,
         string PreviewText,
-        string DetailsText);
+        string DetailsText,
+        ClipboardHistoryEntry Entry);
 }

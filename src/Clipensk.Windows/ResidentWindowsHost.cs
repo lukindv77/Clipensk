@@ -54,6 +54,7 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
             TextSearchTextExtractor);
         _hotKeyService = new GlobalHotKeyService(_messageWindow);
         _clipboardMonitor = new ClipboardUpdateMonitor(_messageWindow, CaptureQueue);
+        RestoreWriter = new WindowsClipboardRestoreWriter(_clipboardMonitor);
     }
 
     public IGlobalHotKeyService HotKeyService => _hotKeyService;
@@ -85,6 +86,12 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
     public ClipboardContentReadExecutionStage ContentReadExecutionStage { get; }
 
     public bool IsClipboardMonitoring => _clipboardMonitor.IsStarted;
+
+    /// <summary>
+    /// Republishes a stored history entry to the clipboard on this host's message-window thread,
+    /// suppressing the capture of Clipensk's own write.
+    /// </summary>
+    public WindowsClipboardRestoreWriter RestoreWriter { get; }
 
     public ClipboardCapturePipeline CreateCapturePipeline(IClipboardCapturePolicyProvider policyProvider)
     {

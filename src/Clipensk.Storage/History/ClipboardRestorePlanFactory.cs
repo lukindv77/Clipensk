@@ -3,23 +3,13 @@ using Clipensk.Core.History;
 
 namespace Clipensk.Storage.History;
 
-/// <summary>One payload that can actually be published to the Windows clipboard.</summary>
-public sealed record ClipboardRestoreItem(
-    string FormatName,
-    ClipboardHistoryPayloadKind Kind,
-    string? InlineCanonicalText,
-    string? ExternalFilePath);
-
 /// <summary>
-/// What a verified history entry puts back on the clipboard.
+/// Builds the <see cref="ClipboardRestorePlan"/> for one verified history entry.
 ///
-/// Neither list is a silent filter: the caller is expected to tell the user what was converted and
-/// what was left out, because the reasons are storage decisions they cannot see.
+/// The plan's data types live in <c>Clipensk.Core</c> so the Windows adapter can publish them
+/// without depending on storage; only this decision logic needs the storage-side entry.
 /// </summary>
-public sealed record ClipboardRestorePlan(
-    IReadOnlyList<ClipboardRestoreItem> Items,
-    IReadOnlyList<string> TextConvertedFormatNames,
-    IReadOnlyList<string> SkippedFormatNames)
+public static class ClipboardRestorePlanFactory
 {
     private const string PathSeparator = "\r\n";
 
