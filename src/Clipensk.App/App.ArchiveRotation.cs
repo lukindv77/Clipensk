@@ -1,5 +1,6 @@
 using Clipensk.Core.Application;
 using Clipensk.Core.Settings;
+using Clipensk.Core.Storage;
 using Clipensk.Storage.Databases;
 using Clipensk.Windows;
 
