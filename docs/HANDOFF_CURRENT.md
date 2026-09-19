@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-19 (Archive Rotation завершена end to end, включая Settings и ручной триггер; следующий блокер — возврат данных в clipboard).
+Checkpoint prepared: 2026-09-19 (возврат записи в clipboard реализован; заявленное назначение продукта закрыто на уровне кода, но не подтверждено ручной проверкой).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,14 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `5cc4d34139afb7985bd187a9273c510792fcd708`.
+Последний промотированный main: `0d444c19bac277fb0573b55e61fb3ab6c0868d52`.
 
-Exact-SHA CI для `5cc4d341…`:
+Exact-main CI для `0d444c19…`:
 
-- Build #474, run `35460149755` (push в `main`) — **SUCCESS**;
-- Native SQLCipher #97, run `35458569265` (`workflow_dispatch` на том же SHA) — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
+- Build #483, run `35470866524` — **SUCCESS**;
+- Native SQLCipher #105, run `35470866569` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
 
-Baseline **ACCEPTED**: Archive Rotation завершена целиком.
+Baseline **ACCEPTED**: Archive Rotation завершена целиком, возврат записи в clipboard реализован.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -65,7 +65,15 @@ Archive Rotation: **завершена end to end** — storage-слой, runtim
 
 Пороги правятся на странице настроек через `ArchiveRotationSettingsDraft` (`Clipensk.Core/Settings/`).
 
-Следующее направление — **возврат выбранной записи в clipboard**, главный блокер релиза (`REQUIREMENTS.md` §1).
+Возврат записи в clipboard реализован:
+
+- `ProtectedClipboardHistoryRestoreService` — перепроверка внешних файлов при восстановлении (containment в `Files/`, reparse-point, размер, SHA-256);
+- `ClipboardRestorePlanFactory` — состав восстанавливаемых форматов; файловый drop отдаётся текстом по одному пути на строку и никогда не затирает захваченный plain text;
+- `ClipboardSelfWriteSuppressor` + `ClipboardUpdateMonitor` — собственная запись не захватывается повторно, опознаётся по clipboard sequence number;
+- `WindowsClipboardRestoreWriter` — публикация `DataPackage`; файлы разрешаются до публикации, между `SetContent` и чтением sequence number нет `await`, пакет не flush-ится;
+- `App.TryRestoreToClipboardAsync` + кнопка «Скопировать в буфер обмена» в журнале.
+
+Фактическая работа возврата в буфер **не подтверждена**: весь Windows/WinUI слой автотестами не покрыт.
 
 ## E. What has been completed
 
@@ -88,7 +96,14 @@ Archive Rotation, принято в `main` (evidence — §15 протокола
 13. `ArchiveRotationSettingsDraft` + экран настроек порогов и Any/All (`a2791aa1…`);
 14. `App.TryRunArchiveRotationAsync` + кнопка «Выполнить ротацию сейчас» в Maintenance (`5cc4d341…`).
 
-Storage 544, Core 218, Infrastructure 44 — все зелёные локально и в CI.
+Возврат записи в clipboard, принято в `main`:
+
+15. `ProtectedClipboardHistoryRestoreService` — read-путь внешних payload с проверками (`3b8098e2…`);
+16. `ClipboardSelfWriteSuppressor` + состав восстановления (`53c953c6…`);
+17. файловый drop возвращается текстом, `ReadFullPaths` рядом с writer (`303e798d…`);
+18. `WindowsClipboardRestoreWriter`, подавление в мониторе, кнопка в журнале (`0d444c19…`).
+
+Storage 564, Core 229, Infrastructure 44 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -123,24 +138,24 @@ Storage 544, Core 218, Infrastructure 44 — все зелёные локаль�
 
 По продукту в целом (подробности — в оценке готовности к релизу):
 
-2. **Возврат выбранной записи в clipboard** — заявленное назначение продукта (`REQUIREMENTS.md` §1), не реализовано. Главный блокер релиза.
-3. Журнал: поиск, период по умолчанию, фильтр по приложению-источнику и приложению вызова.
-4. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), срок хранения Trash (`TrashRetentionDays` объявлено, не используется, автоудаления нет), загрузка внешних переводов.
-5. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
-6. Страница «О программе» — заглушка.
-7. Tray-иконка и автозапуск отсутствуют.
-8. Лицензия не выбрана, файла `LICENSE` нет; схема распространения не выбрана.
-9. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`).
+2. Журнал: поиск, период по умолчанию, фильтр по приложению-источнику и приложению вызова.
+3. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), срок хранения Trash (`TrashRetentionDays` объявлено, не используется, автоудаления нет), загрузка внешних переводов.
+4. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
+5. Страница «О программе» — заглушка.
+6. Tray-иконка и автозапуск отсутствуют.
+7. Лицензия не выбрана, файла `LICENSE` нет; схема распространения не выбрана.
+8. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Теперь сюда входит и возврат в буфер: работа `DataPackage`, подавление собственной записи и конверсия файлового drop в текст проверяются только вручную.
 
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `5cc4d34139afb7985bd187a9273c510792fcd708`.
-3. Для следующего направления прочитать `ExternalPayloadStore`, `ProtectedExternalPayloadTrashCollector` (контракт containment/reparse/SHA), `ClipboardHistoryEntry` и `JournalWindow.Journal.cs`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `0d444c19bac277fb0573b55e61fb3ab6c0868d52`.
+3. Для журнала прочитать `JournalWindow.Journal.cs`, `IUnifiedClipboardHistoryRepository` и `ClipboardHistoryCursor` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы 1–14 ротации и Archive Split.
-6. Продуктовые решения (§I пункты 1, 8) не принимать самостоятельно — это выбор пользователя.
-7. `Clipensk.App` не собирается на Linux: перед push проверять usings нового App-кода отдельно, иначе цикл CI тратится на `CS0246`.
+5. Не переделывать заново принятые слайсы ротации, Archive Split и возврата в clipboard.
+6. Продуктовые решения (§I пункты 1, 7) не принимать самостоятельно — это выбор пользователя.
+7. `Clipensk.App` и `Clipensk.Windows` не собираются на Linux: перед push отдельно проверять usings нового кода этих проектов, иначе цикл CI тратится на `CS0246`.
+8. `Clipensk.Windows` зависит только от `Clipensk.Core`. Типы, которые нужны и платформенному адаптеру, и слою хранения, живут в `Clipensk.Core`; зависимость Windows → Storage не добавлять.
 
 ## K. Bootstrap rules
 
@@ -157,6 +172,7 @@ Storage 544, Core 218, Infrastructure 44 — все зелёные локаль�
 
 Рекомендация по модели для следующего шага:
 
-- возврат данных в clipboard — **Opus 5, effort High**: требует построить отсутствующий read-путь внешних payload с проверкой SHA и containment, затем восстановление `DataPackage`, которое автотестами не проверяется;
-- продуктовые решения (лицензия, дефолты, схема распространения) — **Sonnet 5, средняя сложность**: выбор из уже сформулированных вариантов;
-- журнал (поиск, период, фильтры) и остальные настройки — **Sonnet 5, высокая сложность**: объёмная, но не конкурентная работа.
+- **ручная проверка на Windows** — не задача для модели: нужен реальный прогон и фиксация evidence пользователем;
+- журнал (поиск, период по умолчанию, фильтры по приложению) — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
+- остальные настройки (автоблокировка, Trash retention, внешняя локализация) — **Sonnet 5, высокая сложность**; из них автоудаление Trash по сроку ближе к **Opus 5, effort High**, так как трогает физическое удаление пользовательских файлов;
+- продуктовые решения (лицензия, дефолты, схема распространения) — **Sonnet 5, средняя сложность**.
