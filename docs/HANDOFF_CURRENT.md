@@ -37,11 +37,9 @@ Clipensk — resident Windows clipboard-history manager.
 Exact-main CI для `5efeacf8…`:
 
 - Build #461, run `35420485454` — **SUCCESS**;
-- Native SQLCipher #90, run `35420485452` — **IN PROGRESS на момент подготовки checkpoint, результат НЕ ПОДТВЕРЖДЁН**.
+- Native SQLCipher #90, run `35420485452` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
 
-**Первое действие нового чата:** проверить conclusion run `35420485452`. Пока он не SUCCESS, baseline `5efeacf8…` и слайс atomic start service считать **NOT ACCEPTED**: tranche трогает `src/Clipensk.Storage/**`, а такие изменения требуют обоих exact-main workflow. При failure — сначала connector logs/artifacts и `docs/CI_LOG_ACCESS.md`, причину не угадывать.
-
-Предыдущий полностью подтверждённый baseline: `1d1e2f109be1e972d5a64b113d7679fa6c1d2f1b` (Build #459 / Native #89).
+Оба exact-main workflow зелёные на этом SHA, поэтому baseline **ACCEPTED** и весь storage-слой Archive Rotation принят.
 
 Canonical Build workflow blob: `6bb0e8b8eda657c082738a64a4ba80acd857daf4`
 

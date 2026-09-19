@@ -441,14 +441,7 @@ Build and Native SQLCipher succeeded on the exact promoted SHA.
 | Verified Current purge through the shared lease-aware transfer core | `4bb1f96a…` | #455 (`35416794641`) | #87 (`35416794654`) |
 | Catalog publication, staging cleanup and marker clear | `8052bf22…` | #457 (`35418099317`) | #88 (`35418099356`) |
 | Recovery coordinator — roll forward from every durable phase | `1d1e2f10…` | #459 (`35419325156`) | #89 (`35419325150`) |
-
-### Awaiting confirmation
-
-**Atomic start service** — one mutation lease over snapshot, planning, shadow construction, marker
-commit and the advance to `ReadyToPublish` — was promoted as `5efeacf8af8f21b73cc67aacace513021fb86f20`.
-Build #461 (`35420485454`) is **SUCCESS**; Native SQLCipher #90 (`35420485452`) was still running
-when this document was committed. The slice is **NOT ACCEPTED** until that run reports SUCCESS, and
-confirming it is the first action of the next working pass.
+| Atomic start service — one mutation lease over snapshot, planning, shadows, marker, ReadyToPublish | `5efeacf8…` | #461 (`35420485454`) | #90 (`35420485452`) |
 
 Design decisions that fell out of the implementation and are now load-bearing:
 
