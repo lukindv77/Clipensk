@@ -44,11 +44,24 @@ public sealed class SqlitePendingArchiveRotationRepository
         return ValueTask.FromResult(operation);
     }
 
+    public ValueTask<PendingArchiveRotationOperation> StartAsync(
+        ArchiveRotationSettings policySnapshot,
+        IReadOnlyList<PendingArchiveRotationTarget> targets,
+        CancellationToken cancellationToken = default) =>
+        StartAsync(Guid.NewGuid(), policySnapshot, targets, cancellationToken);
+
+    /// <summary>
+    /// Commits the marker under an operation id the caller already owns. Rotation builds and
+    /// validates its staging shadows before the marker exists, so the staging directory and the
+    /// durable marker must be committed under the same operation identity.
+    /// </summary>
     public async ValueTask<PendingArchiveRotationOperation> StartAsync(
+        Guid operationId,
         ArchiveRotationSettings policySnapshot,
         IReadOnlyList<PendingArchiveRotationTarget> targets,
         CancellationToken cancellationToken = default)
     {
+        ValidateOperationId(operationId, nameof(operationId));
         ValidatePlan(policySnapshot, targets);
 
         using CancellationTokenSource linked = CreateLinkedCancellation(cancellationToken);
@@ -63,7 +76,7 @@ public sealed class SqlitePendingArchiveRotationRepository
             transaction,
             policySnapshot,
             targets,
-            Guid.NewGuid(),
+            operationId,
             DateTimeOffset.UtcNow,
             token);
         token.ThrowIfCancellationRequested();

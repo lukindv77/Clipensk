@@ -392,6 +392,21 @@ public sealed class ProtectedArchiveRotationShadowBuilder
         CancellationToken token)
     {
         string stagedPath = GetStagedArchivePath(operationId, fileName);
+        if (Directory.Exists(stagedPath))
+        {
+            throw new InvalidOperationException(
+                $"Archive rotation staged path '{fileName.FileName}' is occupied by a directory.");
+        }
+
+        // Naming the missing shadow explicitly keeps a failed rotation diagnosable; opening a
+        // missing file would otherwise surface as a bare SQLite open error.
+        if (!File.Exists(stagedPath))
+        {
+            throw new FileNotFoundException(
+                $"Archive rotation shadow '{fileName.FileName}' was not found in staging.",
+                stagedPath);
+        }
+
         using (SqliteConnection staged = OpenDatabase(stagedPath, SqliteOpenMode.ReadOnly, token))
         {
             _ = ArchiveShadowWriter.ValidateShadowDatabase(
