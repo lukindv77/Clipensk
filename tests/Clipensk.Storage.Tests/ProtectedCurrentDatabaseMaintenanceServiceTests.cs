@@ -110,6 +110,38 @@ public sealed class ProtectedCurrentDatabaseMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task VacuumAsync_RejectsCurrentMissingPendingRotationContract()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        // Current still claims the active schema version, but the v10 pending-rotation contract is
+        // gone. Physical maintenance must refuse it rather than vacuum a Current it cannot verify.
+        environment.Execute("DROP TABLE PendingArchiveRotationTarget; DROP TABLE PendingArchiveRotation;");
+        environment.Factory.Modes.Clear();
+
+        var service = new ProtectedCurrentDatabaseMaintenanceService(
+            environment.Session,
+            environment.Factory);
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.VacuumAsync());
+
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+    }
+
+    [Fact]
+    public async Task VacuumAsync_RejectsMalformedPendingRotationContract()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.Execute("ALTER TABLE PendingArchiveRotation ADD COLUMN Unexpected TEXT;");
+        environment.Factory.Modes.Clear();
+
+        var service = new ProtectedCurrentDatabaseMaintenanceService(
+            environment.Session,
+            environment.Factory);
+        await Assert.ThrowsAsync<InvalidDataException>(() => service.VacuumAsync());
+
+        Assert.Equal(new[] { SqliteOpenMode.ReadOnly }, environment.Factory.Modes);
+    }
+
+    [Fact]
     public async Task OptimizeAsync_InvalidCatalogNeverOpensReadWrite()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();

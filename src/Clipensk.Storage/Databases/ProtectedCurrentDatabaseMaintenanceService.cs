@@ -212,6 +212,7 @@ public sealed class ProtectedCurrentDatabaseMaintenanceService
             PendingPolicyMaintenanceSqlSchema.ValidateTable(connection);
             ApplicationDiscoveredFormatSqlSchema.ValidateTable(connection);
             PendingArchiveSplitSqlSchema.ValidateTables(connection);
+            PendingArchiveRotationSqlSchema.ValidateTables(connection);
         }
         else if (expectedRole == DatabaseRole.StorageCatalog)
         {
