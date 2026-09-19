@@ -50,6 +50,7 @@ public sealed partial class JournalWindow : Window
 
         InitializeLocalizedText();
         InitializeHotKeyEditor();
+        InitializeArchiveRotationEditor();
         InitializeGlobalPolicyUi();
         _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
         RefreshLifecycleUi();
@@ -114,6 +115,14 @@ public sealed partial class JournalWindow : Window
         HotKeyTitle.Text = _localization.GetString("Settings.HotKey.Title");
         HotKeyKeyLabel.Text = _localization.GetString("Settings.HotKey.Key");
         ApplyHotKeyButton.Content = _localization.GetString("Settings.HotKey.Apply");
+
+        RotationTitle.Text = _localization.GetString("Settings.Rotation.Title");
+        RotationBody.Text = _localization.GetString("Settings.Rotation.Body");
+        RotationMaxRecords.Header = _localization.GetString("Settings.Rotation.MaxRecords");
+        RotationMaxMegabytes.Header = _localization.GetString("Settings.Rotation.MaxMegabytes");
+        RotationMaxDays.Header = _localization.GetString("Settings.Rotation.MaxDays");
+        RotationModeLabel.Text = _localization.GetString("Settings.Rotation.Mode");
+        SaveRotationButton.Content = _localization.GetString("Settings.Rotation.Save");
     }
 
     private void InitializeHotKeyEditor()
@@ -446,6 +455,8 @@ public sealed partial class JournalWindow : Window
         if (isSettings)
         {
             DataRootValue.Text = _settings.DataRootPath ?? _localization.GetString("Settings.DataRoot.NotConfigured");
+            // Reopening Settings always shows what is persisted, discarding unsaved edits.
+            LoadArchiveRotationEditor();
             SettingsPanel.Visibility = Visibility.Visible;
             return;
         }

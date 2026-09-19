@@ -295,6 +295,45 @@
 
                 <Button x:Name="ApplyHotKeyButton" HorizontalAlignment="Left" Click="OnApplyHotKeyClicked" />
                 <InfoBar x:Name="HotKeyInfo" IsOpen="False" IsClosable="True" />
+
+                <StackPanel x:Name="ArchiveRotationPanel" Spacing="8" Margin="0,12,0,0">
+                    <TextBlock x:Name="RotationTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="RotationBody" TextWrapping="Wrap" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <NumberBox x:Name="RotationMaxRecords"
+                                   Width="220"
+                                   Minimum="1"
+                                   SmallChange="100"
+                                   LargeChange="1000"
+                                   SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="RotationMaxMegabytes"
+                                   Width="220"
+                                   Minimum="1"
+                                   SmallChange="16"
+                                   LargeChange="256"
+                                   SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="RotationMaxDays"
+                                   Width="220"
+                                   Minimum="1"
+                                   SmallChange="1"
+                                   LargeChange="30"
+                                   SpinButtonPlacementMode="Compact" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock x:Name="RotationModeLabel" />
+                        <ComboBox x:Name="RotationMode"
+                                  Width="320"
+                                  HorizontalAlignment="Left"
+                                  DisplayMemberPath="DisplayName" />
+                    </StackPanel>
+
+                    <Button x:Name="SaveRotationButton"
+                            HorizontalAlignment="Left"
+                            Click="OnSaveArchiveRotationClicked" />
+                    <InfoBar x:Name="RotationInfo" IsOpen="False" IsClosable="True" />
+                </StackPanel>
             </StackPanel>
         </Grid>
     </NavigationView>

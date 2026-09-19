@@ -190,6 +190,21 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["Settings.HotKey.Apply"] = "Применить горячую клавишу",
         ["Settings.HotKey.Saved"] = "Горячая клавиша сохранена и активирована.",
         ["Settings.HotKey.Failed"] = "Не удалось применить горячую клавишу. Прежняя комбинация сохранена.",
+        ["Settings.Rotation.Title"] = "Автоматическая ротация архивов",
+        ["Settings.Rotation.Body"] = "Ротация переносит завершённые календарные дни из актуальной базы в новые архивные базы. Пока не задан ни один порог, ротация выключена. Порог проверяется только по полностью завершённым календарным дням, и один день никогда не делится между архивами.",
+        ["Settings.Rotation.MaxRecords"] = "Максимум записей",
+        ["Settings.Rotation.MaxMegabytes"] = "Максимальный размер архива, МБ",
+        ["Settings.Rotation.MaxDays"] = "Максимум календарных дней",
+        ["Settings.Rotation.Mode"] = "Как сочетать несколько порогов",
+        ["Settings.Rotation.Mode.Unset"] = "Не выбрано",
+        ["Settings.Rotation.Mode.Any"] = "Любой из заданных порогов (Any)",
+        ["Settings.Rotation.Mode.All"] = "Все заданные пороги одновременно (All)",
+        ["Settings.Rotation.Save"] = "Сохранить параметры ротации",
+        ["Settings.Rotation.Saved"] = "Параметры ротации сохранены. Ротация выполняется при следующей разблокировке хранилища.",
+        ["Settings.Rotation.Disabled"] = "Ни один порог не задан: автоматическая ротация выключена.",
+        ["Settings.Rotation.Invalid"] = "Некорректные параметры ротации. Пороги должны быть положительными, а при нескольких заданных порогах нужно явно выбрать Any или All.",
+        ["Settings.Rotation.SaveFailed"] = "Не удалось сохранить параметры ротации. Прежние параметры сохранены.",
+        ["Settings.Rotation.SizeRounded"] = "Сохранённый порог размера не кратен мегабайту и будет округлён при сохранении.",
     };
 
     public string GetString(string key)
