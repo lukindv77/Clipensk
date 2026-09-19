@@ -1,6 +1,6 @@
 # Archive Rotation protocol
 
-Status: **IMPLEMENTED and wired into the runtime — planning, staging, publication, verified purge, Catalog projection, recovery, atomic start, startup recovery and the automatic due-rotation run are accepted on exact main. A manual trigger and the Settings UI for thresholds/mode remain pending; rotation stays opt-in until product defaults are chosen, and manual production smoke stays `UNVERIFIED`.**
+Status: **IMPLEMENTED end to end — planning, staging, publication, verified purge, Catalog projection, recovery, atomic start, startup recovery, the automatic due-rotation run, the Settings editor for thresholds/mode and the manual Maintenance trigger are all accepted on exact main. Rotation stays opt-in until product defaults are chosen, and manual production smoke stays `UNVERIFIED`.**
 
 This document defines crash-safe automatic Archive rotation for Clipensk. It complements
 `ARCHIVE_DATABASE_SCHEMA.md`, `STORAGE_CATALOG_SCHEMA.md`,
@@ -444,6 +444,10 @@ Build and Native SQLCipher succeeded on the exact promoted SHA.
 | Atomic start service — one mutation lease over snapshot, planning, shadows, marker, ReadyToPublish | `5efeacf8…` | #461 (`35420485454`) | #90 (`35420485452`) |
 | Startup recovery coordinator — split, rotation, policy maintenance in one ordered roll-forward before capture resumes | `cabc962a…` | #466 (`35436929710`) | #93 (`35436929707`) |
 | Automatic due rotation after startup recovery, opt-in on configured thresholds | `3e0d7bfb…` | #468 (`35439294648`) | #95 (`35439294649`) |
+| Settings editor for thresholds and Any/All mode, over a tested pure Core mapping | `a2791aa1…` | #473 (`35458569019`) | #96 (`35456905255`) † |
+| Manual "rotate now" trigger in Maintenance, on the startup suspend-capture boundary | `5cc4d341…` | #474 (`35460149755`) | #97 (`35458569265`) † |
+
+† These two slices change no file under `src/Clipensk.Storage/**` or `src/Clipensk.Core/Storage/**`, so `sqlcipher-native.yml` does not trigger on a push to `main`. The Native run recorded here is an explicit `workflow_dispatch` on the **same commit SHA** from the feature ref, which is exact-SHA evidence for the same tree; it was run because both slices change `Clipensk.App`, whose publish layout only that workflow exercises.
 
 Design decisions that fell out of the implementation and are now load-bearing:
 
@@ -467,14 +471,21 @@ Design decisions that fell out of the implementation and are now load-bearing:
 - The runtime sequence lives in `Clipensk.Storage`, not in `Clipensk.App`, because only the storage
   layer is covered by tests; `App` contributes the persisted settings and the fail-closed
   suspension boundary.
+- The Settings editor holds no rule of its own. `ArchiveRotationSettingsDraft` in `Clipensk.Core`
+  maps the editing surface to `ArchiveRotationSettings` and validates through the same
+  `Validate()` the storage layer enforces, so an invalid combination cannot reach the settings file
+  and the untested WinUI page carries no logic.
+- The manual trigger reuses the persisted thresholds rather than introducing a manual rule, so
+  there is exactly one source of truth for when a segment is due.
+- The manual trigger quiesces clipboard capture, unlike Archive Split's Maintenance actions, because
+  §14 requires the application-level rotation flow to keep the runtime suspended until the marker is
+  cleared. After a failure it resumes only when no pending rotation marker is left behind.
 
 ### Remaining
 
-1. **Manual trigger** — an explicit "rotate now" action in the Maintenance UI, on the same
-   suspend-capture boundary the other durable maintenance operations already use.
-2. **Settings UI** for thresholds and Any/All mode. The mechanism and persistence exist; only the
-   editing surface is missing.
-3. **Product defaults** for rotation are still unchosen (`OPEN_QUESTIONS.md` §8). Until they are,
-   rotation is opt-in: unconfigured thresholds mean startup runs recovery only and never rotates.
-4. **Manual production WinUI/storage smoke evidence** remains separate and stays `UNVERIFIED` until
-   actually performed.
+1. **Product defaults** for rotation are still unchosen (`OPEN_QUESTIONS.md` §8). This is a product
+   decision, not missing code. Until it is made, rotation is opt-in: unconfigured thresholds mean
+   startup runs recovery only and never rotates, and the manual trigger stays disabled.
+2. **Manual production WinUI/storage smoke evidence** remains separate and stays `UNVERIFIED` until
+   actually performed. No automated test drives the Settings editor, the Maintenance trigger, or a
+   real suspended-capture rotation on Windows.

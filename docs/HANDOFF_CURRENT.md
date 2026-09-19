@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-19 (Archive Rotation wired into the runtime; продуктовый UI-слой — следующий).
+Checkpoint prepared: 2026-09-19 (Archive Rotation завершена end to end, включая Settings и ручной триггер; следующий блокер — возврат данных в clipboard).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,19 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `3e0d7bfb3edd0ecc362e31352eba2e871ddc3f84`.
+Последний промотированный main: `5cc4d34139afb7985bd187a9273c510792fcd708`.
 
-Exact-main CI для `3e0d7bfb…`:
+Exact-SHA CI для `5cc4d341…`:
 
-- Build #468, run `35439294648` — **SUCCESS**;
-- Native SQLCipher #95, run `35439294649` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
+- Build #474, run `35460149755` (push в `main`) — **SUCCESS**;
+- Native SQLCipher #97, run `35458569265` (`workflow_dispatch` на том же SHA) — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
 
-Оба exact-main workflow зелёные на этом SHA, поэтому baseline **ACCEPTED**: storage-слой Archive Rotation и её runtime-интеграция приняты.
+Baseline **ACCEPTED**: Archive Rotation завершена целиком.
+
+Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
+`sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
+и другие). Для чисто App/Core.Settings изменений Native нужно запускать вручную на том же SHA — это
+единственная проверка publish-пути `Clipensk.App`.
 
 Canonical Build workflow blob: `6bb0e8b8eda657c082738a64a4ba80acd857daf4`
 
@@ -47,7 +52,7 @@ Canonical Build workflow blob: `6bb0e8b8eda657c082738a64a4ba80acd857daf4`
 
 ## D. Current owner / active task
 
-Archive Rotation: **storage-слой и runtime-интеграция завершены**. Направление с риском durable-повреждения закрыто.
+Archive Rotation: **завершена end to end** — storage-слой, runtime-интеграция, экран настроек и ручной триггер. Осталось только продуктовое решение по дефолтам и ручной smoke.
 
 Стартовая последовательность живёт в `ProtectedStorageStartupRecoveryCoordinator`:
 
@@ -56,7 +61,11 @@ Archive Rotation: **storage-слой и runtime-интеграция завер�
 
 Вызов — из `App.PolicyMaintenance.cs` внутри suspension-блока; при любой ошибке capture не возобновляется.
 
-Следующее направление — **продуктовый UI-слой**, и оно требует решений пользователя (см. §H и §I).
+Ручной запуск: `App.TryRunArchiveRotationAsync` (quiesce → `StartAndCompleteAsync` → resume только если маркер снят), вызывается со страницы Maintenance.
+
+Пороги правятся на странице настроек через `ArchiveRotationSettingsDraft` (`Clipensk.Core/Settings/`).
+
+Следующее направление — **возврат выбранной записи в clipboard**, главный блокер релиза (`REQUIREMENTS.md` §1).
 
 ## E. What has been completed
 
@@ -75,9 +84,11 @@ Archive Rotation, принято в `main` (evidence — §15 протокола
 9. `ProtectedArchiveRotationRecoveryService` — roll-forward из любой durable фазы;
 10. `ProtectedArchiveRotationStartService` — атомарный старт под одним mutation lease;
 11. `ProtectedStorageStartupRecoveryCoordinator` — единый упорядоченный roll-forward до возобновления capture (`cabc962a…`);
-12. `StartAndCompleteAsync` + `RunAsync` — автоматический запуск подошедшей ротации после recovery, opt-in по настройкам (`3e0d7bfb…`).
+12. `StartAndCompleteAsync` + `RunAsync` — автоматический запуск подошедшей ротации после recovery, opt-in по настройкам (`3e0d7bfb…`);
+13. `ArchiveRotationSettingsDraft` + экран настроек порогов и Any/All (`a2791aa1…`);
+14. `App.TryRunArchiveRotationAsync` + кнопка «Выполнить ротацию сейчас» в Maintenance (`5cc4d341…`).
 
-Storage 544, Core 206, Infrastructure 44 — все зелёные локально и в exact-main CI.
+Storage 544, Core 218, Infrastructure 44 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -106,31 +117,30 @@ Storage 544, Core 206, Infrastructure 44 — все зелёные локаль�
 
 ## I. Remaining work
 
-По направлению Archive Rotation:
+По направлению Archive Rotation осталось только:
 
-1. Manual trigger («ротировать сейчас») в Maintenance UI, на том же suspend-capture boundary.
-2. Settings UI для thresholds/mode.
-3. Product defaults ротации (`OPEN_QUESTIONS.md` §8) — решение пользователя; до него ротация opt-in.
+1. Product defaults ротации (`OPEN_QUESTIONS.md` §8) — решение пользователя, не код; до него ротация opt-in.
 
 По продукту в целом (подробности — в оценке готовности к релизу):
 
-4. Возврат выбранной записи в clipboard — заявленное назначение продукта (`REQUIREMENTS.md` §1), не реализовано.
-5. Журнал: поиск, период по умолчанию, фильтр по приложению-источнику и приложению вызова.
-6. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), срок хранения Trash (`TrashRetentionDays` объявлено, не используется, автоудаления нет), загрузка внешних переводов.
-7. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
-8. Страница «О программе» — заглушка.
-9. Tray-иконка и автозапуск отсутствуют.
-10. Лицензия не выбрана, файла `LICENSE` нет; схема распространения не выбрана.
-11. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`).
+2. **Возврат выбранной записи в clipboard** — заявленное назначение продукта (`REQUIREMENTS.md` §1), не реализовано. Главный блокер релиза.
+3. Журнал: поиск, период по умолчанию, фильтр по приложению-источнику и приложению вызова.
+4. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), срок хранения Trash (`TrashRetentionDays` объявлено, не используется, автоудаления нет), загрузка внешних переводов.
+5. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
+6. Страница «О программе» — заглушка.
+7. Tray-иконка и автозапуск отсутствуют.
+8. Лицензия не выбрана, файла `LICENSE` нет; схема распространения не выбрана.
+9. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`).
 
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `3e0d7bfb3edd0ecc362e31352eba2e871ddc3f84`.
-3. Прочитать `ProtectedStorageStartupRecoveryCoordinator`, `App.PolicyMaintenance.cs` и `JournalWindow.xaml` перед изменениями UI.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `5cc4d34139afb7985bd187a9273c510792fcd708`.
+3. Для следующего направления прочитать `ExternalPayloadStore`, `ProtectedExternalPayloadTrashCollector` (контракт containment/reparse/SHA), `ClipboardHistoryEntry` и `JournalWindow.Journal.cs`.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы 1–12 ротации и Archive Split.
-6. Продуктовые решения (§I пункты 3, 10) не принимать самостоятельно — это выбор пользователя.
+5. Не переделывать заново принятые слайсы 1–14 ротации и Archive Split.
+6. Продуктовые решения (§I пункты 1, 8) не принимать самостоятельно — это выбор пользователя.
+7. `Clipensk.App` не собирается на Linux: перед push проверять usings нового App-кода отдельно, иначе цикл CI тратится на `CS0246`.
 
 ## K. Bootstrap rules
 
@@ -145,8 +155,8 @@ Storage 544, Core 206, Infrastructure 44 — все зелёные локаль�
 
 Сетевая политика cloud-окружения переведена на **Custom** с доменами .NET SDK, поэтому локально доступны сборка и прогон `Clipensk.Core.Tests`, `Clipensk.Storage.Tests`, `Clipensk.Infrastructure.Tests` — около 10 секунд против полного CI-цикла. Процедура, ограничения и диагностика — `docs/LOCAL_BUILD_AND_TEST.md`.
 
-Рекомендация по модели для следующего шага зависит от выбранного направления:
+Рекомендация по модели для следующего шага:
 
-- продуктовые решения (лицензия, дефолты, схема распространения) — **Sonnet 5, средняя сложность**: это выбор из уже сформулированных вариантов;
-- manual trigger ротации в Maintenance UI — **Opus 5, effort High**: кнопка обязана идти через тот же suspend-capture boundary, а WinUI-код тестами не покрыт;
-- возврат данных в clipboard — **Opus 5, effort High**: требует восстановления `DataPackage` из сохранённых payload, включая external files, и не проверяется автотестами.
+- возврат данных в clipboard — **Opus 5, effort High**: требует построить отсутствующий read-путь внешних payload с проверкой SHA и containment, затем восстановление `DataPackage`, которое автотестами не проверяется;
+- продуктовые решения (лицензия, дефолты, схема распространения) — **Sonnet 5, средняя сложность**: выбор из уже сформулированных вариантов;
+- журнал (поиск, период, фильтры) и остальные настройки — **Sonnet 5, высокая сложность**: объёмная, но не конкурентная работа.
