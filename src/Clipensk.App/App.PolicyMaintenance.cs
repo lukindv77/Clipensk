@@ -65,26 +65,8 @@ public partial class App
 
             DateOnly currentCalendarDate = DateOnly.FromDateTime(DateTime.Now);
             await Task.Run(
-                async () =>
-                {
-                    PendingArchiveSplitOperation? pendingSplit =
-                        await new SqlitePendingArchiveSplitRepository(session)
-                            .ReadAsync(session.CancellationToken)
-                            .ConfigureAwait(false);
-                    if (pendingSplit is not null)
-                    {
-                        await new ProtectedArchiveSplitRecoveryService(session)
-                            .RecoverAsync(
-                                pendingSplit.OperationId,
-                                currentCalendarDate,
-                                session.CancellationToken)
-                            .ConfigureAwait(false);
-                    }
-
-                    await new ProtectedPolicyMaintenanceResumeDispatcher(session)
-                        .ResumeAsync(currentCalendarDate, session.CancellationToken)
-                        .ConfigureAwait(false);
-                },
+                () => new ProtectedStorageStartupRecoveryCoordinator(session)
+                    .RecoverAsync(currentCalendarDate, session.CancellationToken),
                 session.CancellationToken);
         }
         catch (OperationCanceledException)
@@ -93,9 +75,9 @@ public partial class App
         }
         catch
         {
-            // Archive split and policy maintenance are both fail-closed runtime boundaries.
-            // Do not release the suspension after any continuation failure; a later lock/unlock
-            // or the explicit Maintenance recovery UI may retry the durable operation.
+            // Archive split, Archive rotation and policy maintenance are all fail-closed runtime
+            // boundaries. Do not release the suspension after any continuation failure; a later
+            // lock/unlock or the explicit Maintenance recovery UI may retry the durable operation.
             return;
         }
 
