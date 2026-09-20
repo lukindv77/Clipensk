@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-20 (журнал получил период по умолчанию, поиск и фильтр по приложению; остаток — прочие настройки, локализация, оболочка и продуктовые решения).
+Checkpoint prepared: 2026-09-20 (добавлены ручная блокировка и автоблокировка по простою; остаток — внешняя локализация, страница «О программе», tray/автозапуск и продуктовые решения).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,14 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `f28dd6915864a11a2209199acc35df15c6626721`.
+Последний промотированный main: `d6856c63f0832cdb78a03c4b65bd263d9a39015a`.
 
-Exact-main CI для `f28dd691…`:
+Exact-main CI для `d6856c63…`:
 
-- Build #492, run `35492278210` — **SUCCESS**;
-- Native SQLCipher #112, run `35492278242` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
+- Build #494, run `35501443222` — **SUCCESS**;
+- Native SQLCipher #113, run `35501444598` — **SUCCESS** (запущен вручную через `workflow_dispatch`, т.к. слайс менял только `Clipensk.App`/`Clipensk.Core.Settings`/`Clipensk.Windows`/`Clipensk.Infrastructure`, а не `src/Clipensk.Storage/**` или `src/Clipensk.Core/Storage/**`).
 
-Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку и период/поиск/фильтр журнала реализованы.
+Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала и ручная блокировка + автоблокировка по простою реализованы.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -83,6 +83,14 @@ Archive Rotation: **завершена end to end** — storage-слой, runtim
 - оба фильтра применяются **внутри** уже выбранного по периоду набора БД и не меняют, какие файлы открываются;
 - «приложение вызова журнала» — `InvocationApplication` резолвится в `ApplicationId` через **read-only** `SqliteApplicationIdentityRepository.FindAliasesAsync` (не `ResolveOrCreateAsync`): открытие журнала не создаёт identity как побочный эффект. Пункт выпадающего списка появляется, но не выбирается автоматически.
 
+Ручная блокировка и автоблокировка по простою реализованы:
+
+- `JournalWindow.TryLockNow()` — единственная реализация блокировки «прямо сейчас», переиспользует существующий `ProtectedApplicationLifecycle.TryBeginLock`/`CompleteLock`, который уже отзывает MasterKey через `ProtectedDataAccessLease`/`ProtectedStorageSessionLease`; новой инфраструктуры отзыва не потребовалось;
+- `IdleAutoLockTrigger` (`Clipensk.Core/Security/`) — чистое edge-triggered правило: срабатывает один раз за непрерывный период простоя, достигший порога, и повторно вооружается только когда простой падает ниже порога;
+- `WindowsIdleTimeReader` (`Clipensk.Windows/Security/`) — системный (не только приложения) простой через `GetLastInputInfo`, с корректной арифметикой 32-битного переполнения tick count;
+- `App.AutoLock.cs` — фоновый `System.Threading.Timer` на 15 секунд; чтение простоя и решение триггера — на thread-pool потоке, сама блокировка маршалится на dispatcher окна;
+- `AutoLockAfterMinutes` (`ApplicationSettings`) — opt-in, без произвольного дефолта, как и `DefaultJournalPeriodDays`/пороги ротации.
+
 ## E. What has been completed
 
 Archive Split завершён и не подлежит повторной реализации (детали — `ARCHIVE_SPLIT_PROTOCOL.md`).
@@ -121,7 +129,11 @@ Trash, принято в `main`:
 21. `ClipboardHistorySearchMatcher`/`SqliteClipboardHistorySearchFunction`, поиск в Current+Archive, строка поиска в журнале (`9330867…`);
 22. `sourceApplicationId`-фильтр, read-only резолв `InvocationApplication`, выпадающий список приложений в журнале (`f28dd691…`).
 
-Storage 595, Core 246, Infrastructure 47 — все зелёные локально и в CI.
+Блокировка, принято в `main`:
+
+23. `IdleAutoLockTrigger`, `WindowsIdleTimeReader`, `TryLockNow()`, кнопка «Заблокировать сейчас» и автоблокировка по простою в настройках (`d6856c6…`).
+
+Storage 595, Core 253, Infrastructure 50 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -175,7 +187,7 @@ Storage 595, Core 246, Infrastructure 47 — все зелёные локаль�
 
 По продукту в целом (подробности — в оценке готовности к релизу):
 
-4. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), загрузка внешних переводов.
+4. Настройки: автоблокировка сделана (см. §E, пункт 23); осталась загрузка внешних переводов.
 5. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
 6. Страница «О программе» — заглушка.
 7. Tray-иконка и автозапуск отсутствуют.
@@ -184,10 +196,10 @@ Storage 595, Core 246, Infrastructure 47 — все зелёные локаль�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `f28dd6915864a11a2209199acc35df15c6626721`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `d6856c63f0832cdb78a03c4b65bd263d9a39015a`.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention и журнала (период/поиск/фильтр).
+5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр) и блокировки (ручная + автоблокировка по простою).
 6. Продуктовые решения (§I пункты 1–3) не принимать самостоятельно — это выбор пользователя.
 7. `Clipensk.App` и `Clipensk.Windows` не собираются на Linux: перед push отдельно проверять usings нового кода этих проектов, иначе цикл CI тратится на `CS0246`.
 8. `Clipensk.Windows` зависит только от `Clipensk.Core`. Типы, которые нужны и платформенному адаптеру, и слою хранения, живут в `Clipensk.Core`; зависимость Windows → Storage не добавлять.
@@ -207,8 +219,8 @@ Storage 595, Core 246, Infrastructure 47 — все зелёные локаль�
 
 Рекомендация по модели для следующего шага:
 
-Пунктов уровня Opus/High в оставшейся работе больше нет: направления с durable-повреждением и с физическим удалением данных закрыты. Журнал (период/поиск/фильтр) тоже закрыт.
+Пунктов уровня Opus/High в оставшейся работе больше нет: направления с durable-повреждением и с физическим удалением данных закрыты. Журнал (период/поиск/фильтр) и блокировка (ручная + автоблокировка) тоже закрыты.
 
 - **ручная проверка на Windows** — не задача для модели: нужен реальный прогон и фиксация evidence пользователем;
-- настройки (автоблокировка, внешняя локализация), страница «О программе», tray и автозапуск — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
+- внешняя локализация (`REQUIREMENTS.md` §20), страница «О программе», tray и автозапуск — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
 - продуктовые решения (лицензия, дефолты, период журнала, схема распространения) — **Sonnet 5, средняя сложность**.
