@@ -14,6 +14,15 @@ public sealed record ApplicationSettings
 
     public bool AutoLockEnabled { get; init; } = false;
 
+    /// <summary>
+    /// How many minutes of system-wide user inactivity trigger an automatic lock while
+    /// <see cref="AutoLockEnabled"/> is true. <c>null</c> means the duration has not been
+    /// configured yet, in which case auto-lock stays inert even when enabled: there is nothing to
+    /// pick a default from (<c>docs/REQUIREMENTS.md</c> §3 fixes only that the option defaults to
+    /// off, not a duration).
+    /// </summary>
+    public int? AutoLockAfterMinutes { get; init; }
+
     public int TrashRetentionDays { get; init; } = 30;
 
     public string PasswordHint { get; init; } = string.Empty;

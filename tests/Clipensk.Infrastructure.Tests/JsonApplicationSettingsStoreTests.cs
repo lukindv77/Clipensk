@@ -239,6 +239,81 @@ public sealed class JsonApplicationSettingsStoreTests
         }
     }
 
+    [Fact]
+    public async Task SaveAndLoadAsync_ConfiguredAutoLockDuration_RoundTrips()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var expected = new ApplicationSettings
+            {
+                AutoLockEnabled = true,
+                AutoLockAfterMinutes = 15,
+            };
+            var store = new JsonApplicationSettingsStore(path);
+
+            await store.SaveAsync(expected);
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.True(loaded.AutoLockEnabled);
+            Assert.Equal(15, loaded.AutoLockAfterMinutes);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_LegacySettingsWithoutAutoLockDuration_LeavesItUnset()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "AutoLockEnabled": true,
+                  "PasswordHint": ""
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.True(loaded.AutoLockEnabled);
+            Assert.Null(loaded.AutoLockAfterMinutes);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_NonPositiveAutoLockDuration_FailsBeforeCreatingSettingsFile()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var store = new JsonApplicationSettingsStore(path);
+            var settings = new ApplicationSettings { AutoLockAfterMinutes = 0 };
+
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveAsync(settings));
+
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string directory = Path.Combine(

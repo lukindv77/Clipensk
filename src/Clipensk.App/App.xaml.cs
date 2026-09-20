@@ -87,6 +87,7 @@ public partial class App : Application
         }
 
         _window.Activate();
+        StartAutoLockMonitor();
     }
 
     private void OnJournalHotKeyPressed(object? sender, JournalHotKeyPressedEventArgs e)
@@ -115,6 +116,8 @@ public partial class App : Application
             ResetClipboardRuntimeSuspension();
             return;
         }
+
+        _autoLockTrigger?.Reset();
 
         JournalWindow? window = _window;
         ProtectedApplicationLifecycle? lifecycle = _lifecycle;
@@ -221,6 +224,7 @@ public partial class App : Application
 
         InvalidateClipboardWorker();
         InvalidateClipboardDeliveryComposition();
+        StopAutoLockMonitor();
 
         if (_window is not null)
         {

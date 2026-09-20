@@ -92,6 +92,12 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
         {
             DefaultJournalPeriod.Validate(days);
         }
+        if (settings.AutoLockAfterMinutes is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                "Auto-lock duration must be a positive number of minutes.");
+        }
         return settings;
     }
 }

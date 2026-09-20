@@ -309,6 +309,27 @@
                     <TextBlock x:Name="DataRootValue" TextWrapping="Wrap" />
                 </StackPanel>
 
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="LockSettingsTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Button x:Name="LockNowButton"
+                            HorizontalAlignment="Left"
+                            Click="OnLockNowClicked" />
+                    <CheckBox x:Name="AutoLockEnabledCheckBox"
+                              Checked="OnAutoLockSettingChanged"
+                              Unchecked="OnAutoLockSettingChanged" />
+                    <NumberBox x:Name="AutoLockAfterMinutesBox"
+                               Width="220"
+                               HorizontalAlignment="Left"
+                               Minimum="1"
+                               SmallChange="1"
+                               LargeChange="5"
+                               SpinButtonPlacementMode="Compact" />
+                    <Button x:Name="SaveAutoLockButton"
+                            HorizontalAlignment="Left"
+                            Click="OnSaveAutoLockClicked" />
+                    <InfoBar x:Name="AutoLockInfo" IsOpen="False" IsClosable="True" />
+                </StackPanel>
+
                 <TextBlock x:Name="HotKeyTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
 
                 <StackPanel Orientation="Horizontal" Spacing="12">

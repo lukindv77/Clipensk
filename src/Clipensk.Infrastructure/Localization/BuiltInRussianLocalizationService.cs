@@ -236,6 +236,15 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["Settings.Rotation.Invalid"] = "Некорректные параметры ротации. Пороги должны быть положительными, а при нескольких заданных порогах нужно явно выбрать Any или All.",
         ["Settings.Rotation.SaveFailed"] = "Не удалось сохранить параметры ротации. Прежние параметры сохранены.",
         ["Settings.Rotation.SizeRounded"] = "Сохранённый порог размера не кратен мегабайту и будет округлён при сохранении.",
+        ["Settings.Lock.Title"] = "Блокировка",
+        ["Settings.Lock.Now"] = "Заблокировать сейчас",
+        ["Settings.Lock.AutoLockEnabled"] = "Автоматически блокировать при простое",
+        ["Settings.Lock.AutoLockAfterMinutes"] = "Через сколько минут простоя блокировать",
+        ["Settings.Lock.Save"] = "Сохранить параметры блокировки",
+        ["Settings.Lock.Saved"] = "Параметры блокировки сохранены.",
+        ["Settings.Lock.Disabled"] = "Автоматическая блокировка выключена.",
+        ["Settings.Lock.Invalid"] = "Некорректные параметры блокировки. Если автоматическая блокировка включена, укажите положительное число минут простоя.",
+        ["Settings.Lock.SaveFailed"] = "Не удалось сохранить параметры блокировки. Прежние параметры сохранены.",
     };
 
     public string GetString(string key)

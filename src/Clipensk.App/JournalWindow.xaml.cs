@@ -52,6 +52,7 @@ public sealed partial class JournalWindow : Window
         InitializeHotKeyEditor();
         InitializeJournalPeriodEditor();
         InitializeArchiveRotationEditor();
+        InitializeAutoLockEditor();
         InitializeGlobalPolicyUi();
         _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
         RefreshLifecycleUi();
@@ -121,6 +122,12 @@ public sealed partial class JournalWindow : Window
         JournalPeriodBody.Text = _localization.GetString("Settings.JournalPeriod.Body");
         JournalPeriodDays.Header = _localization.GetString("Settings.JournalPeriod.Days");
         SaveJournalPeriodButton.Content = _localization.GetString("Settings.JournalPeriod.Save");
+
+        LockSettingsTitle.Text = _localization.GetString("Settings.Lock.Title");
+        LockNowButton.Content = _localization.GetString("Settings.Lock.Now");
+        AutoLockEnabledCheckBox.Content = _localization.GetString("Settings.Lock.AutoLockEnabled");
+        AutoLockAfterMinutesBox.Header = _localization.GetString("Settings.Lock.AutoLockAfterMinutes");
+        SaveAutoLockButton.Content = _localization.GetString("Settings.Lock.Save");
 
         RotationTitle.Text = _localization.GetString("Settings.Rotation.Title");
         RotationBody.Text = _localization.GetString("Settings.Rotation.Body");
@@ -464,6 +471,7 @@ public sealed partial class JournalWindow : Window
             // Reopening Settings always shows what is persisted, discarding unsaved edits.
             LoadJournalPeriodEditor();
             LoadArchiveRotationEditor();
+            LoadAutoLockEditor();
             SettingsPanel.Visibility = Visibility.Visible;
             return;
         }
@@ -518,6 +526,7 @@ public sealed partial class JournalWindow : Window
         MaintenanceItem.IsEnabled = safeShell;
         SettingsItem.IsEnabled = safeShell;
         AboutItem.IsEnabled = true;
+        LockNowButton.IsEnabled = protectedAccess;
     }
 
     private void RefreshCredentialUi()
