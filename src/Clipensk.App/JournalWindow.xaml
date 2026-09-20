@@ -85,6 +85,11 @@
                                  Width="280"
                                  VerticalAlignment="Bottom"
                                  TextChanged="OnJournalSearchTextChanged" />
+                        <ComboBox x:Name="JournalApplicationFilter"
+                                  Width="260"
+                                  VerticalAlignment="Bottom"
+                                  DisplayMemberPath="DisplayName"
+                                  SelectionChanged="OnJournalApplicationFilterChanged" />
                         <Button x:Name="JournalLoadButton"
                                 VerticalAlignment="Bottom"
                                 Click="OnJournalLoadClicked" />

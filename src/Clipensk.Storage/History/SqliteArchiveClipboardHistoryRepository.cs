@@ -52,6 +52,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         int limit,
         ClipboardHistoryCursor? before,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -62,7 +63,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
                 nameof(before));
         }
 
-        return ReadCoreAsync(period, limit, before, searchText, cancellationToken);
+        return ReadCoreAsync(period, limit, before, searchText, sourceApplicationId, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ClipboardHistoryEntry>> ReadCoreAsync(
@@ -70,6 +71,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         int limit,
         ClipboardHistoryCursor? before,
         string? searchText,
+        Guid? sourceApplicationId,
         CancellationToken cancellationToken)
     {
         using CancellationTokenSource linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -84,7 +86,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         ValidateIdentityMatchesSegment(beforeIdentity);
 
         IReadOnlyList<ClipboardHistoryEntry> entries = await Task.Run(
-            () => ReadDatabaseCore(period, limit, before, searchText, token),
+            () => ReadDatabaseCore(period, limit, before, searchText, sourceApplicationId, token),
             CancellationToken.None).ConfigureAwait(false);
 
         DatabaseIdentity afterIdentity = await _archiveService
@@ -101,6 +103,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         int limit,
         ClipboardHistoryCursor? before,
         string? searchText,
+        Guid? sourceApplicationId,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -125,6 +128,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
                           SELECT EventId FROM ClipboardHistoryPayload
                           WHERE {SqliteClipboardHistorySearchFunction.SqlName}(SearchText, $searchTerm)
                       ))
+                  AND ($sourceApplicationId IS NULL OR SourceApplicationId = $sourceApplicationId)
                 ORDER BY EventUtc DESC, EventId COLLATE BINARY DESC
                 LIMIT $limit
             )
@@ -156,6 +160,9 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
                 ? DBNull.Value
                 : before.EventId.ToString("D"));
         command.Parameters.AddWithValue("$searchTerm", (object?)normalizedSearch ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$sourceApplicationId",
+            sourceApplicationId is Guid appId ? appId.ToString("D") : DBNull.Value);
 
         var entries = new List<ClipboardHistoryEntry>();
         ClipboardHistoryEntry? current = null;

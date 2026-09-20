@@ -8,14 +8,16 @@ public interface IUnifiedClipboardHistoryRepository
     /// UTC timestamp then EventId descending. A temporarily duplicated logical event
     /// is returned once with every verified physical location.
     ///
-    /// <paramref name="searchText"/>, when non-null and non-empty, restricts results to events
-    /// matching it per <see cref="ICurrentClipboardHistoryRepository.ReadAsync"/>. It is applied
-    /// within each already-selected physical database and never changes which ones are opened.
+    /// <paramref name="searchText"/> and <paramref name="sourceApplicationId"/>, when supplied,
+    /// restrict results per <see cref="ICurrentClipboardHistoryRepository.ReadAsync"/>. Both are
+    /// applied within each already-selected physical database and never change which ones are
+    /// opened.
     /// </summary>
     ValueTask<IReadOnlyList<UnifiedClipboardHistoryEntry>> ReadAsync(
         JournalDateRange period,
         int limit,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -28,5 +30,6 @@ public interface IUnifiedClipboardHistoryRepository
         int limit,
         ClipboardHistoryCursor before,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default);
 }

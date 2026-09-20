@@ -127,12 +127,89 @@ public sealed class ClipboardHistorySearchTests
         Assert.Empty(unmatched);
     }
 
+    [Fact]
+    public async Task CurrentRepository_FiltersBySourceApplication()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        Guid appA = Guid.NewGuid();
+        Guid appB = Guid.NewGuid();
+        SeedEvent(environment, new DateTime(2026, 3, 1, 9, 0, 0, DateTimeKind.Utc), sourceApplicationId: appA);
+        SeedEvent(environment, new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc), sourceApplicationId: appB);
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+
+        IReadOnlyList<ClipboardHistoryEntry> fromA =
+            await repository.ReadAsync(Period, 10, sourceApplicationId: appA);
+        IReadOnlyList<ClipboardHistoryEntry> all = await repository.ReadAsync(Period, 10);
+
+        Assert.Single(fromA);
+        Assert.Equal(appA, fromA[0].SourceApplicationId!.Value);
+        Assert.Equal(2, all.Count);
+    }
+
+    [Fact]
+    public async Task CurrentRepository_ApplicationFilterNeverMatchesAnEventWithNoSourceApplication()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        SeedEvent(environment, new DateTime(2026, 3, 1, 9, 0, 0, DateTimeKind.Utc), sourceApplicationId: null);
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+
+        IReadOnlyList<ClipboardHistoryEntry> filtered =
+            await repository.ReadAsync(Period, 10, sourceApplicationId: Guid.NewGuid());
+
+        Assert.Empty(filtered);
+    }
+
+    [Fact]
+    public async Task CurrentRepository_CombinesSearchTermAndApplicationFilter()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        Guid appA = Guid.NewGuid();
+        Guid appB = Guid.NewGuid();
+        SeedEvent(environment, new DateTime(2026, 3, 1, 8, 0, 0, DateTimeKind.Utc), "match", appA);
+        SeedEvent(environment, new DateTime(2026, 3, 1, 9, 0, 0, DateTimeKind.Utc), "match", appB);
+        SeedEvent(environment, new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc), "no hit", appA);
+        var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
+
+        IReadOnlyList<ClipboardHistoryEntry> entries =
+            await repository.ReadAsync(Period, 10, searchText: "match", sourceApplicationId: appA);
+
+        ClipboardHistoryEntry entry = Assert.Single(entries);
+        Assert.Equal(appA, entry.SourceApplicationId!.Value);
+        Assert.Equal("match", entry.Payloads[0].SearchText);
+    }
+
+    [Fact]
+    public async Task UnifiedRepository_ApplicationFilterStaysWithinTheSelectedDatabases()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        Guid appA = Guid.NewGuid();
+        SeedEvent(environment, new DateTime(2026, 3, 1, 9, 0, 0, DateTimeKind.Utc), sourceApplicationId: appA);
+        var repository = new ProtectedUnifiedClipboardHistoryRepository(environment.Session, environment.Factory);
+
+        IReadOnlyList<UnifiedClipboardHistoryEntry> matched =
+            await repository.ReadAsync(Period, 10, sourceApplicationId: appA);
+        IReadOnlyList<UnifiedClipboardHistoryEntry> unmatched =
+            await repository.ReadAsync(Period, 10, sourceApplicationId: Guid.NewGuid());
+
+        Assert.Single(matched);
+        Assert.Empty(unmatched);
+    }
+
     private static void SeedEvent(
         GlobalPolicyTestEnvironment environment,
         DateTime utc,
-        string? searchText = "default search text")
+        string? searchText = "default search text",
+        Guid? sourceApplicationId = null)
     {
         Guid eventId = Guid.NewGuid();
+        if (sourceApplicationId is Guid appId)
+        {
+            environment.Execute($"""
+                INSERT OR IGNORE INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
+                VALUES ('{appId:D}', '2026-01-01T00:00:00.0000000+00:00');
+                """);
+        }
+
         using SqliteConnection connection = environment.Factory.Open(
             environment.CurrentPath,
             environment.Key,
@@ -144,7 +221,8 @@ public sealed class ClipboardHistorySearchTests
                     EventId, EventUtc, LocalOffsetMinutes, WindowsTimeZoneId, CalendarDate,
                     SourceApplicationId, SourceProcessId, SourceExecutablePath,
                     SourceApplicationUserModelId)
-                VALUES ($eventId, $eventUtc, 0, 'UTC', $calendarDate, NULL, NULL, NULL, NULL);
+                VALUES ($eventId, $eventUtc, 0, 'UTC', $calendarDate, $sourceApplicationId,
+                        NULL, NULL, NULL);
                 """;
             insert.Parameters.AddWithValue("$eventId", eventId.ToString("D"));
             insert.Parameters.AddWithValue(
@@ -153,6 +231,9 @@ public sealed class ClipboardHistorySearchTests
             insert.Parameters.AddWithValue(
                 "$calendarDate",
                 DateOnly.FromDateTime(utc).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            insert.Parameters.AddWithValue(
+                "$sourceApplicationId",
+                sourceApplicationId is Guid id ? id.ToString("D") : DBNull.Value);
             insert.ExecuteNonQuery();
         }
 

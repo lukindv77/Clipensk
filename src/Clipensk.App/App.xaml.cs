@@ -92,7 +92,11 @@ public partial class App : Application
     private void OnJournalHotKeyPressed(object? sender, JournalHotKeyPressedEventArgs e)
     {
         _journalInvocationApplication = e.InvocationApplication;
-        _window?.DispatcherQueue.TryEnqueue(() => _window.ShowJournal());
+        _window?.DispatcherQueue.TryEnqueue(() =>
+        {
+            _window.SetJournalInvocationApplicationHint(e.InvocationApplication);
+            _window.ShowJournal();
+        });
     }
 
     private void OnProtectedDataAccessChanged(bool canAccessProtectedData)

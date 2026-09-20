@@ -20,6 +20,7 @@ public sealed partial class JournalWindow
     private bool _journalInitializingPeriod;
     private JournalDateRange? _journalPeriod;
     private string? _journalSearchTerm;
+    private Guid? _journalSourceApplicationId;
     private ClipboardHistoryCursor? _journalCursor;
 
     private void OnJournalContentPanelLoaded(object sender, RoutedEventArgs e)
@@ -40,6 +41,7 @@ public sealed partial class JournalWindow
         Closed += OnJournalContentWindowClosed;
 
         EnsureJournalInitialPeriod();
+        _ = EnsureJournalApplicationFilterLoadedAsync();
         if (ReferenceEquals(ShellNavigation.SelectedItem, JournalItem) &&
             _lifecycle.CanAccessProtectedData)
         {
@@ -68,6 +70,7 @@ public sealed partial class JournalWindow
 
         ShowJournalContent();
         EnsureJournalInitialPeriod();
+        _ = EnsureJournalApplicationFilterLoadedAsync();
         await LoadJournalAsync(reset: true);
     }
 
@@ -93,6 +96,7 @@ public sealed partial class JournalWindow
             {
                 ShowJournalContent();
                 EnsureJournalInitialPeriod();
+                _ = EnsureJournalApplicationFilterLoadedAsync();
                 _ = LoadJournalAsync(reset: true);
             }
         }
@@ -145,7 +149,7 @@ public sealed partial class JournalWindow
             return;
         }
 
-        ResetJournalForPendingQueryChange("SearchChanged");
+        ResetJournalForPendingQueryChange("FilterChanged");
     }
 
     /// <summary>
@@ -217,6 +221,7 @@ public sealed partial class JournalWindow
         }
 
         string? searchTerm = ClipboardHistorySearchMatcher.Normalize(JournalSearchBox.Text);
+        Guid? sourceApplicationId = CurrentJournalApplicationFilter();
 
         ProtectedStorageSessionLease? session = _protectedStorageSession;
         if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
@@ -231,6 +236,7 @@ public sealed partial class JournalWindow
             if (_journalPeriod is not JournalDateRange currentPeriod ||
                 currentPeriod != period ||
                 _journalSearchTerm != searchTerm ||
+                _journalSourceApplicationId != sourceApplicationId ||
                 _journalCursor is null)
             {
                 return;
@@ -244,6 +250,7 @@ public sealed partial class JournalWindow
             _journalItems.Clear();
             _journalPeriod = period;
             _journalSearchTerm = searchTerm;
+            _journalSourceApplicationId = sourceApplicationId;
             _journalCursor = null;
             JournalEntriesList.ItemsSource = null;
         }
@@ -261,12 +268,14 @@ public sealed partial class JournalWindow
                             period,
                             JournalPageSize,
                             searchTerm,
+                            sourceApplicationId,
                             session.CancellationToken)
                         : await repository.ReadBeforeAsync(
                             period,
                             JournalPageSize,
                             before,
                             searchTerm,
+                            sourceApplicationId,
                             session.CancellationToken);
                 },
                 session.CancellationToken);
@@ -274,6 +283,7 @@ public sealed partial class JournalWindow
             if (!IsCurrentJournalOperation(session, generation) ||
                 _journalPeriod != period ||
                 _journalSearchTerm != searchTerm ||
+                _journalSourceApplicationId != sourceApplicationId ||
                 (!reset && !Equals(_journalCursor, before)))
             {
                 return;
@@ -374,6 +384,7 @@ public sealed partial class JournalWindow
         _journalItems.Clear();
         _journalPeriod = null;
         _journalSearchTerm = null;
+        _journalSourceApplicationId = null;
         _journalCursor = null;
         JournalEntriesList.ItemsSource = null;
         UpdateJournalCopyAvailability();

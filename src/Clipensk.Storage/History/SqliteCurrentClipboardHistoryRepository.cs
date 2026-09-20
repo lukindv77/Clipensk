@@ -30,9 +30,10 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         JournalDateRange period,
         int limit,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default)
     {
-        return ReadCore(period, limit, before: null, searchText, cancellationToken);
+        return ReadCore(period, limit, before: null, searchText, sourceApplicationId, cancellationToken);
     }
 
     public ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadBeforeAsync(
@@ -40,6 +41,7 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         int limit,
         ClipboardHistoryCursor before,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(before);
@@ -48,7 +50,7 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
             throw new ArgumentException("History cursor belongs to a different calendar period.", nameof(before));
         }
 
-        return ReadCore(period, limit, before, searchText, cancellationToken);
+        return ReadCore(period, limit, before, searchText, sourceApplicationId, cancellationToken);
     }
 
     private ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadCore(
@@ -56,6 +58,7 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         int limit,
         ClipboardHistoryCursor? before,
         string? searchText,
+        Guid? sourceApplicationId,
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -88,6 +91,7 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
                           SELECT EventId FROM ClipboardHistoryPayload
                           WHERE {SqliteClipboardHistorySearchFunction.SqlName}(SearchText, $searchTerm)
                       ))
+                  AND ($sourceApplicationId IS NULL OR SourceApplicationId = $sourceApplicationId)
                 ORDER BY EventUtc DESC, EventId COLLATE BINARY DESC
                 LIMIT $limit
             )
@@ -111,6 +115,9 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
             ? DBNull.Value
             : before.EventId.ToString("D"));
         command.Parameters.AddWithValue("$searchTerm", (object?)normalizedSearch ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$sourceApplicationId",
+            sourceApplicationId is Guid appId ? appId.ToString("D") : DBNull.Value);
 
         var entries = new List<ClipboardHistoryEntry>();
         ClipboardHistoryEntry? current = null;

@@ -11,11 +11,15 @@ public interface ICurrentClipboardHistoryRepository
     /// with at least one payload whose stored <c>SearchText</c> contains it, case-insensitively
     /// (including non-ASCII alphabets). It never widens which physical database this call opens;
     /// the period alone decides that, per <c>docs/REQUIREMENTS.md</c> §8.
+    ///
+    /// <paramref name="sourceApplicationId"/>, when non-null, restricts results to events captured
+    /// from that source application, per <c>docs/REQUIREMENTS.md</c> §1.
     /// </summary>
     ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadAsync(
         JournalDateRange period,
         int limit,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -23,14 +27,15 @@ public interface ICurrentClipboardHistoryRepository
     /// UTC/EventId order. The period must match the cursor's period. An empty result
     /// means no further events were visible for that read; pages are separate snapshots.
     ///
-    /// <paramref name="searchText"/> has the same meaning as in <see cref="ReadAsync"/> and must be
-    /// the same value used to produce <paramref name="before"/>, so a page and its continuation
-    /// filter identically.
+    /// <paramref name="searchText"/> and <paramref name="sourceApplicationId"/> have the same
+    /// meaning as in <see cref="ReadAsync"/> and must be the same values used to produce
+    /// <paramref name="before"/>, so a page and its continuation filter identically.
     /// </summary>
     ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadBeforeAsync(
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor before,
         string? searchText = null,
+        Guid? sourceApplicationId = null,
         CancellationToken cancellationToken = default);
 }
