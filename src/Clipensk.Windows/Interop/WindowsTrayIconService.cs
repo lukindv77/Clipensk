@@ -49,7 +49,7 @@ public sealed class WindowsTrayIconService : IDisposable
     private bool _added;
     private bool _disposed;
 
-    public WindowsTrayIconService(ResidentMessageWindow messageWindow, ILocalizationService localization)
+    internal WindowsTrayIconService(ResidentMessageWindow messageWindow, ILocalizationService localization)
     {
         _messageWindow = messageWindow ?? throw new ArgumentNullException(nameof(messageWindow));
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
