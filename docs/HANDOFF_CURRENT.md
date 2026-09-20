@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-19 (возврат записи в clipboard реализован; заявленное назначение продукта закрыто на уровне кода, но не подтверждено ручной проверкой).
+Checkpoint prepared: 2026-09-20 (возврат записи в clipboard и автоудаление Trash по сроку реализованы; остаток — журнал, настройки, локализация, оболочка и продуктовые решения).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,14 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `0d444c19bac277fb0573b55e61fb3ab6c0868d52`.
+Последний промотированный main: `1b01d53b12444e732f3ce3f84f49627511e3d900`.
 
-Exact-main CI для `0d444c19…`:
+Exact-main CI для `1b01d53b…`:
 
-- Build #483, run `35470866524` — **SUCCESS**;
-- Native SQLCipher #105, run `35470866569` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
+- Build #486, run `35486060938` — **SUCCESS**;
+- Native SQLCipher #107, run `35486060907` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
 
-Baseline **ACCEPTED**: Archive Rotation завершена целиком, возврат записи в clipboard реализован.
+Baseline **ACCEPTED**: Archive Rotation завершена целиком, возврат записи в clipboard и автоудаление Trash по сроку реализованы.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -103,7 +103,11 @@ Archive Rotation, принято в `main` (evidence — §15 протокола
 17. файловый drop возвращается текстом, `ReadFullPaths` рядом с writer (`303e798d…`);
 18. `WindowsClipboardRestoreWriter`, подавление в мониторе, кнопка в журнале (`0d444c19…`).
 
-Storage 564, Core 229, Infrastructure 44 — все зелёные локально и в CI.
+Trash, принято в `main`:
+
+19. `ProtectedExternalPayloadTrashRetentionService` — удаление истёкших payload и подключение последним шагом стартовой последовательности (`1b01d53b…`).
+
+Storage 582, Core 229, Infrastructure 44 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -113,6 +117,11 @@ Storage 564, Core 229, Infrastructure 44 — все зелёные локаль�
 - **Всякий держатель mutation lease обязан использовать `…InTransaction`-помощники репозитория**, а не его lease-берущие точки входа: повторный вход в lease даёт дедлок. На этом уже один раз наступили.
 - Recovery из `Planned` пересобирает shadow и **обязан воспроизвести плановый физический размер** — это evidence, с которым publication сверяет опубликованные копии.
 - `currentLocalDate` везде передаётся параметром, а не берётся из системных часов.
+
+- Containment-проверка пути **не защищает** от симлинка внутри управляемого каталога:
+  `Path.GetFullPath` не разыменовывает ссылки, поэтому путь через подложенную ссылку остаётся
+  формально внутри корня. Защищает только проверка reparse point на каждом уровне. Проверено
+  экспериментально на Trash retention: без неё удаляется реальный файл за пределами `Trash`.
 
 ## G. Important invariants
 
@@ -139,7 +148,7 @@ Storage 564, Core 229, Infrastructure 44 — все зелёные локаль�
 По продукту в целом (подробности — в оценке готовности к релизу):
 
 2. Журнал: поиск, период по умолчанию, фильтр по приложению-источнику и приложению вызова.
-3. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), срок хранения Trash (`TrashRetentionDays` объявлено, не используется, автоудаления нет), загрузка внешних переводов.
+3. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), поле срока хранения Trash в UI (сама очистка работает по сохранённому значению), загрузка внешних переводов.
 4. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
 5. Страница «О программе» — заглушка.
 6. Tray-иконка и автозапуск отсутствуют.
@@ -149,7 +158,7 @@ Storage 564, Core 229, Infrastructure 44 — все зелёные локаль�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `0d444c19bac277fb0573b55e61fb3ab6c0868d52`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `1b01d53b12444e732f3ce3f84f49627511e3d900`.
 3. Для журнала прочитать `JournalWindow.Journal.cs`, `IUnifiedClipboardHistoryRepository` и `ClipboardHistoryCursor` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
 5. Не переделывать заново принятые слайсы ротации, Archive Split и возврата в clipboard.
@@ -172,7 +181,9 @@ Storage 564, Core 229, Infrastructure 44 — все зелёные локаль�
 
 Рекомендация по модели для следующего шага:
 
+Пунктов уровня Opus/High в оставшейся работе больше нет: направления с durable-повреждением и с физическим удалением данных закрыты.
+
 - **ручная проверка на Windows** — не задача для модели: нужен реальный прогон и фиксация evidence пользователем;
 - журнал (поиск, период по умолчанию, фильтры по приложению) — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
-- остальные настройки (автоблокировка, Trash retention, внешняя локализация) — **Sonnet 5, высокая сложность**; из них автоудаление Trash по сроку ближе к **Opus 5, effort High**, так как трогает физическое удаление пользовательских файлов;
+- настройки (автоблокировка, поле срока Trash, внешняя локализация), страница «О программе», tray и автозапуск — **Sonnet 5, высокая сложность**;
 - продуктовые решения (лицензия, дефолты, схема распространения) — **Sonnet 5, средняя сложность**.
