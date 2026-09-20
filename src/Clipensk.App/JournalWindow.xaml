@@ -401,6 +401,24 @@
                             Click="OnSaveArchiveRotationClicked" />
                     <InfoBar x:Name="RotationInfo" IsOpen="False" IsClosable="True" />
                 </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="LocalizationTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="LocalizationBody" TextWrapping="Wrap" />
+                    <ComboBox x:Name="LocalizationFileComboBox"
+                              Width="320"
+                              HorizontalAlignment="Left"
+                              DisplayMemberPath="DisplayName" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="LoadLocalizationFileButton" Click="OnLoadLocalizationFileClicked" />
+                        <Button x:Name="OpenLanguagesFolderButton" Click="OnOpenLanguagesFolderClicked" />
+                        <Button x:Name="RereadLocalizationButton" Click="OnRereadLocalizationClicked" />
+                    </StackPanel>
+                    <Button x:Name="SaveLocalizationButton"
+                            HorizontalAlignment="Left"
+                            Click="OnSaveLocalizationClicked" />
+                    <InfoBar x:Name="LocalizationInfo" IsOpen="False" IsClosable="True" />
+                </StackPanel>
             </StackPanel>
         </Grid>
     </NavigationView>

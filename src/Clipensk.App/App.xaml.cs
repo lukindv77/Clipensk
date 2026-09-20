@@ -31,9 +31,10 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        ILocalizationService localization = new BuiltInRussianLocalizationService();
+        var localization = new ExternalOverlayLocalizationService(new BuiltInRussianLocalizationService());
         var settingsStore = new JsonApplicationSettingsStore(SettingsPathProvider.GetDefaultSettingsPath());
         ApplicationSettings settings = await settingsStore.LoadAsync();
+        await TryApplyActiveLocalizationAsync(localization, settings);
 
         _lifecycle = new ProtectedApplicationLifecycle(
             isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));

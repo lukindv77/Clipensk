@@ -245,6 +245,21 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["Settings.Lock.Disabled"] = "Автоматическая блокировка выключена.",
         ["Settings.Lock.Invalid"] = "Некорректные параметры блокировки. Если автоматическая блокировка включена, укажите положительное число минут простоя.",
         ["Settings.Lock.SaveFailed"] = "Не удалось сохранить параметры блокировки. Прежние параметры сохранены.",
+        ["Settings.Localization.Title"] = "Язык интерфейса",
+        ["Settings.Localization.Body"] = "Русский язык встроен и используется как запасной вариант для любого перевода, в котором не хватает строки. Дополнительный перевод — файл *.json с теми же ключами, что и во встроенном языке; он либо загружается через «Загрузить файл перевода…», либо вручную помещается в папку Languages рядом с данными Clipensk.",
+        ["Settings.Localization.ActiveFile"] = "Активный файл перевода",
+        ["Settings.Localization.BuiltIn"] = "Только встроенный русский",
+        ["Settings.Localization.LoadFile"] = "Загрузить файл перевода…",
+        ["Settings.Localization.OpenFolder"] = "Открыть папку Languages",
+        ["Settings.Localization.Reread"] = "Перечитать переводы",
+        ["Settings.Localization.Save"] = "Сохранить язык",
+        ["Settings.Localization.Loaded"] = "Файл перевода загружен и применён.",
+        ["Settings.Localization.LoadFailed"] = "Не удалось прочитать выбранный файл перевода: он должен быть JSON-объектом строк. Ничего не изменено.",
+        ["Settings.Localization.FolderOpenFailed"] = "Не удалось открыть папку Languages.",
+        ["Settings.Localization.RereadCompleted"] = "Список файлов перевода обновлён, активный файл перечитан с диска.",
+        ["Settings.Localization.ActiveFileMissing"] = "Сохранённый активный файл перевода не найден или повреждён. До выбора и сохранения другого варианта используется встроенный русский.",
+        ["Settings.Localization.Saved"] = "Язык интерфейса сохранён.",
+        ["Settings.Localization.SaveFailed"] = "Не удалось сохранить выбранный язык. Прежний вариант остаётся активным.",
     };
 
     public string GetString(string key)

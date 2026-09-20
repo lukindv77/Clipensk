@@ -36,4 +36,14 @@ public sealed record ApplicationSettings
     /// falls back to its existing single-day behavior.
     /// </summary>
     public int? DefaultJournalPeriodDays { get; init; }
+
+    /// <summary>
+    /// Bare file name (no directory separators) of the external translation file inside
+    /// <c>&lt;DataRoot&gt;\Languages\</c> that is currently active, per <c>docs/REQUIREMENTS.md</c>
+    /// §20. <c>null</c> means only the built-in Russian strings are used. Storing a bare name rather
+    /// than an absolute path keeps the reference valid if the data root itself is ever moved, and
+    /// resolving it against the Languages directory at read time is what actually confines file
+    /// access to that directory — see the containment check in <c>JsonApplicationSettingsStore</c>.
+    /// </summary>
+    public string? ActiveLocalizationFileName { get; init; }
 }

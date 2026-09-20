@@ -98,6 +98,21 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
                 nameof(settings),
                 "Auto-lock duration must be a positive number of minutes.");
         }
+        if (settings.ActiveLocalizationFileName is string fileName &&
+            (string.IsNullOrWhiteSpace(fileName) ||
+             fileName.Contains('/') ||
+             fileName.Contains('\\') ||
+             fileName is "." or ".."))
+        {
+            // Path.GetFileName/DirectorySeparatorChar are platform-dependent (backslash is not a
+            // separator on the Linux host this test suite runs on), so both slash variants are
+            // checked explicitly rather than relying on them — this file name is later combined
+            // with the Languages directory path, and a missed separator would let it escape that
+            // directory on the Windows target this app actually ships for.
+            throw new ArgumentException(
+                "ActiveLocalizationFileName must be a bare file name without directory separators.",
+                nameof(settings));
+        }
         return settings;
     }
 }

@@ -14,7 +14,7 @@ namespace Clipensk.App;
 
 public sealed partial class JournalWindow : Window
 {
-    private readonly ILocalizationService _localization;
+    private readonly ExternalOverlayLocalizationService _localization;
     private readonly IApplicationSettingsStore _settingsStore;
     private readonly IGlobalHotKeyService _hotKeyService;
     private readonly ProtectedApplicationLifecycle _lifecycle;
@@ -26,7 +26,7 @@ public sealed partial class JournalWindow : Window
     private bool _allowClose;
 
     public JournalWindow(
-        ILocalizationService localization,
+        ExternalOverlayLocalizationService localization,
         IApplicationSettingsStore settingsStore,
         IGlobalHotKeyService hotKeyService,
         ApplicationSettings settings,
@@ -53,6 +53,7 @@ public sealed partial class JournalWindow : Window
         InitializeJournalPeriodEditor();
         InitializeArchiveRotationEditor();
         InitializeAutoLockEditor();
+        InitializeLocalizationEditor();
         InitializeGlobalPolicyUi();
         _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
         RefreshLifecycleUi();
@@ -136,6 +137,14 @@ public sealed partial class JournalWindow : Window
         RotationMaxDays.Header = _localization.GetString("Settings.Rotation.MaxDays");
         RotationModeLabel.Text = _localization.GetString("Settings.Rotation.Mode");
         SaveRotationButton.Content = _localization.GetString("Settings.Rotation.Save");
+
+        LocalizationTitle.Text = _localization.GetString("Settings.Localization.Title");
+        LocalizationBody.Text = _localization.GetString("Settings.Localization.Body");
+        LocalizationFileComboBox.Header = _localization.GetString("Settings.Localization.ActiveFile");
+        LoadLocalizationFileButton.Content = _localization.GetString("Settings.Localization.LoadFile");
+        OpenLanguagesFolderButton.Content = _localization.GetString("Settings.Localization.OpenFolder");
+        RereadLocalizationButton.Content = _localization.GetString("Settings.Localization.Reread");
+        SaveLocalizationButton.Content = _localization.GetString("Settings.Localization.Save");
     }
 
     private void InitializeHotKeyEditor()
@@ -472,6 +481,7 @@ public sealed partial class JournalWindow : Window
             LoadJournalPeriodEditor();
             LoadArchiveRotationEditor();
             LoadAutoLockEditor();
+            LoadLocalizationEditor();
             SettingsPanel.Visibility = Visibility.Visible;
             return;
         }

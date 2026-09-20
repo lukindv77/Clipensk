@@ -314,6 +314,81 @@ public sealed class JsonApplicationSettingsStoreTests
         }
     }
 
+    [Fact]
+    public async Task SaveAndLoadAsync_ActiveLocalizationFileName_RoundTrips()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var expected = new ApplicationSettings { ActiveLocalizationFileName = "en.json" };
+            var store = new JsonApplicationSettingsStore(path);
+
+            await store.SaveAsync(expected);
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Equal("en.json", loaded.ActiveLocalizationFileName);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_LegacySettingsWithoutActiveLocalizationFileName_LeavesItUnset()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "PasswordHint": ""
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Null(loaded.ActiveLocalizationFileName);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Theory]
+    [InlineData("..\\en.json")]
+    [InlineData("../en.json")]
+    [InlineData("sub\\en.json")]
+    [InlineData("sub/en.json")]
+    [InlineData("C:\\en.json")]
+    [InlineData("   ")]
+    public async Task SaveAsync_LocalizationFileNameWithDirectoryComponents_FailsBeforeCreatingSettingsFile(
+        string fileName)
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var store = new JsonApplicationSettingsStore(path);
+            var settings = new ApplicationSettings { ActiveLocalizationFileName = fileName };
+
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(settings));
+
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string directory = Path.Combine(
