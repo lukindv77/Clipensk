@@ -54,6 +54,8 @@ public sealed partial class JournalWindow : Window
         InitializeArchiveRotationEditor();
         InitializeAutoLockEditor();
         InitializeLocalizationEditor();
+        InitializeAutostartEditor();
+        InitializeAboutPage();
         InitializeGlobalPolicyUi();
         _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
         RefreshLifecycleUi();
@@ -81,6 +83,28 @@ public sealed partial class JournalWindow : Window
                 EnsureJournalInitialPeriod();
                 _ = LoadJournalAsync(reset: true);
             }
+        }
+
+        AppWindow.Show();
+        Activate();
+    }
+
+    /// <summary>
+    /// Settings is reachable without unlocking — it is plaintext configuration, not protected data —
+    /// so unlike <see cref="ShowJournal"/> this only falls back to the first-run panel, never the
+    /// lock screen, mirroring exactly what <c>OnSelectionChanged</c> already does for the
+    /// <c>"settings"</c> tag.
+    /// </summary>
+    public void ShowSettings()
+    {
+        if (!_lifecycle.IsDataRootConfigured)
+        {
+            ShowFirstRunPanel();
+        }
+        else
+        {
+            ShellNavigation.SelectedItem = SettingsItem;
+            ShowPage("settings");
         }
 
         AppWindow.Show();
@@ -145,6 +169,10 @@ public sealed partial class JournalWindow : Window
         OpenLanguagesFolderButton.Content = _localization.GetString("Settings.Localization.OpenFolder");
         RereadLocalizationButton.Content = _localization.GetString("Settings.Localization.Reread");
         SaveLocalizationButton.Content = _localization.GetString("Settings.Localization.Save");
+
+        AutostartTitle.Text = _localization.GetString("Settings.Autostart.Title");
+        AutostartEnabledCheckBox.Content = _localization.GetString("Settings.Autostart.Enabled");
+        SaveAutostartButton.Content = _localization.GetString("Settings.Autostart.Save");
     }
 
     private void InitializeHotKeyEditor()
@@ -482,7 +510,14 @@ public sealed partial class JournalWindow : Window
             LoadArchiveRotationEditor();
             LoadAutoLockEditor();
             LoadLocalizationEditor();
+            LoadAutostartEditor();
             SettingsPanel.Visibility = Visibility.Visible;
+            return;
+        }
+
+        if (string.Equals(tag, "about", StringComparison.Ordinal))
+        {
+            AboutContentPanel.Visibility = Visibility.Visible;
             return;
         }
 
@@ -495,7 +530,6 @@ public sealed partial class JournalWindow : Window
         {
             "applications" => ("Page.Applications.Title", "Page.Applications.Title"),
             "maintenance" => ("Page.Maintenance.Title", "Page.Maintenance.Title"),
-            "about" => ("Page.About.Title", "Page.About.Title"),
             _ => ("Journal.Title", "Journal.Empty"),
         };
 
@@ -611,6 +645,7 @@ public sealed partial class JournalWindow : Window
         PlaceholderPanel.Visibility = Visibility.Collapsed;
         SettingsPanel.Visibility = Visibility.Collapsed;
         GlobalPolicyPanel.Visibility = Visibility.Collapsed;
+        AboutContentPanel.Visibility = Visibility.Collapsed;
     }
 
     private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)

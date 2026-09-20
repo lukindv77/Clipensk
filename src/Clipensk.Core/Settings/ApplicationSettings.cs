@@ -46,4 +46,11 @@ public sealed record ApplicationSettings
     /// access to that directory — see the containment check in <c>JsonApplicationSettingsStore</c>.
     /// </summary>
     public string? ActiveLocalizationFileName { get; init; }
+
+    /// <summary>
+    /// Whether Clipensk starts automatically when the current Windows user logs in, per explicit
+    /// product decision: opt-in through Settings, off by default, current-user only — never a
+    /// machine-wide registration, which would need elevation this app never requests.
+    /// </summary>
+    public bool AutostartEnabled { get; init; } = false;
 }

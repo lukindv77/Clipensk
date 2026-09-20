@@ -9,10 +9,21 @@
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
+    <!--
+      Surfaces which exact commit produced this binary on the About page, per explicit product
+      decision, without inventing a semantic version this project has never chosen. GITHUB_SHA is
+      set automatically by every GitHub Actions run; a local/manual build simply has none, and the
+      About page falls back to "unknown" rather than showing a stale or misleading identifier.
+    -->
+    <BuildCommitSha Condition="'$(BuildCommitSha)' == ''">$(GITHUB_SHA)</BuildCommitSha>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BuildCommitSha)' != ''">
+    <AssemblyMetadata Include="BuildCommit" Value="$(BuildCommitSha)" />
   </ItemGroup>
 
   <ItemGroup>

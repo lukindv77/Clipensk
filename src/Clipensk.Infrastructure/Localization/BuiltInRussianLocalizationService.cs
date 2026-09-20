@@ -260,6 +260,17 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["Settings.Localization.ActiveFileMissing"] = "Сохранённый активный файл перевода не найден или повреждён. До выбора и сохранения другого варианта используется встроенный русский.",
         ["Settings.Localization.Saved"] = "Язык интерфейса сохранён.",
         ["Settings.Localization.SaveFailed"] = "Не удалось сохранить выбранный язык. Прежний вариант остаётся активным.",
+        ["Settings.Autostart.Title"] = "Автозапуск",
+        ["Settings.Autostart.Enabled"] = "Запускать Clipensk при входе в Windows",
+        ["Settings.Autostart.Save"] = "Сохранить автозапуск",
+        ["Settings.Autostart.Saved"] = "Параметры автозапуска сохранены.",
+        ["Settings.Autostart.SaveFailed"] = "Не удалось изменить автозапуск в реестре Windows. Прежнее состояние сохранено.",
+        ["Page.About.Description"] = "Clipensk — резидентный менеджер истории буфера обмена для Windows с зашифрованным локальным хранилищем. Проект полностью открытый (open source); конкретная лицензия будет объявлена отдельно.",
+        ["Page.About.Build"] = "Сборка: {0}",
+        ["Page.About.BuildUnknown"] = "неизвестна",
+        ["Tray.Journal"] = "Журнал",
+        ["Tray.Settings"] = "Настройки",
+        ["Tray.Exit"] = "Завершить работу",
     };
 
     public string GetString(string key)

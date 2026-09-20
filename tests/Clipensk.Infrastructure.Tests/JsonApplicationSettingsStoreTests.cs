@@ -389,6 +389,54 @@ public sealed class JsonApplicationSettingsStoreTests
         }
     }
 
+    [Fact]
+    public async Task SaveAndLoadAsync_AutostartEnabled_RoundTrips()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var expected = new ApplicationSettings { AutostartEnabled = true };
+            var store = new JsonApplicationSettingsStore(path);
+
+            await store.SaveAsync(expected);
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.True(loaded.AutostartEnabled);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_LegacySettingsWithoutAutostartEnabled_DefaultsToFalse()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "PasswordHint": ""
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.False(loaded.AutostartEnabled);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string directory = Path.Combine(

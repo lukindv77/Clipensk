@@ -58,7 +58,8 @@ public partial class App : Application
 
         _residentWindowsHost = new ResidentWindowsHost(
             new HtmlAgilityPackClipboardHtmlSearchTextConverter(),
-            new ManagedClipboardRtfSearchTextConverter());
+            new ManagedClipboardRtfSearchTextConverter(),
+            localization);
         _hotKeyService = _residentWindowsHost.HotKeyService;
         _lifecycle.ProtectedDataAccessChanged += OnProtectedDataAccessChanged;
         _window = new JournalWindow(
@@ -73,6 +74,7 @@ public partial class App : Application
         _window.GlobalCapturePolicyInitialized += OnGlobalCapturePolicyInitialized;
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;
+        StartTrayIcon(_residentWindowsHost, _window);
 
         if (settings.JournalHotKey is { } gesture)
         {
@@ -243,6 +245,7 @@ public partial class App : Application
             _lifecycle.ProtectedDataAccessChanged -= OnProtectedDataAccessChanged;
         }
 
+        StopTrayIcon();
         _residentWindowsHost?.Dispose();
         _residentWindowsHost = null;
         _databaseService = null;

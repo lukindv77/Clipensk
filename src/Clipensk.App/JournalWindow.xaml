@@ -66,6 +66,13 @@
                 <InfoBar x:Name="LockInfo" IsOpen="False" IsClosable="True" />
             </StackPanel>
 
+            <StackPanel x:Name="AboutContentPanel" Spacing="12" Visibility="Collapsed">
+                <TextBlock x:Name="AboutTitle" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="AboutDescription" TextWrapping="Wrap" />
+                <HyperlinkButton x:Name="AboutRepositoryLink" HorizontalAlignment="Left" />
+                <TextBlock x:Name="AboutBuildInfo" TextWrapping="Wrap" />
+            </StackPanel>
+
             <StackPanel x:Name="PlaceholderPanel" Spacing="12" Visibility="Collapsed">
                 <TextBlock x:Name="PageTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="PageBody" TextWrapping="Wrap" />
@@ -418,6 +425,15 @@
                             HorizontalAlignment="Left"
                             Click="OnSaveLocalizationClicked" />
                     <InfoBar x:Name="LocalizationInfo" IsOpen="False" IsClosable="True" />
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="AutostartTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <CheckBox x:Name="AutostartEnabledCheckBox" />
+                    <Button x:Name="SaveAutostartButton"
+                            HorizontalAlignment="Left"
+                            Click="OnSaveAutostartClicked" />
+                    <InfoBar x:Name="AutostartInfo" IsOpen="False" IsClosable="True" />
                 </StackPanel>
             </StackPanel>
         </Grid>

@@ -10,6 +10,13 @@ internal sealed class ResidentMessageWindow : IDisposable
     private const uint WmClipboardUpdate = 0x031D;
     private static readonly nint HwndMessage = new(-3);
 
+    /// <summary>
+    /// The <c>Shell_NotifyIcon</c> callback message this window listens for. Using the classic
+    /// (pre-<c>NIM_SETVERSION</c>) contract, Windows posts this with <c>wParam</c> = icon ID and
+    /// <c>lParam</c> = the mouse message (e.g. <c>WM_RBUTTONUP</c>) that occurred over the icon.
+    /// </summary>
+    internal const uint WmTrayIconCallback = 0x8000 + 1; // WM_APP + 1
+
     private readonly string _className;
     private readonly WindowProcedure _windowProcedure;
     private readonly nint _instance;
@@ -65,6 +72,9 @@ internal sealed class ResidentMessageWindow : IDisposable
 
     public event Action? ClipboardUpdated;
 
+    /// <summary>Raised with the mouse message (e.g. <c>WM_LBUTTONUP</c>) reported for the tray icon.</summary>
+    public event Action<uint>? TrayIconMessage;
+
     public void Dispose()
     {
         if (_disposed)
@@ -95,6 +105,12 @@ internal sealed class ResidentMessageWindow : IDisposable
         if (message == WmClipboardUpdate)
         {
             ClipboardUpdated?.Invoke();
+            return 0;
+        }
+
+        if (message == WmTrayIconCallback)
+        {
+            TrayIconMessage?.Invoke(unchecked((uint)lParam));
             return 0;
         }
 

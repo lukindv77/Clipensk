@@ -1,6 +1,7 @@
 using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Input;
+using Clipensk.Core.Localization;
 using Clipensk.Core.Storage;
 using Clipensk.Windows.Clipboard;
 using Clipensk.Windows.Input;
@@ -13,16 +14,20 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
     private readonly ResidentMessageWindow _messageWindow;
     private readonly GlobalHotKeyService _hotKeyService;
     private readonly ClipboardUpdateMonitor _clipboardMonitor;
+    private readonly WindowsTrayIconService _trayIconService;
     private bool _disposed;
 
     public ResidentWindowsHost(
         IClipboardHtmlSearchTextConverter htmlSearchTextConverter,
-        IClipboardRtfSearchTextConverter rtfSearchTextConverter)
+        IClipboardRtfSearchTextConverter rtfSearchTextConverter,
+        ILocalizationService localization)
     {
         ArgumentNullException.ThrowIfNull(htmlSearchTextConverter);
         ArgumentNullException.ThrowIfNull(rtfSearchTextConverter);
+        ArgumentNullException.ThrowIfNull(localization);
 
         _messageWindow = new ResidentMessageWindow();
+        _trayIconService = new WindowsTrayIconService(_messageWindow, localization);
         CaptureQueue = new ClipboardCaptureQueue();
         CaptureSourceStage = new ClipboardCaptureSourceStage(
             CaptureQueue,
@@ -58,6 +63,8 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
     }
 
     public IGlobalHotKeyService HotKeyService => _hotKeyService;
+
+    public WindowsTrayIconService TrayIconService => _trayIconService;
 
     public ClipboardCaptureQueue CaptureQueue { get; }
 
@@ -375,6 +382,7 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
 
         _clipboardMonitor.Dispose();
         _hotKeyService.Dispose();
+        _trayIconService.Dispose();
         _messageWindow.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);

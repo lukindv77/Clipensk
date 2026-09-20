@@ -6,6 +6,9 @@
     <AssemblyName>Clipensk.Windows</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Win32.Registry" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Clipensk.Core\Clipensk.Core.csproj" />
   </ItemGroup>
 </Project>
