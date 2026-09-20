@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-20 (добавлены ручная блокировка и автоблокировка по простою; остаток — внешняя локализация, страница «О программе», tray/автозапуск и продуктовые решения).
+Checkpoint prepared: 2026-09-20 (добавлена загрузка внешних переводов; остаток — страница «О программе», tray/автозапуск и продуктовые решения).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,14 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `d6856c63f0832cdb78a03c4b65bd263d9a39015a`.
+Последний промотированный main: `ceddf7a58890fecedf4914b81a20c9f2ef1ddc57`.
 
-Exact-main CI для `d6856c63…`:
+Exact-main CI для `ceddf7a…`:
 
-- Build #494, run `35501443222` — **SUCCESS**;
-- Native SQLCipher #113, run `35501444598` — **SUCCESS** (запущен вручную через `workflow_dispatch`, т.к. слайс менял только `Clipensk.App`/`Clipensk.Core.Settings`/`Clipensk.Windows`/`Clipensk.Infrastructure`, а не `src/Clipensk.Storage/**` или `src/Clipensk.Core/Storage/**`).
+- Build #497, run `35503283241` — **SUCCESS**;
+- Native SQLCipher #114, run `35503284275` — **SUCCESS** (запущен вручную через `workflow_dispatch`, т.к. слайс менял только `Clipensk.App`/`Clipensk.Core.Settings`/`Clipensk.Core.Localization`/`Clipensk.Infrastructure.Localization`, а не `src/Clipensk.Storage/**` или `src/Clipensk.Core/Storage/**`).
 
-Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала и ручная блокировка + автоблокировка по простою реализованы.
+Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала, ручная блокировка + автоблокировка по простою и загрузка внешних переводов реализованы.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -91,6 +91,13 @@ Archive Rotation: **завершена end to end** — storage-слой, runtim
 - `App.AutoLock.cs` — фоновый `System.Threading.Timer` на 15 секунд; чтение простоя и решение триггера — на thread-pool потоке, сама блокировка маршалится на dispatcher окна;
 - `AutoLockAfterMinutes` (`ApplicationSettings`) — opt-in, без произвольного дефолта, как и `DefaultJournalPeriodDays`/пороги ротации.
 
+Загрузка внешних переводов (`REQUIREMENTS.md` §20) реализована:
+
+- `ExternalOverlayLocalizationService` (`Clipensk.Core/Localization/`) — оверлей поверх `BuiltInRussianLocalizationService`; заменяемый на лету через `SetOverlay`, поэтому загрузка сразу видна во всех последующих `GetString`;
+- `JsonExternalLocalizationLoader` (`Clipensk.Infrastructure/Localization/`) — чтение `*.json` файла перевода (плоский объект строк с теми же ключами);
+- `ActiveLocalizationFileName` (`ApplicationSettings`) — голое имя файла внутри `<DataRoot>\Languages\`, никогда не абсолютный путь; `JsonApplicationSettingsStore` отклоняет любое значение с `/`, `\`, `.` или `..` **явными проверками обоих слэшей**, а не через `Path.GetFileName` (на Linux, где идёт локальный прогон тестов, `\` не является разделителем);
+- три действия в настройках: «Загрузить файл перевода…» (валидация до копирования в Languages), «Открыть папку Languages», «Перечитать переводы» (никогда не пишет в settings как побочный эффект).
+
 ## E. What has been completed
 
 Archive Split завершён и не подлежит повторной реализации (детали — `ARCHIVE_SPLIT_PROTOCOL.md`).
@@ -133,7 +140,11 @@ Trash, принято в `main`:
 
 23. `IdleAutoLockTrigger`, `WindowsIdleTimeReader`, `TryLockNow()`, кнопка «Заблокировать сейчас» и автоблокировка по простою в настройках (`d6856c6…`).
 
-Storage 595, Core 253, Infrastructure 50 — все зелёные локально и в CI.
+Локализация, принято в `main`:
+
+24. `ExternalOverlayLocalizationService`, `JsonExternalLocalizationLoader`, `ActiveLocalizationFileName`, загрузка/открытие папки/перечитывание в настройках (`ceddf7a…`).
+
+Storage 595, Core 260, Infrastructure 64 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -162,6 +173,12 @@ Storage 595, Core 253, Infrastructure 50 — все зелёные локаль�
   разных метода не просто из соображений API-чистоты: открытие UI-фильтра не должно создавать
   identity как побочный эффект простого просмотра.
 
+- `Path.GetFileName`/`Path.DirectorySeparatorChar` **платформозависимы**: на Linux, где идёт
+  локальный прогон тестов, `\` не разделитель пути, поэтому `Path.GetFileName("..\\x") == "..\\x"`
+  на Linux (проверка НЕ ловит traversal), но `!= "..\\x"` на Windows. Для проверок вида «это голое
+  имя файла, а не путь» нужны явные проверки обоих слэшей (`Contains('/')`/`Contains('\\')`), а не
+  платформенные `Path`-хелперы. Поймано до пуша через продумывание, не через живой прогон на Windows.
+
 ## G. Important invariants
 
 - Перед durable write: fresh target ref, `AGENTS.md`, relevant files.
@@ -187,19 +204,22 @@ Storage 595, Core 253, Infrastructure 50 — все зелёные локаль�
 
 По продукту в целом (подробности — в оценке готовности к релизу):
 
-4. Настройки: автоблокировка сделана (см. §E, пункт 23); осталась загрузка внешних переводов.
-5. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
-6. Страница «О программе» — заглушка.
-7. Tray-иконка и автозапуск отсутствуют.
-8. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Покрывает возврат в буфер (`DataPackage`, подавление собственной записи, конверсия файлового drop) и журнальные фильтры.
+4. Настройки: автоблокировка сделана (см. §E, пункт 23); загрузка внешних переводов сделана (см. §E, пункт 24).
+5. Страница «О программе» — заглушка. **Продуктовое решение пользователя (2026-09-20):** оставить только описание проекта, ссылку на GitHub (`https://github.com/lukindv77/Clipensk`) и информацию о текущей версии сборки; больше ничего не нужно. Так как в проекте нигде не задана схема версионирования (`<Version>`/`<AssemblyVersion>` отсутствуют), «версия сборки» реализуется как git commit SHA, зашитый в `AssemblyMetadata` через `$(GITHUB_SHA)` в `Clipensk.App.csproj` — доступен только для CI-собранных бинарников, не выдумывает semver.
+6. Tray-иконка и автозапуск отсутствуют. **Продуктовое решение пользователя (2026-09-20):**
+   - автозапуск настраивается в Settings, по умолчанию **выключен**, применяется **только для текущего пользователя** (HKCU, без elevation);
+   - закрытие крестиком **всегда** сворачивает в трей, не завершает процесс (это уже было готово в `JournalWindow.OnAppWindowClosing`: `args.Cancel = true; sender.Hide();` — только не было реализовано, чем это открыть обратно);
+   - полное завершение — только через пункт «Завершить работу» в меню трея, вызывающий уже существующий `JournalWindow.ExitApplication()` (был объявлен, но ни разу не вызывался — ждал именно этого меню);
+   - трей также даёт доступ к «Журнал» и «Настройки».
+7. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Покрывает возврат в буфер (`DataPackage`, подавление собственной записи, конверсия файлового drop), журнальные фильтры и (после этого слайса) tray-иконку.
 
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `d6856c63f0832cdb78a03c4b65bd263d9a39015a`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `ceddf7a58890fecedf4914b81a20c9f2ef1ddc57`.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр) и блокировки (ручная + автоблокировка по простою).
+5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр), блокировки (ручная + автоблокировка по простою) и внешней локализации.
 6. Продуктовые решения (§I пункты 1–3) не принимать самостоятельно — это выбор пользователя.
 7. `Clipensk.App` и `Clipensk.Windows` не собираются на Linux: перед push отдельно проверять usings нового кода этих проектов, иначе цикл CI тратится на `CS0246`.
 8. `Clipensk.Windows` зависит только от `Clipensk.Core`. Типы, которые нужны и платформенному адаптеру, и слою хранения, живут в `Clipensk.Core`; зависимость Windows → Storage не добавлять.
