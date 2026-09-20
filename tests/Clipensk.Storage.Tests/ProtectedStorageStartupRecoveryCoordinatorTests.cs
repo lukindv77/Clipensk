@@ -145,7 +145,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinatorTests
         SeedDay(environment, new DateOnly(2026, 2, 20));
 
         ProtectedStorageStartupResult result = await Coordinator(environment)
-            .RunAsync(Today, rotationSettings: null);
+            .RunAsync(Today, rotationSettings: null, trashRetentionDays: null);
 
         Assert.Null(result.StartedRotation);
         Assert.False(result.Recovery.HadPendingWork);
@@ -161,7 +161,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinatorTests
         SeedDay(environment, new DateOnly(2026, 2, 21));
 
         ProtectedStorageStartupResult result = await Coordinator(environment)
-            .RunAsync(Today, new ArchiveRotationSettings { MaxCalendarDays = 1 });
+            .RunAsync(Today, new ArchiveRotationSettings { MaxCalendarDays = 1 }, trashRetentionDays: null);
 
         Assert.NotNull(result.StartedRotation);
         Assert.True(result.StartedRotation!.Started);
@@ -184,7 +184,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinatorTests
         // A new start against a pending rotation fails closed in the scanner, so completing here at
         // all proves recovery ran first.
         ProtectedStorageStartupResult result = await Coordinator(environment)
-            .RunAsync(Today, new ArchiveRotationSettings { MaxCalendarDays = 1 });
+            .RunAsync(Today, new ArchiveRotationSettings { MaxCalendarDays = 1 }, trashRetentionDays: null);
 
         Assert.True(result.Recovery.ArchiveRotation.HadPendingOperation);
         Assert.Equal(interrupted, result.Recovery.ArchiveRotation.OperationId);
@@ -200,6 +200,51 @@ public sealed class ProtectedStorageStartupRecoveryCoordinatorTests
             result.StartedRotation.Targets[0].FileName.FileName)));
         Assert.Null(await RotationRepository(environment).ReadAsync());
         Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ClipboardHistoryEvent;"));
+    }
+
+    [Fact]
+    public async Task RunAsync_DeletesExpiredTrashWhenRetentionIsConfigured()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        string expired = SeedTrashedPayload(environment, "2026-01-01");
+        string fresh = SeedTrashedPayload(environment, "2026-02-25");
+
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, rotationSettings: null, trashRetentionDays: 30);
+
+        Assert.NotNull(result.TrashRetention);
+        Assert.Equal(1, result.TrashRetention!.DeletedDateDirectoryCount);
+        Assert.False(Directory.Exists(expired));
+        Assert.True(Directory.Exists(fresh));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task RunAsync_SkipsTrashRetentionWhenItIsNotUsable(int? trashRetentionDays)
+    {
+        // A hand-edited settings value must never leave clipboard capture suspended.
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        string expired = SeedTrashedPayload(environment, "2026-01-01");
+
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, rotationSettings: null, trashRetentionDays);
+
+        Assert.Null(result.TrashRetention);
+        Assert.True(Directory.Exists(expired));
+    }
+
+    private static string SeedTrashedPayload(
+        GlobalPolicyTestEnvironment environment,
+        string deletionDate)
+    {
+        string dateDirectory = Path.Combine(environment.Root, "Trash", deletionDate);
+        Directory.CreateDirectory(Path.Combine(dateDirectory, "2025-12-01"));
+        File.WriteAllBytes(
+            Path.Combine(dateDirectory, "2025-12-01", "payload.png"),
+            [1, 2, 3]);
+        return dateDirectory;
     }
 
     private static ProtectedStorageStartupRecoveryCoordinator Coordinator(

@@ -1,6 +1,7 @@
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Clipboard;
+using Clipensk.Storage.ExternalFiles;
 using Clipensk.Storage.Sqlite;
 
 namespace Clipensk.Storage.Databases;
@@ -19,7 +20,8 @@ public sealed record ProtectedStorageStartupRecoveryResult(
 
 public sealed record ProtectedStorageStartupResult(
     ProtectedStorageStartupRecoveryResult Recovery,
-    ArchiveRotationRunResult? StartedRotation);
+    ArchiveRotationRunResult? StartedRotation,
+    ExternalPayloadTrashRetentionResult? TrashRetention);
 
 /// <summary>
 /// Completes every durable storage operation that may have been interrupted, in the single order
@@ -49,6 +51,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
     private readonly ProtectedArchiveRotationRecoveryService _rotationRecovery;
     private readonly ProtectedPolicyMaintenanceResumeDispatcher _policyMaintenanceResume;
     private readonly ProtectedArchiveRotationStartService _rotationStart;
+    private readonly ProtectedExternalPayloadTrashRetentionService _trashRetention;
 
     public ProtectedStorageStartupRecoveryCoordinator(
         ProtectedStorageSessionLease session,
@@ -62,6 +65,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
         _rotationRecovery = new ProtectedArchiveRotationRecoveryService(session, factory);
         _policyMaintenanceResume = new ProtectedPolicyMaintenanceResumeDispatcher(session, factory);
         _rotationStart = new ProtectedArchiveRotationStartService(session, factory);
+        _trashRetention = new ProtectedExternalPayloadTrashRetentionService(session);
     }
 
     /// <summary>
@@ -74,25 +78,39 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
     ///
     /// Rotation is opt-in: no configured thresholds means no rotation, per
     /// <c>docs/OPEN_QUESTIONS.md</c> §8, which has not chosen product defaults yet.
+    ///
+    /// Trash retention runs last, after the policy-maintenance continuation that moves
+    /// newly unreferenced payloads into Trash, so one startup never deletes on a stale view of it.
+    /// A retention that is absent or not positive is skipped rather than raised: startup must not
+    /// leave clipboard capture suspended over a hand-edited settings value.
     /// </summary>
     public async Task<ProtectedStorageStartupResult> RunAsync(
         DateOnly currentLocalDate,
         ArchiveRotationSettings? rotationSettings,
+        int? trashRetentionDays,
         CancellationToken cancellationToken = default)
     {
         ProtectedStorageStartupRecoveryResult recovery = await RecoverAsync(
             currentLocalDate,
             cancellationToken).ConfigureAwait(false);
 
-        if (rotationSettings is null || !rotationSettings.IsConfigured)
+        ArchiveRotationRunResult? rotation = null;
+        if (rotationSettings is not null && rotationSettings.IsConfigured)
         {
-            return new ProtectedStorageStartupResult(recovery, StartedRotation: null);
+            rotation = await _rotationStart
+                .StartAndCompleteAsync(rotationSettings, currentLocalDate, cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        ArchiveRotationRunResult rotation = await _rotationStart
-            .StartAndCompleteAsync(rotationSettings, currentLocalDate, cancellationToken)
-            .ConfigureAwait(false);
-        return new ProtectedStorageStartupResult(recovery, rotation);
+        ExternalPayloadTrashRetentionResult? retention = null;
+        if (trashRetentionDays is int days && days > 0)
+        {
+            retention = await _trashRetention
+                .CollectAsync(currentLocalDate, days, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new ProtectedStorageStartupResult(recovery, rotation, retention);
     }
 
     public async Task<ProtectedStorageStartupRecoveryResult> RecoverAsync(

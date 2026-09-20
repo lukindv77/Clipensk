@@ -17,6 +17,11 @@ public sealed partial class JournalWindow
     /// </summary>
     internal ArchiveRotationSettings? ArchiveRotationSettings => _settings.ArchiveRotation;
 
+    /// <summary>
+    /// How long an expired external payload stays in Trash before it is permanently deleted.
+    /// </summary>
+    internal int TrashRetentionDays => _settings.TrashRetentionDays;
+
     internal bool TryGetActiveProtectedStorageSession(
         out ProtectedStorageSessionLease? session)
     {

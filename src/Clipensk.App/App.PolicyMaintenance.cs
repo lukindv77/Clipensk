@@ -66,9 +66,14 @@ public partial class App
 
             DateOnly currentCalendarDate = DateOnly.FromDateTime(DateTime.Now);
             ArchiveRotationSettings? rotationSettings = window.ArchiveRotationSettings;
+            int trashRetentionDays = window.TrashRetentionDays;
             await Task.Run(
                 () => new ProtectedStorageStartupRecoveryCoordinator(session)
-                    .RunAsync(currentCalendarDate, rotationSettings, session.CancellationToken),
+                    .RunAsync(
+                        currentCalendarDate,
+                        rotationSettings,
+                        trashRetentionDays,
+                        session.CancellationToken),
                 session.CancellationToken);
         }
         catch (OperationCanceledException)
