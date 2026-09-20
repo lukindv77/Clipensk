@@ -50,6 +50,7 @@ public sealed partial class JournalWindow : Window
 
         InitializeLocalizedText();
         InitializeHotKeyEditor();
+        InitializeJournalPeriodEditor();
         InitializeArchiveRotationEditor();
         InitializeGlobalPolicyUi();
         _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
@@ -115,6 +116,11 @@ public sealed partial class JournalWindow : Window
         HotKeyTitle.Text = _localization.GetString("Settings.HotKey.Title");
         HotKeyKeyLabel.Text = _localization.GetString("Settings.HotKey.Key");
         ApplyHotKeyButton.Content = _localization.GetString("Settings.HotKey.Apply");
+
+        JournalPeriodTitle.Text = _localization.GetString("Settings.JournalPeriod.Title");
+        JournalPeriodBody.Text = _localization.GetString("Settings.JournalPeriod.Body");
+        JournalPeriodDays.Header = _localization.GetString("Settings.JournalPeriod.Days");
+        SaveJournalPeriodButton.Content = _localization.GetString("Settings.JournalPeriod.Save");
 
         RotationTitle.Text = _localization.GetString("Settings.Rotation.Title");
         RotationBody.Text = _localization.GetString("Settings.Rotation.Body");
@@ -456,6 +462,7 @@ public sealed partial class JournalWindow : Window
         {
             DataRootValue.Text = _settings.DataRootPath ?? _localization.GetString("Settings.DataRoot.NotConfigured");
             // Reopening Settings always shows what is persisted, discarding unsaved edits.
+            LoadJournalPeriodEditor();
             LoadArchiveRotationEditor();
             SettingsPanel.Visibility = Visibility.Visible;
             return;

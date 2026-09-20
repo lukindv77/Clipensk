@@ -317,6 +317,22 @@
                 <Button x:Name="ApplyHotKeyButton" HorizontalAlignment="Left" Click="OnApplyHotKeyClicked" />
                 <InfoBar x:Name="HotKeyInfo" IsOpen="False" IsClosable="True" />
 
+                <StackPanel x:Name="JournalPeriodSettingsPanel" Spacing="8" Margin="0,12,0,0">
+                    <TextBlock x:Name="JournalPeriodTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="JournalPeriodBody" TextWrapping="Wrap" />
+                    <NumberBox x:Name="JournalPeriodDays"
+                               Width="220"
+                               HorizontalAlignment="Left"
+                               Minimum="1"
+                               SmallChange="1"
+                               LargeChange="7"
+                               SpinButtonPlacementMode="Compact" />
+                    <Button x:Name="SaveJournalPeriodButton"
+                            HorizontalAlignment="Left"
+                            Click="OnSaveJournalPeriodClicked" />
+                    <InfoBar x:Name="JournalPeriodInfo" IsOpen="False" IsClosable="True" />
+                </StackPanel>
+
                 <StackPanel x:Name="ArchiveRotationPanel" Spacing="8" Margin="0,12,0,0">
                     <TextBlock x:Name="RotationTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
                     <TextBlock x:Name="RotationBody" TextWrapping="Wrap" />

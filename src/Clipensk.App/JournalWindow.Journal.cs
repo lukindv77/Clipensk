@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Clipensk.Core.History;
+using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.History;
 using Microsoft.UI.Xaml;
@@ -151,10 +152,22 @@ public sealed partial class JournalWindow
 
         DateTimeOffset now = DateTimeOffset.Now;
         var today = new DateTimeOffset(now.Date, now.Offset);
+
+        // A configured default spans the requested number of calendar days ending today, per
+        // `docs/REQUIREMENTS.md` §8. Without one, the journal keeps its existing single-day default.
+        DateTimeOffset start = today;
+        if (_settings.DefaultJournalPeriodDays is int days)
+        {
+            (DateOnly startDate, DateOnly _) = DefaultJournalPeriod.ForDays(
+                days,
+                DateOnly.FromDateTime(now.DateTime));
+            start = new DateTimeOffset(startDate.ToDateTime(TimeOnly.MinValue), now.Offset);
+        }
+
         _journalInitializingPeriod = true;
         try
         {
-            JournalStartDate.Date ??= today;
+            JournalStartDate.Date ??= start;
             JournalEndDate.Date ??= today;
         }
         finally

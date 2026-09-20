@@ -171,6 +171,74 @@ public sealed class JsonApplicationSettingsStoreTests
         }
     }
 
+    [Fact]
+    public async Task SaveAndLoadAsync_ConfiguredDefaultJournalPeriod_RoundTrips()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var expected = new ApplicationSettings { DefaultJournalPeriodDays = 30 };
+            var store = new JsonApplicationSettingsStore(path);
+
+            await store.SaveAsync(expected);
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Equal(30, loaded.DefaultJournalPeriodDays);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_LegacySettingsWithoutDefaultJournalPeriod_LeavesItUnset()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "PasswordHint": ""
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Null(loaded.DefaultJournalPeriodDays);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsync_NonPositiveDefaultJournalPeriod_FailsBeforeCreatingSettingsFile()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var store = new JsonApplicationSettingsStore(path);
+            var settings = new ApplicationSettings { DefaultJournalPeriodDays = 0 };
+
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveAsync(settings));
+
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string directory = Path.Combine(

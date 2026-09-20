@@ -88,6 +88,10 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
     private static ApplicationSettings Validate(ApplicationSettings settings)
     {
         settings.ArchiveRotation?.Validate();
+        if (settings.DefaultJournalPeriodDays is int days)
+        {
+            DefaultJournalPeriod.Validate(days);
+        }
         return settings;
     }
 }
