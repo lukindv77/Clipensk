@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-20 (возврат записи в clipboard и автоудаление Trash по сроку реализованы; остаток — журнал, настройки, локализация, оболочка и продуктовые решения).
+Checkpoint prepared: 2026-09-20 (журнал получил период по умолчанию, поиск и фильтр по приложению; остаток — прочие настройки, локализация, оболочка и продуктовые решения).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,14 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `1b01d53b12444e732f3ce3f84f49627511e3d900`.
+Последний промотированный main: `f28dd6915864a11a2209199acc35df15c6626721`.
 
-Exact-main CI для `1b01d53b…`:
+Exact-main CI для `f28dd691…`:
 
-- Build #486, run `35486060938` — **SUCCESS**;
-- Native SQLCipher #107, run `35486060907` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
+- Build #492, run `35492278210` — **SUCCESS**;
+- Native SQLCipher #112, run `35492278242` — **SUCCESS**, включая pinned SQLCipher x64 build/provenance, `Verify encrypted storage x64` и `Verify published Clipensk x64 runtime SQLCipher loading`.
 
-Baseline **ACCEPTED**: Archive Rotation завершена целиком, возврат записи в clipboard и автоудаление Trash по сроку реализованы.
+Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку и период/поиск/фильтр журнала реализованы.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -75,6 +75,14 @@ Archive Rotation: **завершена end to end** — storage-слой, runtim
 
 Фактическая работа возврата в буфер **не подтверждена**: весь Windows/WinUI слой автотестами не покрыт.
 
+Журнал получил период по умолчанию, поиск и фильтр по приложению:
+
+- `DefaultJournalPeriod.ForDays` (`Clipensk.Core/Settings/`) — чистое правило периода; opt-in, конкретное значение не выбрано (`OPEN_QUESTIONS.md` §7);
+- `ClipboardHistorySearchMatcher` + `SqliteClipboardHistorySearchFunction` — поиск через кастомную SQL-функцию на `.NET`-сравнении (`OrdinalIgnoreCase`), а не встроенный `LIKE`/`LOWER` SQLite, который фолдит регистр только для ASCII. Функция регистрируется на соединении **безусловно**: SQL-текст ссылается на неё даже когда term = NULL, и SQLite резолвит имя функции при подготовке запроса, а не в рантайме;
+- `sourceApplicationId`-фильтр — точное сравнение на `ClipboardHistoryEvent.SourceApplicationId`, тем же путём, что и поиск;
+- оба фильтра применяются **внутри** уже выбранного по периоду набора БД и не меняют, какие файлы открываются;
+- «приложение вызова журнала» — `InvocationApplication` резолвится в `ApplicationId` через **read-only** `SqliteApplicationIdentityRepository.FindAliasesAsync` (не `ResolveOrCreateAsync`): открытие журнала не создаёт identity как побочный эффект. Пункт выпадающего списка появляется, но не выбирается автоматически.
+
 ## E. What has been completed
 
 Archive Split завершён и не подлежит повторной реализации (детали — `ARCHIVE_SPLIT_PROTOCOL.md`).
@@ -107,7 +115,13 @@ Trash, принято в `main`:
 
 19. `ProtectedExternalPayloadTrashRetentionService` — удаление истёкших payload и подключение последним шагом стартовой последовательности (`1b01d53b…`).
 
-Storage 582, Core 229, Infrastructure 44 — все зелёные локально и в CI.
+Журнал, принято в `main`:
+
+20. `DefaultJournalPeriod` + экран настроек периода (`5452895…`);
+21. `ClipboardHistorySearchMatcher`/`SqliteClipboardHistorySearchFunction`, поиск в Current+Archive, строка поиска в журнале (`9330867…`);
+22. `sourceApplicationId`-фильтр, read-only резолв `InvocationApplication`, выпадающий список приложений в журнале (`f28dd691…`).
+
+Storage 595, Core 246, Infrastructure 47 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -123,6 +137,19 @@ Storage 582, Core 229, Infrastructure 44 — все зелёные локаль�
   формально внутри корня. Защищает только проверка reparse point на каждом уровне. Проверено
   экспериментально на Trash retention: без неё удаляется реальный файл за пределами `Trash`.
 
+- SQLite резолвит имена кастомных SQL-функций **при подготовке запроса**, а не в рантайме: ветка
+  `$param IS NULL OR customFunc(...)` не спасает, если функция не зарегистрирована на соединении —
+  `no such function` возникает даже когда параметр NULL. Регистрировать функцию нужно безусловно,
+  не только когда параметр реально задан. Поймано полным прогоном тестов, не предположением.
+
+- Встроенный `LIKE`/`LOWER` SQLite фолдит регистр только для ASCII. При основном языке продукта —
+  русском — это делает текстовый поиск по факту нерабочим для кириллицы без явной регистрации
+  `.NET`-функции сравнения через `SqliteConnection.CreateFunction`.
+
+- Read-only lookup identity (`FindAliasesAsync`) и create-or-resolve (`ResolveOrCreateAsync`) — два
+  разных метода не просто из соображений API-чистоты: открытие UI-фильтра не должно создавать
+  identity как побочный эффект простого просмотра.
+
 ## G. Important invariants
 
 - Перед durable write: fresh target ref, `AGENTS.md`, relevant files.
@@ -134,35 +161,34 @@ Storage 582, Core 229, Infrastructure 44 — все зелёные локаль�
 
 ## H. Known risks / unresolved questions
 
-- Manual production WinUI smoke — **UNVERIFIED** и для Split, и для Rotation.
-- Startup/runtime integration, scheduler/manual trigger, Settings UI — **не реализованы**.
+- Manual production WinUI smoke — **UNVERIFIED** для Split, Rotation, возврата в clipboard и журнальных фильтров: весь WinUI/WinRT-слой не покрыт автотестами, CI подтверждает только компиляцию и publish.
 - Локальные тесты идут на `e_sqlite3`, а не SQLCipher: шифрование, native provenance и published-runtime loading локально не проверяются.
 - SDK не переживает пересоздание сессии; процедура — `docs/LOCAL_BUILD_AND_TEST.md`.
 
 ## I. Remaining work
 
-По направлению Archive Rotation осталось только:
+Продуктовые решения — не код, решение пользователя:
 
-1. Product defaults ротации (`OPEN_QUESTIONS.md` §8) — решение пользователя, не код; до него ротация opt-in.
+1. Product defaults ротации (`OPEN_QUESTIONS.md` §8) — до него ротация opt-in.
+2. Период журнала по умолчанию (`OPEN_QUESTIONS.md` §7) — механизм готов, конкретное число не выбрано.
+3. Лицензия не выбрана, файла `LICENSE` нет; схема распространения не выбрана.
 
 По продукту в целом (подробности — в оценке готовности к релизу):
 
-2. Журнал: поиск, период по умолчанию, фильтр по приложению-источнику и приложению вызова.
-3. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), поле срока хранения Trash в UI (сама очистка работает по сохранённому значению), загрузка внешних переводов.
-4. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
-5. Страница «О программе» — заглушка.
-6. Tray-иконка и автозапуск отсутствуют.
-7. Лицензия не выбрана, файла `LICENSE` нет; схема распространения не выбрана.
-8. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Теперь сюда входит и возврат в буфер: работа `DataPackage`, подавление собственной записи и конверсия файлового drop в текст проверяются только вручную.
+4. Настройки: автоблокировка (`AutoLockEnabled` объявлено, не используется), загрузка внешних переводов.
+5. Локализация: внешние файлы и папка `Languages` (`REQUIREMENTS.md` §20) — есть только `BuiltInRussianLocalizationService`.
+6. Страница «О программе» — заглушка.
+7. Tray-иконка и автозапуск отсутствуют.
+8. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Покрывает возврат в буфер (`DataPackage`, подавление собственной записи, конверсия файлового drop) и журнальные фильтры.
 
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `1b01d53b12444e732f3ce3f84f49627511e3d900`.
-3. Для журнала прочитать `JournalWindow.Journal.cs`, `IUnifiedClipboardHistoryRepository` и `ClipboardHistoryCursor` перед изменениями.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `f28dd6915864a11a2209199acc35df15c6626721`.
+3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы ротации, Archive Split и возврата в clipboard.
-6. Продуктовые решения (§I пункты 1, 7) не принимать самостоятельно — это выбор пользователя.
+5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention и журнала (период/поиск/фильтр).
+6. Продуктовые решения (§I пункты 1–3) не принимать самостоятельно — это выбор пользователя.
 7. `Clipensk.App` и `Clipensk.Windows` не собираются на Linux: перед push отдельно проверять usings нового кода этих проектов, иначе цикл CI тратится на `CS0246`.
 8. `Clipensk.Windows` зависит только от `Clipensk.Core`. Типы, которые нужны и платформенному адаптеру, и слою хранения, живут в `Clipensk.Core`; зависимость Windows → Storage не добавлять.
 
@@ -181,9 +207,8 @@ Storage 582, Core 229, Infrastructure 44 — все зелёные локаль�
 
 Рекомендация по модели для следующего шага:
 
-Пунктов уровня Opus/High в оставшейся работе больше нет: направления с durable-повреждением и с физическим удалением данных закрыты.
+Пунктов уровня Opus/High в оставшейся работе больше нет: направления с durable-повреждением и с физическим удалением данных закрыты. Журнал (период/поиск/фильтр) тоже закрыт.
 
 - **ручная проверка на Windows** — не задача для модели: нужен реальный прогон и фиксация evidence пользователем;
-- журнал (поиск, период по умолчанию, фильтры по приложению) — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
-- настройки (автоблокировка, поле срока Trash, внешняя локализация), страница «О программе», tray и автозапуск — **Sonnet 5, высокая сложность**;
-- продуктовые решения (лицензия, дефолты, схема распространения) — **Sonnet 5, средняя сложность**.
+- настройки (автоблокировка, внешняя локализация), страница «О программе», tray и автозапуск — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
+- продуктовые решения (лицензия, дефолты, период журнала, схема распространения) — **Sonnet 5, средняя сложность**.
