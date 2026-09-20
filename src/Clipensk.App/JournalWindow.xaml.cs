@@ -4,6 +4,8 @@ using Clipensk.Core.Localization;
 using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
+using Clipensk.Infrastructure.Settings;
+using Clipensk.Windows.Security;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -129,6 +131,9 @@ public sealed partial class JournalWindow : Window
         FirstRunTitle.Text = _localization.GetString("FirstRun.Title");
         FirstRunBody.Text = _localization.GetString("FirstRun.Body");
         ChooseDataRootButton.Content = _localization.GetString("FirstRun.ChooseDataRoot");
+        UseDefaultDataRootButton.Content = _localization.GetString("FirstRun.UseDefaultDataRoot");
+        DefaultDataRootHint.Text = _localization.GetString("FirstRun.DefaultDataRootHint");
+        DefaultDataRootValue.Text = SettingsPathProvider.GetDefaultDataRootPath();
 
         PasswordHintTitle.Text = _localization.GetString("Lock.PasswordHint");
         PasswordEntry.PlaceholderText = _localization.GetString("Lock.PasswordPlaceholder");
@@ -203,7 +208,7 @@ public sealed partial class JournalWindow : Window
 
     private async void OnChooseDataRootClicked(object sender, RoutedEventArgs e)
     {
-        ChooseDataRootButton.IsEnabled = false;
+        SetDataRootActionsEnabled(false);
         DataRootInfo.IsOpen = false;
 
         try
@@ -223,39 +228,88 @@ public sealed partial class JournalWindow : Window
                 return;
             }
 
-            string validatedPath = await ValidateDataRootAsync(folder.Path);
-            ProtectedStorageCredentialState credentialState =
-                await _credentialService.GetStateAsync(validatedPath);
-            if (credentialState == ProtectedStorageCredentialState.Invalid)
-            {
-                throw new InvalidDataException("Криптографические метаданные выбранного каталога повреждены или не поддерживаются.");
-            }
-
-            ApplicationSettings updated = _settings with { DataRootPath = validatedPath };
-            await _settingsStore.SaveAsync(updated);
-
-            _settings = updated;
-            _credentialState = credentialState;
-            _lifecycle.CompleteFirstRunConfiguration();
-            DataRootValue.Text = validatedPath;
-
-            LockInfo.Severity = InfoBarSeverity.Success;
-            LockInfo.Message = _localization.GetString("FirstRun.SavedLocked");
-            LockInfo.IsOpen = true;
-
-            RefreshLifecycleUi();
+            await ConfigureDataRootAsync(folder.Path);
         }
         catch (Exception)
         {
-            DataRootInfo.Severity = InfoBarSeverity.Error;
-            DataRootInfo.Message = _localization.GetString("FirstRun.ValidationFailed");
-            DataRootInfo.IsOpen = true;
-            ShowFirstRunPanel();
+            ReportDataRootFailure();
         }
         finally
         {
-            ChooseDataRootButton.IsEnabled = true;
+            SetDataRootActionsEnabled(true);
         }
+    }
+
+    /// <summary>
+    /// Configures the per-user default location, per explicit product decision: each Windows user
+    /// stores settings and history only where that user already has private access, so the offered
+    /// default is inside their own profile rather than anywhere shared.
+    /// </summary>
+    private async void OnUseDefaultDataRootClicked(object sender, RoutedEventArgs e)
+    {
+        SetDataRootActionsEnabled(false);
+        DataRootInfo.IsOpen = false;
+
+        try
+        {
+            await ConfigureDataRootAsync(SettingsPathProvider.GetDefaultDataRootPath());
+        }
+        catch (Exception)
+        {
+            ReportDataRootFailure();
+        }
+        finally
+        {
+            SetDataRootActionsEnabled(true);
+        }
+    }
+
+    private async Task ConfigureDataRootAsync(string requestedPath)
+    {
+        Directory.CreateDirectory(requestedPath);
+
+        // Lock the directory down before anything is written into it, so the very first durable
+        // bytes already land somewhere other users of this computer cannot reach.
+        bool isProtected = WindowsDataRootProtectionService.TryProtect(requestedPath);
+
+        string validatedPath = await ValidateDataRootAsync(requestedPath);
+        ProtectedStorageCredentialState credentialState =
+            await _credentialService.GetStateAsync(validatedPath);
+        if (credentialState == ProtectedStorageCredentialState.Invalid)
+        {
+            throw new InvalidDataException("Криптографические метаданные выбранного каталога повреждены или не поддерживаются.");
+        }
+
+        ApplicationSettings updated = _settings with { DataRootPath = validatedPath };
+        await _settingsStore.SaveAsync(updated);
+
+        _settings = updated;
+        _credentialState = credentialState;
+        _lifecycle.CompleteFirstRunConfiguration();
+        DataRootValue.Text = validatedPath;
+
+        // A location that cannot carry access rules is still usable — its contents stay encrypted —
+        // but the user must not be left believing other accounts were shut out when they were not.
+        LockInfo.Severity = isProtected ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+        LockInfo.Message = _localization.GetString(
+            isProtected ? "FirstRun.SavedLocked" : "FirstRun.SavedWithoutAccessProtection");
+        LockInfo.IsOpen = true;
+
+        RefreshLifecycleUi();
+    }
+
+    private void ReportDataRootFailure()
+    {
+        DataRootInfo.Severity = InfoBarSeverity.Error;
+        DataRootInfo.Message = _localization.GetString("FirstRun.ValidationFailed");
+        DataRootInfo.IsOpen = true;
+        ShowFirstRunPanel();
+    }
+
+    private void SetDataRootActionsEnabled(bool enabled)
+    {
+        ChooseDataRootButton.IsEnabled = enabled;
+        UseDefaultDataRootButton.IsEnabled = enabled;
     }
 
     private async void OnUnlockClicked(object sender, RoutedEventArgs e)

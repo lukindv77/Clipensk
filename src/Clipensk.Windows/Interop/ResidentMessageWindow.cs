@@ -17,6 +17,21 @@ internal sealed class ResidentMessageWindow : IDisposable
     /// </summary>
     internal const uint WmTrayIconCallback = 0x8000 + 1; // WM_APP + 1
 
+    /// <summary>
+    /// Posted cross-process by a second Clipensk instance of the same Windows user to hand the
+    /// request over to the instance that already owns the single-instance lock, instead of starting
+    /// a second resident runtime against the same storage.
+    /// </summary>
+    internal const uint WmActivationRequest = 0x8000 + 2; // WM_APP + 2
+
+    /// <summary>
+    /// Fixed so a second instance can locate this window with
+    /// <c>FindWindowEx(HWND_MESSAGE, …)</c>. Window classes are per-process, so two processes
+    /// registering the same name never collide; the class is also per-session, so a different
+    /// Windows user's instance is never found from here.
+    /// </summary>
+    internal const string WindowClassName = "Clipensk.ResidentMessageWindow";
+
     private readonly string _className;
     private readonly WindowProcedure _windowProcedure;
     private readonly nint _instance;
@@ -25,7 +40,7 @@ internal sealed class ResidentMessageWindow : IDisposable
 
     public ResidentMessageWindow()
     {
-        _className = $"Clipensk.ResidentMessageWindow.{Environment.ProcessId}";
+        _className = WindowClassName;
         _windowProcedure = WindowProc;
         _instance = GetModuleHandle(null);
 
@@ -75,6 +90,9 @@ internal sealed class ResidentMessageWindow : IDisposable
     /// <summary>Raised with the mouse message (e.g. <c>WM_LBUTTONUP</c>) reported for the tray icon.</summary>
     public event Action<uint>? TrayIconMessage;
 
+    /// <summary>Raised when a second instance of this Windows user asked this one to come forward.</summary>
+    public event Action? ActivationRequested;
+
     public void Dispose()
     {
         if (_disposed)
@@ -111,6 +129,12 @@ internal sealed class ResidentMessageWindow : IDisposable
         if (message == WmTrayIconCallback)
         {
             TrayIconMessage?.Invoke(unchecked((uint)lParam));
+            return 0;
+        }
+
+        if (message == WmActivationRequest)
+        {
+            ActivationRequested?.Invoke();
             return 0;
         }
 

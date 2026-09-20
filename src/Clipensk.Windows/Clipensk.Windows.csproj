@@ -7,6 +7,9 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Win32.Registry" />
+    <PackageReference Include="System.Security.AccessControl" />
+    <PackageReference Include="System.IO.FileSystem.AccessControl" />
+    <PackageReference Include="System.Security.Principal.Windows" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Clipensk.Core\Clipensk.Core.csproj" />

@@ -66,6 +66,16 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
 
     public WindowsTrayIconService TrayIconService => _trayIconService;
 
+    /// <summary>
+    /// Raised when a second Clipensk instance of the same Windows user handed its launch over to
+    /// this one instead of starting a competing resident runtime.
+    /// </summary>
+    public event Action? ActivationRequested
+    {
+        add => _messageWindow.ActivationRequested += value;
+        remove => _messageWindow.ActivationRequested -= value;
+    }
+
     public ClipboardCaptureQueue CaptureQueue { get; }
 
     public ClipboardCaptureSourceStage CaptureSourceStage { get; }

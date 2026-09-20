@@ -36,6 +36,12 @@ public partial class App : Application
         ApplicationSettings settings = await settingsStore.LoadAsync();
         await TryApplyActiveLocalizationAsync(localization, settings);
 
+        if (!TryClaimSingleInstance(localization))
+        {
+            Exit();
+            return;
+        }
+
         _lifecycle = new ProtectedApplicationLifecycle(
             isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));
 
@@ -61,6 +67,7 @@ public partial class App : Application
             new ManagedClipboardRtfSearchTextConverter(),
             localization);
         _hotKeyService = _residentWindowsHost.HotKeyService;
+        _residentWindowsHost.ActivationRequested += OnActivationRequested;
         _lifecycle.ProtectedDataAccessChanged += OnProtectedDataAccessChanged;
         _window = new JournalWindow(
             localization,
@@ -246,8 +253,15 @@ public partial class App : Application
         }
 
         StopTrayIcon();
+
+        if (_residentWindowsHost is not null)
+        {
+            _residentWindowsHost.ActivationRequested -= OnActivationRequested;
+        }
+
         _residentWindowsHost?.Dispose();
         _residentWindowsHost = null;
+        ReleaseSingleInstance();
         _databaseService = null;
         _credentialService = null;
         _lifecycle = null;
