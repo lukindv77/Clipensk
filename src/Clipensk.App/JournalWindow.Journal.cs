@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
@@ -18,12 +19,15 @@ public sealed partial class JournalWindow
     private long _journalGeneration;
     private bool _journalInitializingPeriod;
     private JournalDateRange? _journalPeriod;
+    private string? _journalSearchTerm;
     private ClipboardHistoryCursor? _journalCursor;
 
     private void OnJournalContentPanelLoaded(object sender, RoutedEventArgs e)
     {
         JournalStartDate.Header = JournalText("StartDate");
         JournalEndDate.Header = JournalText("EndDate");
+        JournalSearchBox.PlaceholderText = JournalText("SearchPlaceholder");
+        JournalSearchBox.Header = JournalText("Search");
         JournalLoadButton.Content = JournalText("Load");
         JournalLoadMoreButton.Content = JournalText("LoadMore");
         JournalCopyButton.Content = JournalText("Copy.Action");
@@ -131,6 +135,26 @@ public sealed partial class JournalWindow
             return;
         }
 
+        ResetJournalForPendingQueryChange("PeriodChanged");
+    }
+
+    private void OnJournalSearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_journalInitializingPeriod)
+        {
+            return;
+        }
+
+        ResetJournalForPendingQueryChange("SearchChanged");
+    }
+
+    /// <summary>
+    /// The period and the search term are both committed only when the user clicks "Показать",
+    /// exactly like the pre-existing period behavior: this avoids re-querying on every keystroke
+    /// or date click while still making it obvious that displayed results are stale.
+    /// </summary>
+    private void ResetJournalForPendingQueryChange(string messageKey)
+    {
         Interlocked.Increment(ref _journalGeneration);
         _journalItems.Clear();
         _journalPeriod = null;
@@ -139,7 +163,7 @@ public sealed partial class JournalWindow
         UpdateJournalCopyAvailability();
         JournalLoadMoreButton.Visibility = Visibility.Collapsed;
         JournalInfo.Severity = InfoBarSeverity.Informational;
-        JournalInfo.Message = JournalText("PeriodChanged");
+        JournalInfo.Message = JournalText(messageKey);
         JournalInfo.IsOpen = true;
     }
 
@@ -192,6 +216,8 @@ public sealed partial class JournalWindow
             return;
         }
 
+        string? searchTerm = ClipboardHistorySearchMatcher.Normalize(JournalSearchBox.Text);
+
         ProtectedStorageSessionLease? session = _protectedStorageSession;
         if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
         {
@@ -204,6 +230,7 @@ public sealed partial class JournalWindow
         {
             if (_journalPeriod is not JournalDateRange currentPeriod ||
                 currentPeriod != period ||
+                _journalSearchTerm != searchTerm ||
                 _journalCursor is null)
             {
                 return;
@@ -216,6 +243,7 @@ public sealed partial class JournalWindow
         {
             _journalItems.Clear();
             _journalPeriod = period;
+            _journalSearchTerm = searchTerm;
             _journalCursor = null;
             JournalEntriesList.ItemsSource = null;
         }
@@ -232,17 +260,20 @@ public sealed partial class JournalWindow
                         ? await repository.ReadAsync(
                             period,
                             JournalPageSize,
+                            searchTerm,
                             session.CancellationToken)
                         : await repository.ReadBeforeAsync(
                             period,
                             JournalPageSize,
                             before,
+                            searchTerm,
                             session.CancellationToken);
                 },
                 session.CancellationToken);
 
             if (!IsCurrentJournalOperation(session, generation) ||
                 _journalPeriod != period ||
+                _journalSearchTerm != searchTerm ||
                 (!reset && !Equals(_journalCursor, before)))
             {
                 return;
@@ -342,6 +373,7 @@ public sealed partial class JournalWindow
     {
         _journalItems.Clear();
         _journalPeriod = null;
+        _journalSearchTerm = null;
         _journalCursor = null;
         JournalEntriesList.ItemsSource = null;
         UpdateJournalCopyAvailability();

@@ -90,7 +90,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
 
         var period = new JournalDateRange(new DateOnly(2026, 9, 6), new DateOnly(2026, 9, 6));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await services.HistoryRepository.ReadAsync(period, 1, cancellation.Token));
+            await services.HistoryRepository.ReadAsync(period, 1, cancellationToken: cancellation.Token));
         Assert.Equal(0, factory.OpenCallCount);
         Assert.Equal(0, extensionProvider.CallCount);
         Directory.Delete(root, recursive: true);
@@ -123,7 +123,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
 
         var period = new JournalDateRange(new DateOnly(2026, 9, 6), new DateOnly(2026, 9, 6));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await services.UnifiedHistoryRepository.ReadAsync(period, 1, cancellation.Token));
+            await services.UnifiedHistoryRepository.ReadAsync(period, 1, cancellationToken: cancellation.Token));
         Assert.Equal(0, factory.OpenCallCount);
         Assert.Equal(0, extensionProvider.CallCount);
         Directory.Delete(root, recursive: true);

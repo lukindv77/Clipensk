@@ -272,7 +272,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepositoryTests
             await repository.ReadAsync(
                 new JournalDateRange(day, day),
                 10,
-                cancellation.Token));
+                cancellationToken: cancellation.Token));
 
         Assert.Empty(environment.Factory.Modes);
     }

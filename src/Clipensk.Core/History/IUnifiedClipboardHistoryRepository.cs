@@ -7,10 +7,15 @@ public interface IUnifiedClipboardHistoryRepository
     /// Archive segments within the inclusive calendar period. Results are ordered by
     /// UTC timestamp then EventId descending. A temporarily duplicated logical event
     /// is returned once with every verified physical location.
+    ///
+    /// <paramref name="searchText"/>, when non-null and non-empty, restricts results to events
+    /// matching it per <see cref="ICurrentClipboardHistoryRepository.ReadAsync"/>. It is applied
+    /// within each already-selected physical database and never changes which ones are opened.
     /// </summary>
     ValueTask<IReadOnlyList<UnifiedClipboardHistoryEntry>> ReadAsync(
         JournalDateRange period,
         int limit,
+        string? searchText = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -22,5 +27,6 @@ public interface IUnifiedClipboardHistoryRepository
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor before,
+        string? searchText = null,
         CancellationToken cancellationToken = default);
 }

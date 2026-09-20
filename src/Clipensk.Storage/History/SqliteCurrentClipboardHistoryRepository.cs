@@ -29,15 +29,17 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
     public ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadAsync(
         JournalDateRange period,
         int limit,
+        string? searchText = null,
         CancellationToken cancellationToken = default)
     {
-        return ReadCore(period, limit, before: null, cancellationToken);
+        return ReadCore(period, limit, before: null, searchText, cancellationToken);
     }
 
     public ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadBeforeAsync(
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor before,
+        string? searchText = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(before);
@@ -46,13 +48,14 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
             throw new ArgumentException("History cursor belongs to a different calendar period.", nameof(before));
         }
 
-        return ReadCore(period, limit, before, cancellationToken);
+        return ReadCore(period, limit, before, searchText, cancellationToken);
     }
 
     private ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadCore(
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor? before,
+        string? searchText,
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -62,11 +65,16 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         CancellationToken token = linkedCancellation.Token;
         token.ThrowIfCancellationRequested();
 
+        string? normalizedSearch = ClipboardHistorySearchMatcher.Normalize(searchText);
         using SqliteConnection connection = OpenValidatedCurrent(token);
+        // The SQL text below always references the search-match function, even when no term is
+        // supplied: the $searchTerm IS NULL branch short-circuits it at runtime, but SQLite still
+        // needs the function to exist to prepare the statement at all.
+        SqliteClipboardHistorySearchFunction.Register(connection);
         using SqliteCommand command = connection.CreateCommand();
         // Limit events BEFORE joining their payloads. A single SELECT keeps event
         // envelopes and all their payloads in the same SQLite read snapshot.
-        command.CommandText = """
+        command.CommandText = $"""
             WITH SelectedEvents AS (
                 SELECT EventId, EventUtc, LocalOffsetMinutes, WindowsTimeZoneId,
                        CalendarDate, SourceApplicationId, SourceProcessId,
@@ -76,6 +84,10 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
                   AND ($beforeUtc IS NULL
                        OR EventUtc < $beforeUtc
                        OR (EventUtc = $beforeUtc AND EventId COLLATE BINARY < $beforeId))
+                  AND ($searchTerm IS NULL OR EventId IN (
+                          SELECT EventId FROM ClipboardHistoryPayload
+                          WHERE {SqliteClipboardHistorySearchFunction.SqlName}(SearchText, $searchTerm)
+                      ))
                 ORDER BY EventUtc DESC, EventId COLLATE BINARY DESC
                 LIMIT $limit
             )
@@ -98,6 +110,7 @@ public sealed class SqliteCurrentClipboardHistoryRepository : ICurrentClipboardH
         command.Parameters.AddWithValue("$beforeId", before is null
             ? DBNull.Value
             : before.EventId.ToString("D"));
+        command.Parameters.AddWithValue("$searchTerm", (object?)normalizedSearch ?? DBNull.Value);
 
         var entries = new List<ClipboardHistoryEntry>();
         ClipboardHistoryEntry? current = null;

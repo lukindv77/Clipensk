@@ -81,6 +81,10 @@
                                             DateChanged="OnJournalPeriodChanged" />
                         <CalendarDatePicker x:Name="JournalEndDate"
                                             DateChanged="OnJournalPeriodChanged" />
+                        <TextBox x:Name="JournalSearchBox"
+                                 Width="280"
+                                 VerticalAlignment="Bottom"
+                                 TextChanged="OnJournalSearchTextChanged" />
                         <Button x:Name="JournalLoadButton"
                                 VerticalAlignment="Bottom"
                                 Click="OnJournalLoadClicked" />

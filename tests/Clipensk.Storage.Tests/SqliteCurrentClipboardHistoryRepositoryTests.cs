@@ -139,7 +139,7 @@ public sealed class SqliteCurrentClipboardHistoryRepositoryTests
         int opens = environment.Factory.Modes.Count;
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await repository.ReadAsync(Period, 1, cancellation.Token));
+            await repository.ReadAsync(Period, 1, cancellationToken: cancellation.Token));
         Assert.Equal(opens, environment.Factory.Modes.Count);
     }
 
@@ -152,7 +152,7 @@ public sealed class SqliteCurrentClipboardHistoryRepositoryTests
         var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await repository.ReadAsync(Period, 1, cancellation.Token));
+            await repository.ReadAsync(Period, 1, cancellationToken: cancellation.Token));
         Assert.Equal(System.Data.ConnectionState.Closed, environment.Factory.LastConnection!.State);
     }
 
@@ -292,7 +292,7 @@ public sealed class SqliteCurrentClipboardHistoryRepositoryTests
         int opens = environment.Factory.Modes.Count;
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await repository.ReadBeforeAsync(Period, 2, cursor, cancellation.Token));
+            await repository.ReadBeforeAsync(Period, 2, cursor, cancellationToken: cancellation.Token));
         Assert.Equal(opens, environment.Factory.Modes.Count);
     }
 

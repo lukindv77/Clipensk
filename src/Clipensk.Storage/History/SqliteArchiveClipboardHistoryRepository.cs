@@ -51,6 +51,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor? before,
+        string? searchText = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -61,13 +62,14 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
                 nameof(before));
         }
 
-        return ReadCoreAsync(period, limit, before, cancellationToken);
+        return ReadCoreAsync(period, limit, before, searchText, cancellationToken);
     }
 
     private async Task<IReadOnlyList<ClipboardHistoryEntry>> ReadCoreAsync(
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor? before,
+        string? searchText,
         CancellationToken cancellationToken)
     {
         using CancellationTokenSource linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -82,7 +84,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         ValidateIdentityMatchesSegment(beforeIdentity);
 
         IReadOnlyList<ClipboardHistoryEntry> entries = await Task.Run(
-            () => ReadDatabaseCore(period, limit, before, token),
+            () => ReadDatabaseCore(period, limit, before, searchText, token),
             CancellationToken.None).ConfigureAwait(false);
 
         DatabaseIdentity afterIdentity = await _archiveService
@@ -98,12 +100,18 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor? before,
+        string? searchText,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        string? normalizedSearch = ClipboardHistorySearchMatcher.Normalize(searchText);
         using SqliteConnection connection = OpenValidatedArchive(token);
+        // The SQL text below always references the search-match function, even when no term is
+        // supplied: the $searchTerm IS NULL branch short-circuits it at runtime, but SQLite still
+        // needs the function to exist to prepare the statement at all.
+        SqliteClipboardHistorySearchFunction.Register(connection);
         using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             WITH SelectedEvents AS (
                 SELECT EventId, EventUtc, LocalOffsetMinutes, WindowsTimeZoneId,
                        CalendarDate, SourceApplicationId, SourceProcessId,
@@ -113,6 +121,10 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
                   AND ($beforeUtc IS NULL
                        OR EventUtc < $beforeUtc
                        OR (EventUtc = $beforeUtc AND EventId COLLATE BINARY < $beforeId))
+                  AND ($searchTerm IS NULL OR EventId IN (
+                          SELECT EventId FROM ClipboardHistoryPayload
+                          WHERE {SqliteClipboardHistorySearchFunction.SqlName}(SearchText, $searchTerm)
+                      ))
                 ORDER BY EventUtc DESC, EventId COLLATE BINARY DESC
                 LIMIT $limit
             )
@@ -143,6 +155,7 @@ internal sealed class SqliteArchiveClipboardHistoryRepository
             before is null
                 ? DBNull.Value
                 : before.EventId.ToString("D"));
+        command.Parameters.AddWithValue("$searchTerm", (object?)normalizedSearch ?? DBNull.Value);
 
         var entries = new List<ClipboardHistoryEntry>();
         ClipboardHistoryEntry? current = null;
