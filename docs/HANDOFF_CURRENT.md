@@ -1,6 +1,6 @@
 # NEW CHAT HANDOFF — Clipensk
 
-Checkpoint prepared: 2026-09-20 (добавлена загрузка внешних переводов; остаток — страница «О программе», tray/автозапуск и продуктовые решения).
+Checkpoint prepared: 2026-09-20 (добавлены tray-иконка, автозапуск и страница «О программе»; остаток — продуктовые решения и ручной smoke).
 
 Mutable GitHub state is authoritative and supersedes this file. Перед любой durable repository write обязательна fresh TOCTOU-проверка relevant refs/files; перед promotion — fresh `main`, feature ref, compare и canonical workflows.
 
@@ -32,14 +32,16 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `ceddf7a58890fecedf4914b81a20c9f2ef1ddc57`.
+Последний промотированный main: `0bb0be009f9b9d241adcb27cb4fd159d3cfae5b6`.
 
-Exact-main CI для `ceddf7a…`:
+Exact-main CI для `0bb0be0…`:
 
-- Build #497, run `35503283241` — **SUCCESS**;
-- Native SQLCipher #114, run `35503284275` — **SUCCESS** (запущен вручную через `workflow_dispatch`, т.к. слайс менял только `Clipensk.App`/`Clipensk.Core.Settings`/`Clipensk.Core.Localization`/`Clipensk.Infrastructure.Localization`, а не `src/Clipensk.Storage/**` или `src/Clipensk.Core/Storage/**`).
+- Build #501, run `35505486762` — **SUCCESS**;
+- Native SQLCipher #116, run `35505488247` — **SUCCESS** (запущен вручную через `workflow_dispatch`, т.к. слайс не менял `src/Clipensk.Storage/**`/`src/Clipensk.Core/Storage/**`).
 
-Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала, ручная блокировка + автоблокировка по простою и загрузка внешних переводов реализованы.
+Важно: первая попытка этого слайса (Build #500, run `35505278851`) упала с `CS0051` (публичный конструктор `WindowsTrayIconService` принимал `internal ResidentMessageWindow`); исправлено (конструктор стал `internal`, как у `GlobalHotKeyService`) и передоказано на новом SHA — см. §F.
+
+Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала, ручная блокировка + автоблокировка по простою, загрузка внешних переводов и tray-иконка/автозапуск/страница «О программе» реализованы.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -98,6 +100,13 @@ Archive Rotation: **завершена end to end** — storage-слой, runtim
 - `ActiveLocalizationFileName` (`ApplicationSettings`) — голое имя файла внутри `<DataRoot>\Languages\`, никогда не абсолютный путь; `JsonApplicationSettingsStore` отклоняет любое значение с `/`, `\`, `.` или `..` **явными проверками обоих слэшей**, а не через `Path.GetFileName` (на Linux, где идёт локальный прогон тестов, `\` не является разделителем);
 - три действия в настройках: «Загрузить файл перевода…» (валидация до копирования в Languages), «Открыть папку Languages», «Перечитать переводы» (никогда не пишет в settings как побочный эффект).
 
+Tray-иконка, автозапуск и страница «О программе» реализованы (продуктовые решения пользователя от 2026-09-20, зафиксированы в §I):
+
+- `WindowsTrayIconService` (`Clipensk.Windows/Interop/`) — переиспользует тот же `ResidentMessageWindow`, на котором уже работают hotkey и clipboard listener, вместо создания второго скрытого окна: `Shell_NotifyIcon` просто постит сообщения на переданный HWND. Левый клик открывает журнал; правый — меню (Журнал / Настройки / Завершить работу) через `TrackPopupMenuEx` с `TPM_RETURNCMD`, с обязательными `SetForegroundWindow`/`PostMessage(WM_NULL)` вокруг вызова (иначе меню не закрывается корректно). Иконка берётся из самого exe (`ExtractIconEx`), с фолбэком на системную `IDI_APPLICATION`, если embedded-иконки нет;
+- закрытие крестиком уже сворачивало в трей (`JournalWindow.OnAppWindowClosing`), просто не было иконки, чтобы вернуться; `ExitApplication()` тоже уже существовал, но был не вызван ниоткуда — теперь это пункт «Завершить работу»;
+- `WindowsAutostartService` (`Clipensk.Windows/Autostart/`) — реестровый `HKCU\...\Run`, никогда `HKLM`; запись в реестр выполняется **до** сохранения настройки, иначе Clipensk не должен утверждать состояние, которого не добился;
+- страница «О программе» — реальный контент вместо общей заглушки: описание, ссылка на GitHub, «Сборка: {git SHA}» — SHA зашивается в `AssemblyMetadata` из `$(GITHUB_SHA)` в `Clipensk.App.csproj`, доступен только у CI-собранных бинарников (ручная сборка показывает «неизвестна»), сознательно не изобретает semver.
+
 ## E. What has been completed
 
 Archive Split завершён и не подлежит повторной реализации (детали — `ARCHIVE_SPLIT_PROTOCOL.md`).
@@ -144,7 +153,11 @@ Trash, принято в `main`:
 
 24. `ExternalOverlayLocalizationService`, `JsonExternalLocalizationLoader`, `ActiveLocalizationFileName`, загрузка/открытие папки/перечитывание в настройках (`ceddf7a…`).
 
-Storage 595, Core 260, Infrastructure 64 — все зелёные локально и в CI.
+Оболочка, принято в `main`:
+
+25. `WindowsTrayIconService`, `WindowsAutostartService`, реальная страница «О программе» (`0bb0be0…`).
+
+Storage 595, Core 260, Infrastructure 66 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -179,6 +192,13 @@ Storage 595, Core 260, Infrastructure 64 — все зелёные локаль�
   имя файла, а не путь» нужны явные проверки обоих слэшей (`Contains('/')`/`Contains('\\')`), а не
   платформенные `Path`-хелперы. Поймано до пуша через продумывание, не через живой прогон на Windows.
 
+- `Clipensk.Windows`-типы, которые оборачивают `internal ResidentMessageWindow` (например
+  `GlobalHotKeyService`, теперь и `WindowsTrayIconService`), обязаны иметь **`internal`-конструктор**:
+  публичный конструктор с параметром менее доступного типа — это `CS0051`, а не предупреждение.
+  Поймано реальным `CS0051` из Build CI (Build #500 → `internal` fix → Build #501 SUCCESS), не
+  предположением — `Clipensk.App`/`Clipensk.Windows` не собираются локально на Linux, поэтому такие
+  ошибки видны только через фактический CI-лог.
+
 ## G. Important invariants
 
 - Перед durable write: fresh target ref, `AGENTS.md`, relevant files.
@@ -204,22 +224,16 @@ Storage 595, Core 260, Infrastructure 64 — все зелёные локаль�
 
 По продукту в целом (подробности — в оценке готовности к релизу):
 
-4. Настройки: автоблокировка сделана (см. §E, пункт 23); загрузка внешних переводов сделана (см. §E, пункт 24).
-5. Страница «О программе» — заглушка. **Продуктовое решение пользователя (2026-09-20):** оставить только описание проекта, ссылку на GitHub (`https://github.com/lukindv77/Clipensk`) и информацию о текущей версии сборки; больше ничего не нужно. Так как в проекте нигде не задана схема версионирования (`<Version>`/`<AssemblyVersion>` отсутствуют), «версия сборки» реализуется как git commit SHA, зашитый в `AssemblyMetadata` через `$(GITHUB_SHA)` в `Clipensk.App.csproj` — доступен только для CI-собранных бинарников, не выдумывает semver.
-6. Tray-иконка и автозапуск отсутствуют. **Продуктовое решение пользователя (2026-09-20):**
-   - автозапуск настраивается в Settings, по умолчанию **выключен**, применяется **только для текущего пользователя** (HKCU, без elevation);
-   - закрытие крестиком **всегда** сворачивает в трей, не завершает процесс (это уже было готово в `JournalWindow.OnAppWindowClosing`: `args.Cancel = true; sender.Hide();` — только не было реализовано, чем это открыть обратно);
-   - полное завершение — только через пункт «Завершить работу» в меню трея, вызывающий уже существующий `JournalWindow.ExitApplication()` (был объявлен, но ни разу не вызывался — ждал именно этого меню);
-   - трей также даёт доступ к «Журнал» и «Настройки».
-7. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Покрывает возврат в буфер (`DataPackage`, подавление собственной записи, конверсия файлового drop), журнальные фильтры и (после этого слайса) tray-иконку.
+4. Настройки, локализация, оболочка (tray/автозапуск/«О программе») — все сделаны, см. §E пункты 23–25.
+5. Manual production WinUI/storage smoke evidence (отдельно, остаётся `UNVERIFIED`). Покрывает возврат в буфер (`DataPackage`, подавление собственной записи, конверсия файлового drop), журнальные фильтры и **tray-иконку/автозапуск** (контекстное меню, левый/правый клик, реестровая запись HKCU) — весь этот Win32-interop код синтаксически проверен только компилятором в CI, реальное поведение на Windows не подтверждено.
 
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `ceddf7a58890fecedf4914b81a20c9f2ef1ddc57`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `0bb0be009f9b9d241adcb27cb4fd159d3cfae5b6`.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр), блокировки (ручная + автоблокировка по простою) и внешней локализации.
+5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр), блокировки (ручная + автоблокировка по простою), внешней локализации и оболочки (tray/автозапуск/«О программе»).
 6. Продуктовые решения (§I пункты 1–3) не принимать самостоятельно — это выбор пользователя.
 7. `Clipensk.App` и `Clipensk.Windows` не собираются на Linux: перед push отдельно проверять usings нового кода этих проектов, иначе цикл CI тратится на `CS0246`.
 8. `Clipensk.Windows` зависит только от `Clipensk.Core`. Типы, которые нужны и платформенному адаптеру, и слою хранения, живут в `Clipensk.Core`; зависимость Windows → Storage не добавлять.
@@ -239,8 +253,9 @@ Storage 595, Core 260, Infrastructure 64 — все зелёные локаль�
 
 Рекомендация по модели для следующего шага:
 
-Пунктов уровня Opus/High в оставшейся работе больше нет: направления с durable-повреждением и с физическим удалением данных закрыты. Журнал (период/поиск/фильтр) и блокировка (ручная + автоблокировка) тоже закрыты.
+Весь запланированный код написан: настройки, локализация (встроенная и внешняя), журнал (период/поиск/фильтр), блокировка (ручная + автоблокировка), tray-иконка, автозапуск и страница «О программе» — всё принято в `main` с exact-SHA CI evidence. Оставшиеся пункты — не код:
 
-- **ручная проверка на Windows** — не задача для модели: нужен реальный прогон и фиксация evidence пользователем;
-- внешняя локализация (`REQUIREMENTS.md` §20), страница «О программе», tray и автозапуск — **Sonnet 5, высокая сложность**: объёмная работа по существующим репозиториям, без конкурентных инвариантов;
-- продуктовые решения (лицензия, дефолты, период журнала, схема распространения) — **Sonnet 5, средняя сложность**.
+- **ручная проверка на Windows** (`docs/HANDOFF_CURRENT.md` §H/§I) — не задача для модели: нужен реальный прогон резидентного приложения и фиксация evidence пользователем. Особенно важно для tray-иконки/автозапуска — это первый крупный кусок raw Win32 interop (`Shell_NotifyIcon`, `TrackPopupMenuEx`, реестр) в проекте, проверенный CI только на уровне компиляции;
+- продуктовые решения (лицензия, дефолты ротации, период журнала по умолчанию, схема распространения) — **Sonnet 5, средняя сложность**, когда/если пользователь захочет их зафиксировать.
+
+Пунктов уровня Opus/High в оставшейся работе нет.
