@@ -266,11 +266,9 @@ public sealed partial class JournalWindow : Window
 
     private async Task ConfigureDataRootAsync(string requestedPath)
     {
-        Directory.CreateDirectory(requestedPath);
-
         // Lock the directory down before anything is written into it, so the very first durable
         // bytes already land somewhere other users of this computer cannot reach.
-        bool isProtected = WindowsDataRootProtectionService.TryProtect(requestedPath);
+        DataRootProtectionResult protection = WindowsDataRootProtectionService.Protect(requestedPath);
 
         string validatedPath = await ValidateDataRootAsync(requestedPath);
         ProtectedStorageCredentialState credentialState =
@@ -288,11 +286,18 @@ public sealed partial class JournalWindow : Window
         _lifecycle.CompleteFirstRunConfiguration();
         DataRootValue.Text = validatedPath;
 
-        // A location that cannot carry access rules is still usable — its contents stay encrypted —
-        // but the user must not be left believing other accounts were shut out when they were not.
-        LockInfo.Severity = isProtected ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
-        LockInfo.Message = _localization.GetString(
-            isProtected ? "FirstRun.SavedLocked" : "FirstRun.SavedWithoutAccessProtection");
+        // A location whose access rules were not changed is still usable — its contents stay
+        // encrypted — but the user must not be left believing other accounts were shut out when
+        // they were not, and each reason for that needs saying plainly.
+        LockInfo.Severity = protection == DataRootProtectionResult.Protected
+            ? InfoBarSeverity.Success
+            : InfoBarSeverity.Warning;
+        LockInfo.Message = _localization.GetString(protection switch
+        {
+            DataRootProtectionResult.Protected => "FirstRun.SavedLocked",
+            DataRootProtectionResult.SkippedNonEmptyDirectory => "FirstRun.SavedWithoutAccessProtection.NonEmpty",
+            _ => "FirstRun.SavedWithoutAccessProtection.Unsupported",
+        });
         LockInfo.IsOpen = true;
 
         RefreshLifecycleUi();
