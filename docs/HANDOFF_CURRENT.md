@@ -276,14 +276,24 @@ Storage 595, Core 260, Infrastructure 75 — все зелёные локаль�
 3. **Дефолты форматов при новой установке** (`OPEN_QUESTIONS.md` §6): Plain/Unicode Text, HTML, RTF,
    изображения, custom binary, `CF_HDROP`. **Заблокировано**: конкретные числовые лимиты для каждого
    формата пользователем ещё не названы.
-4. **Escape и «клик мимо»/авто-скрытие журнала как UX-триггеры скрытия окна**
-   (`OPEN_QUESTIONS.md` §10). Пользователь подтвердил (2026-09-21): строить сейчас. Focus restoration
-   для уже существующего пути minimize-to-tray принято в `main` (§E п.29); для новых триггеров нужно:
-   обработку Escape (сейчас нигде не перехватывается) и auto-hide по потере активации окна
-   (`Window.Activated`/`Deactivated`), с явным guard против ложного скрытия, пока открыт системный
-   `FileOpenPicker`/`FolderPicker` (используется минимум в загрузке файла перевода и выборе каталога
-   данных) — иначе открытие пикера будет ошибочно скрывать журнал.
-5. **Режим «вставить как plain text»** (`OPEN_QUESTIONS.md` §10).
+4. ~~Focus restoration + Escape/auto-hide~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §10):
+   `WindowsForegroundFocusTracker` захватывает HWND в памяти при первом показе скрытого окна
+   (`ShowJournal()`, по `AppWindow.IsVisible`); скрытие и восстановление фокуса вынесены в общий
+   `HideJournalWindow()`. Три триггера скрытия используют этот общий метод: кнопка-крестик
+   (`OnAppWindowClosing`), Escape (`KeyboardAccelerator` на `ShellNavigation`,
+   `OnEscapeKeyboardAcceleratorInvoked`) и авто-скрытие по клику мимо (`Window.Activated` →
+   `OnWindowActivated` на `WindowActivationState.Deactivated`). Поле `_systemPickerOpen` защищает
+   auto-hide от ложного срабатывания, пока открыт `FileOpenPicker`/`FolderPicker` (загрузка файла
+   перевода, выбор каталога данных). Лежит на ветке `feat/journal-escape-autohide`, ожидает
+   build/test/CI/promotion (см. §J); тестов нет — весь этот код WinUI/P/Invoke, как
+   `WindowsIdleTimeReader`/`WindowsForegroundFocusTracker`.
+5. ~~Режим «вставить как plain text»~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §10):
+   `ClipboardRestorePlanFactory.CreatePlainTextOnly` строит план из одного текстового представления
+   записи (тот же выбор кандидата, что и превью в журнале — первый payload с непустым `SearchText`,
+   fallback на URL для Link), явно отбрасывая остальные форматы в `SkippedFormatNames`. Кнопка
+   «Вставить как обычный текст» доступна только когда у записи есть такое представление. Лежит на
+   ветке `feat/paste-as-plain-text`, ожидает build/test/CI/promotion (см. §J); фабрика покрыта
+   тестами в `Clipensk.Storage.Tests` (тестируется локально на Linux), UI-кнопка — нет.
 7. **MSIX-упаковка** в дополнение к unpackaged (`OPEN_QUESTIONS.md` §3).
 9. **Перенос настроек и базы при смене пути** (`OPEN_QUESTIONS.md` §12) — отдельный заход по прямому
    решению пользователя; по цене ошибки это аналог Archive Rotation/Split.

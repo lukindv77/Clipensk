@@ -10,6 +10,7 @@ using Clipensk.Windows.Security;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 
@@ -28,6 +29,7 @@ public sealed partial class JournalWindow : Window
     private ProtectedStorageSessionLease? _protectedStorageSession;
     private bool _allowClose;
     private nint? _journalFocusRestoreTarget;
+    private bool _systemPickerOpen;
 
     public JournalWindow(
         ExternalOverlayLocalizationService localization,
@@ -51,6 +53,7 @@ public sealed partial class JournalWindow : Window
         InitializeComponent();
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnJournalWindowClosed;
+        Activated += OnWindowActivated;
 
         InitializeLocalizedText();
         InitializeHotKeyEditor();
@@ -235,7 +238,17 @@ public sealed partial class JournalWindow : Window
             nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
 
-            StorageFolder? folder = await picker.PickSingleFolderAsync();
+            StorageFolder? folder;
+            _systemPickerOpen = true;
+            try
+            {
+                folder = await picker.PickSingleFolderAsync();
+            }
+            finally
+            {
+                _systemPickerOpen = false;
+            }
+
             if (folder is null)
             {
                 return;
@@ -728,7 +741,46 @@ public sealed partial class JournalWindow : Window
         }
 
         args.Cancel = true;
-        sender.Hide();
+        HideJournalWindow();
+    }
+
+    /// <summary>
+    /// Escape hides the journal exactly like the close button, per the product decision
+    /// (2026-09-21) to add Escape and click-away auto-hide as their own hide triggers. Attached to
+    /// <see cref="ShellNavigation"/> as a <c>KeyboardAccelerator</c> so it fires regardless of which
+    /// control inside the window currently has focus.
+    /// </summary>
+    private void OnEscapeKeyboardAcceleratorInvoked(
+        KeyboardAccelerator sender,
+        KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        HideJournalWindow();
+    }
+
+    /// <summary>
+    /// Auto-hides the journal when it loses OS-level foreground activation to a different top-level
+    /// window — "click away" — per the same 2026-09-21 decision. A <see cref="ContentDialog"/> stays
+    /// inside this window's own XamlRoot and never triggers this; only another real top-level window
+    /// (another app, or a system picker) does. <see cref="_systemPickerOpen"/> suppresses this while
+    /// a <c>FileOpenPicker</c>/<c>FolderPicker</c> is in flight — those pickers are themselves a
+    /// separate top-level window, so opening one would otherwise deactivate and hide the journal out
+    /// from under the picker.
+    /// </summary>
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == WindowActivationState.Deactivated
+            && AppWindow.IsVisible
+            && !_systemPickerOpen
+            && !_allowClose)
+        {
+            HideJournalWindow();
+        }
+    }
+
+    private void HideJournalWindow()
+    {
+        AppWindow.Hide();
 
         WindowsForegroundFocusTracker.TryRestoreForeground(_journalFocusRestoreTarget);
         _journalFocusRestoreTarget = null;

@@ -9,6 +9,10 @@
         IsBackButtonVisible="Collapsed"
         SelectionChanged="OnSelectionChanged">
 
+        <NavigationView.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscapeKeyboardAcceleratorInvoked" />
+        </NavigationView.KeyboardAccelerators>
+
         <NavigationView.MenuItems>
             <NavigationViewItem x:Name="JournalItem" Tag="journal">
                 <NavigationViewItem.Icon><SymbolIcon Symbol="Paste" /></NavigationViewItem.Icon>

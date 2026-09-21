@@ -77,7 +77,17 @@ public sealed partial class JournalWindow
             nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, windowHandle);
 
-            StorageFile? file = await picker.PickSingleFileAsync();
+            StorageFile? file;
+            _systemPickerOpen = true;
+            try
+            {
+                file = await picker.PickSingleFileAsync();
+            }
+            finally
+            {
+                _systemPickerOpen = false;
+            }
+
             if (file is null)
             {
                 return;
