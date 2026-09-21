@@ -32,18 +32,32 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
-Последний промотированный main: `bbef1326070f126642417835762a7929112e2289`.
+Последний промотированный main: `925f0d8` (потомок `bbef1326070f126642417835762a7929112e2289`
+через три последовательных fast-forward slice за этот заход).
 
-Exact-main CI для `bbef132…`:
+Exact-main CI для каждого слайса (Build + Native SQLCipher, оба вручную через `workflow_dispatch`,
+т.к. ни один не менял `src/Clipensk.Storage/**`/`src/Clipensk.Core/Storage/**`, а `Native` требовался
+автоматически только для слайса, тронувшего `Clipensk.App.csproj`):
 
-- Build #505, run `35518612583` — **SUCCESS**;
-- Native SQLCipher #119, run `35518613993` — **SUCCESS** (запущен вручную через `workflow_dispatch`, т.к. слайс не менял `src/Clipensk.Storage/**`/`src/Clipensk.Core/Storage/**`).
+- `c3fd601` (период журнала по умолчанию, дефолты ротации + валидация, Windows 11 target):
+  Build run `35550258630` — **SUCCESS**; Native run `35550266375` — **SUCCESS**;
+- `2f48a61` (экспорт шаблона локализации с русским комментарием): Build run `35550693314` —
+  **SUCCESS**; Native run `35550694785` — **SUCCESS**;
+- `925f0d8` (focus restoration на пути minimize-to-tray): Build run `35551051884` — **SUCCESS**;
+  Native run `35551052917` — **SUCCESS**.
 
-Важно: слайс tray/автозапуска сначала упал с `CS0051` (публичный конструктор `WindowsTrayIconService` принимал `internal ResidentMessageWindow`); исправлено (конструктор стал `internal`, как у `GlobalHotKeyService`) — см. §F.
+Важно: слайс tray/автозапуска (более ранний, в составе `bbef132…`) сначала упал с `CS0051`
+(публичный конструктор `WindowsTrayIconService` принимал `internal ResidentMessageWindow`);
+исправлено (конструктор стал `internal`, как у `GlobalHotKeyService`) — см. §F.
 
-Baseline **ACCEPTED**: Archive Rotation, возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала, ручная блокировка + автоблокировка по простою, загрузка внешних переводов, tray-иконка/автозапуск/страница «О программе», а также single-instance на пользователя Windows и защита каталога данных реализованы.
+Baseline **ACCEPTED**: Archive Rotation (включая дефолты порогов и валидацию mode-без-порога),
+возврат записи в clipboard, автоудаление Trash по сроку, период/поиск/фильтр журнала (включая
+дефолт 30 дней), ручная блокировка + автоблокировка по простою, загрузка и экспорт шаблона внешних
+переводов, tray-иконка/автозапуск/страница «О программе», single-instance на пользователя Windows и
+защита каталога данных, таргет только Windows 11, а также частичный focus restoration (путь
+minimize-to-tray) реализованы.
 
-**Важно про продуктовые решения:** 2026-09-20 пользователь принял большой блок решений (лицензия, версии Windows, схема распространения, дефолты форматов, период журнала, пороги ротации, формат файлов локализации, focus restoration, single-instance/изоляция). Все они записаны в `docs/OPEN_QUESTIONS.md` с явной пометкой, что именно уже реализовано, а что ещё нет. **Большая часть из них ещё не реализована в коде** — см. §I.
+**Важно про продуктовые решения:** 2026-09-20 пользователь принял большой блок решений (лицензия, версии Windows, схема распространения, дефолты форматов, период журнала, пороги ротации, формат файлов локализации, focus restoration, single-instance/изоляция). Все они записаны в `docs/OPEN_QUESTIONS.md` с явной пометкой, что именно уже реализовано, а что ещё нет. Часть уже реализована в коде (см. выше и §E); оставшееся — см. §I.
 
 Важно про Native: он не запускается на push в `main`, если изменения не попадают под path-фильтры
 `sqlcipher-native.yml` (`src/Clipensk.Storage/**`, `src/Clipensk.Core/Storage/**`, `Clipensk.App.csproj`
@@ -171,7 +185,19 @@ Trash, принято в `main`:
 
 26. `WindowsSingleInstanceGuard`, `WindowsDataRootProtectionService`, per-user пути в `SettingsPathProvider`, кнопка расположения по умолчанию на первом запуске (`bbef132…`).
 
-Storage 595, Core 260, Infrastructure 69 — все зелёные локально и в CI.
+Продуктовые решения 2026-09-20, принято в `main`:
+
+27. `DefaultJournalPeriodDays` = 30 по умолчанию (с сохранением явного `null` при сбросе);
+    `ArchiveRotation` по умолчанию `{ MaxCalendarDays = 30 }`; `ArchiveRotationSettingsDraft.ToSettings()`
+    бросает при выбранном режиме ротации без заполненного порога; `SupportedOSPlatformVersion`
+    поднят до `10.0.22000.0` (только Windows 11) (`c3fd601…`);
+28. `LocalizationTemplateWriter` + кнопка «Экспортировать шаблон перевода»: `translation-template.json`
+    со всеми ключами, русским `//`-комментарием и значением-заготовкой над каждым ключом;
+    `JsonExternalLocalizationLoader` пропускает такие комментарии и завершающую запятую (`2f48a61…`);
+29. `WindowsForegroundFocusTracker` + захват/восстановление foreground HWND вокруг `ShowJournal()`/
+    `OnAppWindowClosing` (только путь minimize-to-tray; Escape и auto-hide отдельно, см. §I) (`925f0d8…`).
+
+Storage 595, Core 260, Infrastructure 75 — все зелёные локально и в CI.
 
 ## F. Load-bearing design decisions
 
@@ -243,37 +269,22 @@ Storage 595, Core 260, Infrastructure 69 — все зелёные локаль�
 явно указано, реализовано оно или нет). Их больше не нужно запрашивать у пользователя — нужно
 реализовать. Не реализовано:
 
-1. ~~Период журнала по умолчанию = 30 дней~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §7,
-   `ApplicationSettings.DefaultJournalPeriodDays = 30`), но ещё **не в `main`**: лежит на ветке
-   `feat/journal-rotation-defaults`, ожидает build/test/CI/promotion (см. §J).
-2. ~~Дефолты ротации~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §8): `ArchiveRotation` по
-   умолчанию `{ MaxCalendarDays = 30 }`, record count/размер БД по-прежнему выключены;
-   `ArchiveRotationSettingsDraft.ToSettings()` теперь бросает при выбранном режиме без порога. Та же
-   ветка `feat/journal-rotation-defaults`, тот же статус — ждёт CI/promotion.
+Пункты 1 (период журнала по умолчанию), 2 (дефолты ротации + валидация), 6 (только Windows 11) и
+8 (комментарий/экспорт шаблона локализации) из предыдущей версии этого раздела **реализованы и
+приняты в `main`** — см. §E пункты 27–28. Остаётся:
+
 3. **Дефолты форматов при новой установке** (`OPEN_QUESTIONS.md` §6): Plain/Unicode Text, HTML, RTF,
    изображения, custom binary, `CF_HDROP`. **Заблокировано**: конкретные числовые лимиты для каждого
    формата пользователем ещё не названы.
-4. ~~Focus restoration~~ — **частично реализовано в коде** (`OPEN_QUESTIONS.md` §10):
-   `WindowsForegroundFocusTracker` захватывает HWND в памяти при первом показе скрытого окна
-   (`ShowJournal()`, по `AppWindow.IsVisible`) и восстанавливает фокус в единственном сегодня
-   существующем триггере скрытия — `OnAppWindowClosing` (крестик → трей). Escape и «клик
-   мимо»/авто-скрытие как отдельные UX-триггеры скрытия окна **не существуют в коде вообще** — это
-   отдельная незапланированная задача с открытым вопросом поведения (например, не скрывать окно,
-   пока открыт системный File Picker). Лежит на ветке `feat/journal-focus-restoration`, ожидает
-   build/test/CI/promotion (см. §J); тестов нет — `WindowsForegroundFocusTracker` чистый P/Invoke,
-   как `WindowsIdleTimeReader`.
+4. **Escape и «клик мимо»/авто-скрытие журнала как UX-триггеры скрытия окна**
+   (`OPEN_QUESTIONS.md` §10). Пользователь подтвердил (2026-09-21): строить сейчас. Focus restoration
+   для уже существующего пути minimize-to-tray принято в `main` (§E п.29); для новых триггеров нужно:
+   обработку Escape (сейчас нигде не перехватывается) и auto-hide по потере активации окна
+   (`Window.Activated`/`Deactivated`), с явным guard против ложного скрытия, пока открыт системный
+   `FileOpenPicker`/`FolderPicker` (используется минимум в загрузке файла перевода и выборе каталога
+   данных) — иначе открытие пикера будет ошибочно скрывать журнал.
 5. **Режим «вставить как plain text»** (`OPEN_QUESTIONS.md` §10).
-6. ~~Только Windows 11~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §2):
-   `SupportedOSPlatformVersion` поднят до `10.0.22000.0` в `Clipensk.App`/`Clipensk.Windows`. Та же
-   ветка `feat/journal-rotation-defaults`, тот же статус — ждёт CI/promotion. Отдельно остаётся
-   нерешённым (не блокирует эту ветку): нужна ли runtime-проверка версии ОС при запуске на Windows 10.
 7. **MSIX-упаковка** в дополнение к unpackaged (`OPEN_QUESTIONS.md` §3).
-8. ~~Комментарий на русском в файлах перевода + экспорт шаблона~~ — **реализовано в коде**
-   (`OPEN_QUESTIONS.md` §9): кнопка «Экспортировать шаблон перевода» и `LocalizationTemplateWriter`
-   создают `translation-template.json` со всеми ключами, значением-заготовкой и русским `//`
-   комментарием над каждым ключом; `JsonExternalLocalizationLoader` пропускает такие комментарии и
-   завершающую запятую. Лежит на отдельной ветке `feat/localization-template-export`, ожидает
-   build/test/CI/promotion (см. §J).
 9. **Перенос настроек и базы при смене пути** (`OPEN_QUESTIONS.md` §12) — отдельный заход по прямому
    решению пользователя; по цене ошибки это аналог Archive Rotation/Split.
 
@@ -289,10 +300,10 @@ Storage 595, Core 260, Infrastructure 69 — все зелёные локаль�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `bbef1326070f126642417835762a7929112e2289`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — потомок `925f0d8`.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
-5. Не переделывать заново принятые слайсы ротации, Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр), блокировки (ручная + автоблокировка по простою), внешней локализации, оболочки (tray/автозапуск/«О программе») и single-instance/защиты каталога данных.
+5. Не переделывать заново принятые слайсы ротации (включая дефолты порогов и валидацию), Archive Split, возврата в clipboard, Trash retention, журнала (период/поиск/фильтр/дефолт 30 дней), блокировки (ручная + автоблокировка по простою), внешней локализации (включая экспорт шаблона с русским комментарием), оболочки (tray/автозапуск/«О программе»), single-instance/защиты каталога данных, таргета только Windows 11 и focus restoration на пути minimize-to-tray.
 6. Продуктовые решения из `OPEN_QUESTIONS.md` **уже приняты пользователем** — их надо реализовывать, а не переспрашивать. Исключение: §11 (merge/rebind identity) и числовые лимиты форматов в §6 — там решения нет.
 7. `Clipensk.App` и `Clipensk.Windows` не собираются на Linux: перед push отдельно проверять usings нового кода этих проектов, иначе цикл CI тратится на `CS0246`.
 8. `Clipensk.Windows` зависит только от `Clipensk.Core`. Типы, которые нужны и платформенному адаптеру, и слою хранения, живут в `Clipensk.Core`; зависимость Windows → Storage не добавлять.
