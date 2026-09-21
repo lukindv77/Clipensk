@@ -127,4 +127,4 @@ Clipensk поддерживает только Windows x64 (AMD64). ARM64 source
 
 Для текущего unpackaged `WindowsPackageType=None` host runtime delivery verified x64 `sqlcipher.dll` реализован и должен подтверждаться fresh green Native SQLCipher CI run. Publish output содержит runtime-delivery manifest, exact native build manifest, verified DLL и требуемые native license files; deprecated `e_sqlcipher.dll` запрещён.
 
-Это не фиксирует финальную схему распространения продукта. После выбора MSIX и/или portable delivery отдельно потребуется доказать, что installer/package сохраняет тот же verified x64 native artifact и что установленное приложение загружает именно его. Финальный installer/runtime loading остаётся открытым packaging requirement.
+Финальная и единственная схема распространения продукта — unpackaged/portable (решение пользователя от 2026-09-21, `OPEN_QUESTIONS.md` §3; от MSIX отказались). Runtime delivery verified x64 `sqlcipher.dll` для этого пути уже реализован и подтверждён выше — отдельного installer/package packaging requirement для MSIX больше не появится.

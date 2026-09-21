@@ -30,22 +30,23 @@
 
 Не реализовано: явная runtime-проверка версии ОС при запуске unpackaged-хоста (что именно должно
 происходить при запуске на Windows 10 — тихо разрешить, предупредить или жёстко заблокировать, и с
-каким сообщением) — это отдельный, ещё не принятый вопрос UX, не покрытый текущим решением. Для
-будущего MSIX (§3) `SupportedOSPlatformVersion` уже становится реальным enforcement через manifest
-минимальной версии ОС без дополнительного кода.
+каким сообщением) — это отдельный, ещё не принятый вопрос UX, не покрытый текущим решением. Раз от
+MSIX отказались (§3, решение 2026-09-21), manifest-based enforcement минимальной версии ОС больше не
+появится сам по себе — если runtime-проверка вообще нужна, её придётся писать явным кодом.
 
 ## 3. Финальная схема распространения
 
 **Решение пользователя (2026-09-20): нужны оба варианта — и MSIX, и unpackaged/portable.**
 
-Для MSIX уже зафиксировано, что при первом запуске пользователь выбирает каталог хранения данных.
+**Уточнённое решение пользователя (2026-09-21): от MSIX отказались. Единственная схема
+распространения — unpackaged/portable.** Прежнее решение от 2026-09-20 заменено этим; MSIX больше
+не в product scope, отдельная задача по MSIX-упаковке снята.
 
-Не реализовано: сейчас собирается только unpackaged x64 host. MSIX-упаковка, её installer path и
-verification доставки `sqlcipher.dll` внутри MSIX — отдельная невыполненная задача.
-
-Для текущего unpackaged x64 development/runtime path доставка verified `sqlcipher.dll` уже реализована: native pipeline публикует приложение вместе с exact verified DLL, runtime/native manifests и license files, а отдельный post-publish smoke запускает production storage boundary так, чтобы SQLCipher загружался именно из итогового publish layout. Это не выбирает и не доказывает будущий MSIX installer path.
-
-Для текущего unpackaged x64 development/runtime path доставка verified `sqlcipher.dll` уже реализована: native pipeline публикует приложение вместе с exact verified DLL, runtime/native manifests и license files, а отдельный post-publish smoke запускает production storage boundary так, чтобы SQLCipher загружался именно из итогового publish layout. Это не выбирает и не доказывает будущий MSIX installer path.
+Реализовано и остаётся актуальным независимо от отказа от MSIX: текущий unpackaged x64
+development/runtime path доставляет verified `sqlcipher.dll` — native pipeline публикует приложение
+вместе с exact verified DLL, runtime/native manifests и license files, а отдельный post-publish
+smoke запускает production storage boundary так, чтобы SQLCipher загружался именно из итогового
+publish layout. Это единственный требуемый packaging/runtime-delivery путь.
 
 ## 4. Оставшаяся криптографическая/native конфигурация
 
@@ -70,7 +71,6 @@ verification доставки `sqlcipher.dll` внутри MSIX — отдель
 
 Остаётся определить/реализовать:
 
-- packaging и runtime-delivery verification для будущей выбранной **финальной** схемы распространения, если она отличается от текущего unpackaged x64 path (в частности MSIX);
 - byte-for-byte reproducibility/provenance hardening;
 - процедуру смены пароля и/или MasterKey;
 - recovery procedure при потере/повреждении crypto metadata;
