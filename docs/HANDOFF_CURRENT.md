@@ -253,9 +253,15 @@ Storage 595, Core 260, Infrastructure 69 — все зелёные локаль�
 3. **Дефолты форматов при новой установке** (`OPEN_QUESTIONS.md` §6): Plain/Unicode Text, HTML, RTF,
    изображения, custom binary, `CF_HDROP`. **Заблокировано**: конкретные числовые лимиты для каждого
    формата пользователем ещё не названы.
-4. **Focus restoration** (`OPEN_QUESTIONS.md` §10): запоминать HWND foreground-окна в памяти при
-   открытии журнала, возвращать фокус при закрытии, тихо игнорировать неудачу. Сейчас
-   `WindowsInvocationApplicationResolver` получает HWND и сразу отбрасывает его.
+4. ~~Focus restoration~~ — **частично реализовано в коде** (`OPEN_QUESTIONS.md` §10):
+   `WindowsForegroundFocusTracker` захватывает HWND в памяти при первом показе скрытого окна
+   (`ShowJournal()`, по `AppWindow.IsVisible`) и восстанавливает фокус в единственном сегодня
+   существующем триггере скрытия — `OnAppWindowClosing` (крестик → трей). Escape и «клик
+   мимо»/авто-скрытие как отдельные UX-триггеры скрытия окна **не существуют в коде вообще** — это
+   отдельная незапланированная задача с открытым вопросом поведения (например, не скрывать окно,
+   пока открыт системный File Picker). Лежит на ветке `feat/journal-focus-restoration`, ожидает
+   build/test/CI/promotion (см. §J); тестов нет — `WindowsForegroundFocusTracker` чистый P/Invoke,
+   как `WindowsIdleTimeReader`.
 5. **Режим «вставить как plain text»** (`OPEN_QUESTIONS.md` §10).
 6. ~~Только Windows 11~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §2):
    `SupportedOSPlatformVersion` поднят до `10.0.22000.0` в `Clipensk.App`/`Clipensk.Windows`. Та же

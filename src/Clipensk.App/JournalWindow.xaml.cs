@@ -5,6 +5,7 @@ using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
 using Clipensk.Infrastructure.Settings;
+using Clipensk.Windows.Input;
 using Clipensk.Windows.Security;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -26,6 +27,7 @@ public sealed partial class JournalWindow : Window
     private ProtectedStorageCredentialState _credentialState;
     private ProtectedStorageSessionLease? _protectedStorageSession;
     private bool _allowClose;
+    private nint? _journalFocusRestoreTarget;
 
     public JournalWindow(
         ExternalOverlayLocalizationService localization,
@@ -65,6 +67,16 @@ public sealed partial class JournalWindow : Window
 
     public void ShowJournal()
     {
+        // Captured only on a fresh reveal (hotkey or tray click while hidden), never on a repeat
+        // invocation while already visible — otherwise a second hotkey press while the journal is
+        // already the foreground window would overwrite the remembered target with Clipensk's own
+        // handle, per the product decision to restore focus to whatever had it before the journal
+        // opened.
+        if (!AppWindow.IsVisible)
+        {
+            _journalFocusRestoreTarget = WindowsForegroundFocusTracker.CaptureForeground();
+        }
+
         if (!_lifecycle.IsDataRootConfigured)
         {
             ShowFirstRunPanel();
@@ -717,6 +729,9 @@ public sealed partial class JournalWindow : Window
 
         args.Cancel = true;
         sender.Hide();
+
+        WindowsForegroundFocusTracker.TryRestoreForeground(_journalFocusRestoreTarget);
+        _journalFocusRestoreTarget = null;
     }
 
     private void OnJournalWindowClosed(object sender, WindowEventArgs args)
