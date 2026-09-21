@@ -35,9 +35,9 @@ WinUI 3 является UI-слоем. Clipboard monitoring, HWND, глобал
 - C# / .NET 10;
 - WinUI 3;
 - Windows App SDK 2.4.0 Stable;
-- технический Target Framework Windows: `net10.0-windows10.0.26100.0`;
-- `SupportedOSPlatformVersion`: `10.0.19041.0`;
-- текущий development-host — unpackaged; финальная схема распространения остаётся отдельным решением.
+- технический Target Framework Windows: `net10.0-windows10.0.26100.0` (последний доступный Windows SDK для сборки; не путать с минимальной поддерживаемой версией ОС);
+- `SupportedOSPlatformVersion`: `10.0.22000.0` — минимальная официально поддерживаемая версия ОС; продуктовая поддержка — **только Windows 11** (Windows 10 вне поддержки, решение пользователя от 2026-09-20, `OPEN_QUESTIONS.md` §2);
+- текущий development-host собирает unpackaged x64; финальная схема распространения — MSIX и unpackaged/portable (решение пользователя от 2026-09-20, `OPEN_QUESTIONS.md` §3), MSIX-упаковка ещё не реализована.
 
 ```text
 Clipensk.slnx

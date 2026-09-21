@@ -7,7 +7,7 @@ namespace Clipensk.Infrastructure.Tests;
 public sealed class JsonApplicationSettingsStoreTests
 {
     [Fact]
-    public async Task LoadAsync_LegacySettingsWithoutArchiveRotation_PreservesDisabledDefault()
+    public async Task LoadAsync_LegacySettingsWithoutArchiveRotation_DefaultsTo30DayRotation()
     {
         string directory = CreateTemporaryDirectory();
         string path = Path.Combine(directory, "settings.json");
@@ -29,6 +29,40 @@ public sealed class JsonApplicationSettingsStoreTests
 
             Assert.Equal(1, loaded.SchemaVersion);
             Assert.Equal("C:\\Data", loaded.DataRootPath);
+            Assert.NotNull(loaded.ArchiveRotation);
+            Assert.Equal(30, loaded.ArchiveRotation!.MaxCalendarDays);
+            Assert.Null(loaded.ArchiveRotation.MaxRecordCount);
+            Assert.Null(loaded.ArchiveRotation.MaxBytes);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_SettingsWithExplicitNullArchiveRotation_PreservesDisabledState()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            // Represents the user explicitly clearing every rotation threshold in Settings: this
+            // must not silently revert to the 30-day default merely because the field is
+            // present-but-null rather than genuinely absent.
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "PasswordHint": "",
+                  "ArchiveRotation": null
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
             Assert.Null(loaded.ArchiveRotation);
         }
         finally
@@ -193,7 +227,7 @@ public sealed class JsonApplicationSettingsStoreTests
     }
 
     [Fact]
-    public async Task LoadAsync_LegacySettingsWithoutDefaultJournalPeriod_LeavesItUnset()
+    public async Task LoadAsync_LegacySettingsWithoutDefaultJournalPeriod_DefaultsTo30Days()
     {
         string directory = CreateTemporaryDirectory();
         string path = Path.Combine(directory, "settings.json");
@@ -205,6 +239,37 @@ public sealed class JsonApplicationSettingsStoreTests
                 {
                   "SchemaVersion": 1,
                   "PasswordHint": ""
+                }
+                """);
+            var store = new JsonApplicationSettingsStore(path);
+
+            ApplicationSettings loaded = await store.LoadAsync();
+
+            Assert.Equal(30, loaded.DefaultJournalPeriodDays);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_SettingsWithExplicitNullDefaultJournalPeriod_PreservesClearedState()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            // Represents the "Cleared" action in Settings.JournalPeriod: the user explicitly
+            // reverted to single-day behavior, so this must not silently revert to the 30-day
+            // default merely because the field is present-but-null rather than genuinely absent.
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  "SchemaVersion": 1,
+                  "PasswordHint": "",
+                  "DefaultJournalPeriodDays": null
                 }
                 """);
             var store = new JsonApplicationSettingsStore(path);

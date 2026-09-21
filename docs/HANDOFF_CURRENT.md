@@ -243,11 +243,13 @@ Storage 595, Core 260, Infrastructure 69 — все зелёные локаль�
 явно указано, реализовано оно или нет). Их больше не нужно запрашивать у пользователя — нужно
 реализовать. Не реализовано:
 
-1. **Период журнала по умолчанию = 30 дней** (`OPEN_QUESTIONS.md` §7). Механизм (`DefaultJournalPeriod`)
-   готов, значение по умолчанию не проставлено.
-2. **Дефолты ротации** (`OPEN_QUESTIONS.md` §8): record count и размер БД выключены, календарный
-   диапазон включён = 30 дней; плюс **валидация**: при выборе варианта ротации требовать заполнения
-   выбранного условия. Сейчас пороги пустые, валидации нет.
+1. ~~Период журнала по умолчанию = 30 дней~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §7,
+   `ApplicationSettings.DefaultJournalPeriodDays = 30`), но ещё **не в `main`**: лежит на ветке
+   `feat/journal-rotation-defaults`, ожидает build/test/CI/promotion (см. §J).
+2. ~~Дефолты ротации~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §8): `ArchiveRotation` по
+   умолчанию `{ MaxCalendarDays = 30 }`, record count/размер БД по-прежнему выключены;
+   `ArchiveRotationSettingsDraft.ToSettings()` теперь бросает при выбранном режиме без порога. Та же
+   ветка `feat/journal-rotation-defaults`, тот же статус — ждёт CI/promotion.
 3. **Дефолты форматов при новой установке** (`OPEN_QUESTIONS.md` §6): Plain/Unicode Text, HTML, RTF,
    изображения, custom binary, `CF_HDROP`. **Заблокировано**: конкретные числовые лимиты для каждого
    формата пользователем ещё не названы.
@@ -255,7 +257,10 @@ Storage 595, Core 260, Infrastructure 69 — все зелёные локаль�
    открытии журнала, возвращать фокус при закрытии, тихо игнорировать неудачу. Сейчас
    `WindowsInvocationApplicationResolver` получает HWND и сразу отбрасывает его.
 5. **Режим «вставить как plain text»** (`OPEN_QUESTIONS.md` §10).
-6. **Только Windows 11** (`OPEN_QUESTIONS.md` §2): `SupportedOSPlatformVersion` всё ещё 10.0.19041.0.
+6. ~~Только Windows 11~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §2):
+   `SupportedOSPlatformVersion` поднят до `10.0.22000.0` в `Clipensk.App`/`Clipensk.Windows`. Та же
+   ветка `feat/journal-rotation-defaults`, тот же статус — ждёт CI/promotion. Отдельно остаётся
+   нерешённым (не блокирует эту ветку): нужна ли runtime-проверка версии ОС при запуске на Windows 10.
 7. **MSIX-упаковка** в дополнение к unpackaged (`OPEN_QUESTIONS.md` §3).
 8. **Комментарий на русском в файлах перевода + экспорт шаблона** (`OPEN_QUESTIONS.md` §9).
 9. **Перенос настроек и базы при смене пути** (`OPEN_QUESTIONS.md` §12) — отдельный заход по прямому

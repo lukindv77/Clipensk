@@ -74,6 +74,17 @@ public sealed record ArchiveRotationSettingsDraft
     {
         if (IsEmpty)
         {
+            // An explicit mode selection with nothing to apply it to is not "rotation off" — it is
+            // an unfinished choice. Returning null here would silently discard the selected Any/All
+            // mode instead of turning rotation off, per the product decision that choosing a
+            // rotation variant in Settings must require filling in what it applies to.
+            if (ThresholdMode.HasValue)
+            {
+                throw new ArgumentException(
+                    "Archive rotation mode is selected but no threshold is configured to apply it to.",
+                    nameof(ThresholdMode));
+            }
+
             return null;
         }
 

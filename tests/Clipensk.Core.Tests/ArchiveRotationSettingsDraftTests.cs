@@ -15,16 +15,18 @@ public sealed class ArchiveRotationSettingsDraftTests
     }
 
     [Fact]
-    public void ToSettings_ThresholdModeAloneStillTurnsRotationOff()
+    public void ToSettings_ThresholdModeWithoutAnyThresholdRequiresOneToBeFilledIn()
     {
-        // Picking Any/All without any threshold configures nothing.
+        // Picking Any/All without any threshold is an unfinished choice, not "rotation off": the
+        // product decision requires the user to fill in what the selected mode applies to, per
+        // docs/OPEN_QUESTIONS.md §8, rather than silently discarding the selection.
         var draft = new ArchiveRotationSettingsDraft
         {
             ThresholdMode = ArchiveRotationThresholdMode.All,
         };
 
         Assert.True(draft.IsEmpty);
-        Assert.Null(draft.ToSettings());
+        Assert.Throws<ArgumentException>(() => draft.ToSettings());
     }
 
     [Fact]

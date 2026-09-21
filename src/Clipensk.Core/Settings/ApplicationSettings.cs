@@ -27,15 +27,24 @@ public sealed record ApplicationSettings
 
     public string PasswordHint { get; init; } = string.Empty;
 
-    public ArchiveRotationSettings? ArchiveRotation { get; init; }
+    /// <summary>
+    /// Defaults to a 30-calendar-day threshold per the product decision in
+    /// <c>docs/OPEN_QUESTIONS.md</c> §8 — record-count and physical-size thresholds stay off by
+    /// default. <c>null</c> means the user explicitly turned rotation off in Settings; an explicit
+    /// JSON <c>null</c> in the settings file overrides this initializer on load, exactly like
+    /// <see cref="DefaultJournalPeriodDays"/>, so a deliberate opt-out survives across restarts.
+    /// </summary>
+    public ArchiveRotationSettings? ArchiveRotation { get; init; } = new() { MaxCalendarDays = 30 };
 
     /// <summary>
     /// How many calendar days the journal shows by default when it opens, per
-    /// <c>docs/REQUIREMENTS.md</c> §8. <c>null</c> means no default is configured
-    /// (<c>docs/OPEN_QUESTIONS.md</c> §7 has not chosen a product default yet), and the journal
-    /// falls back to its existing single-day behavior.
+    /// <c>docs/REQUIREMENTS.md</c> §8. Defaults to 30 per the product decision in
+    /// <c>docs/OPEN_QUESTIONS.md</c> §7. <c>null</c> means the user explicitly cleared it in
+    /// Settings, in which case the journal falls back to its single-day behavior instead of
+    /// silently reverting to the 30-day default — an explicit JSON <c>null</c> in the settings file
+    /// overrides this initializer on load, so a deliberate clear survives across restarts.
     /// </summary>
-    public int? DefaultJournalPeriodDays { get; init; }
+    public int? DefaultJournalPeriodDays { get; init; } = 30;
 
     /// <summary>
     /// Bare file name (no directory separators) of the external translation file inside
