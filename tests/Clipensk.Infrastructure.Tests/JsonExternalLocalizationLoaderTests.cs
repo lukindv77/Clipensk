@@ -73,6 +73,37 @@ public sealed class JsonExternalLocalizationLoaderTests
     }
 
     [Fact]
+    public async Task LoadAsync_FileWithLineCommentsAndTrailingComma_SkipsCommentsAndLoadsValues()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "en.json");
+        try
+        {
+            await File.WriteAllTextAsync(
+                path,
+                """
+                {
+                  // Journal
+                  "Journal.Title": "Journal",
+                  // No entries for the selected period.
+                  "Journal.Empty": "No entries for the selected period.",
+                }
+                """);
+            var loader = new JsonExternalLocalizationLoader();
+
+            IReadOnlyDictionary<string, string> loaded = await loader.LoadAsync(path);
+
+            Assert.Equal(2, loaded.Count);
+            Assert.Equal("Journal", loaded["Journal.Title"]);
+            Assert.Equal("No entries for the selected period.", loaded["Journal.Empty"]);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public async Task LoadAsync_MalformedJson_Throws()
     {
         string directory = CreateTemporaryDirectory();

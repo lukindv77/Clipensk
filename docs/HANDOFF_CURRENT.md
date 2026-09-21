@@ -262,7 +262,12 @@ Storage 595, Core 260, Infrastructure 69 — все зелёные локаль�
    ветка `feat/journal-rotation-defaults`, тот же статус — ждёт CI/promotion. Отдельно остаётся
    нерешённым (не блокирует эту ветку): нужна ли runtime-проверка версии ОС при запуске на Windows 10.
 7. **MSIX-упаковка** в дополнение к unpackaged (`OPEN_QUESTIONS.md` §3).
-8. **Комментарий на русском в файлах перевода + экспорт шаблона** (`OPEN_QUESTIONS.md` §9).
+8. ~~Комментарий на русском в файлах перевода + экспорт шаблона~~ — **реализовано в коде**
+   (`OPEN_QUESTIONS.md` §9): кнопка «Экспортировать шаблон перевода» и `LocalizationTemplateWriter`
+   создают `translation-template.json` со всеми ключами, значением-заготовкой и русским `//`
+   комментарием над каждым ключом; `JsonExternalLocalizationLoader` пропускает такие комментарии и
+   завершающую запятую. Лежит на отдельной ветке `feat/localization-template-export`, ожидает
+   build/test/CI/promotion (см. §J).
 9. **Перенос настроек и базы при смене пути** (`OPEN_QUESTIONS.md` §12) — отдельный заход по прямому
    решению пользователя; по цене ошибки это аналог Archive Rotation/Split.
 

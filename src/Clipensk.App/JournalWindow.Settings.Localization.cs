@@ -126,6 +126,43 @@ public sealed partial class JournalWindow
         }
     }
 
+    /// <summary>
+    /// Writes <c>translation-template.json</c> into <c>&lt;DataRoot&gt;\Languages\</c>, per the
+    /// product decision in <c>docs/OPEN_QUESTIONS.md</c> §9: every built-in key, with the built-in
+    /// Russian text as both the starting value and an app-generated <c>//</c> comment for context.
+    /// Re-clicking regenerates the file from the current built-in strings, so it never goes stale
+    /// after this build adds or changes a key.
+    /// </summary>
+    private async void OnExportLocalizationTemplateClicked(object sender, RoutedEventArgs e)
+    {
+        ExportLocalizationTemplateButton.IsEnabled = false;
+        LocalizationInfo.IsOpen = false;
+
+        try
+        {
+            string languagesDirectory = GetLanguagesDirectory();
+            Directory.CreateDirectory(languagesDirectory);
+            string filePath = Path.Combine(languagesDirectory, "translation-template.json");
+            await LocalizationTemplateWriter.WriteAsync(filePath, BuiltInRussianLocalizationService.AllStrings);
+
+            LoadLocalizationEditor();
+
+            LocalizationInfo.Severity = InfoBarSeverity.Success;
+            LocalizationInfo.Message = _localization.GetString("Settings.Localization.TemplateExported");
+            LocalizationInfo.IsOpen = true;
+        }
+        catch (Exception)
+        {
+            LocalizationInfo.Severity = InfoBarSeverity.Error;
+            LocalizationInfo.Message = _localization.GetString("Settings.Localization.TemplateExportFailed");
+            LocalizationInfo.IsOpen = true;
+        }
+        finally
+        {
+            ExportLocalizationTemplateButton.IsEnabled = true;
+        }
+    }
+
     private void OnOpenLanguagesFolderClicked(object sender, RoutedEventArgs e)
     {
         try

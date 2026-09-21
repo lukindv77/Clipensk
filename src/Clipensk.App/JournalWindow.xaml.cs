@@ -173,6 +173,7 @@ public sealed partial class JournalWindow : Window
         LoadLocalizationFileButton.Content = _localization.GetString("Settings.Localization.LoadFile");
         OpenLanguagesFolderButton.Content = _localization.GetString("Settings.Localization.OpenFolder");
         RereadLocalizationButton.Content = _localization.GetString("Settings.Localization.Reread");
+        ExportLocalizationTemplateButton.Content = _localization.GetString("Settings.Localization.ExportTemplate");
         SaveLocalizationButton.Content = _localization.GetString("Settings.Localization.Save");
 
         AutostartTitle.Text = _localization.GetString("Settings.Autostart.Title");

@@ -425,6 +425,7 @@
                         <Button x:Name="LoadLocalizationFileButton" Click="OnLoadLocalizationFileClicked" />
                         <Button x:Name="OpenLanguagesFolderButton" Click="OnOpenLanguagesFolderClicked" />
                         <Button x:Name="RereadLocalizationButton" Click="OnRereadLocalizationClicked" />
+                        <Button x:Name="ExportLocalizationTemplateButton" Click="OnExportLocalizationTemplateClicked" />
                     </StackPanel>
                     <Button x:Name="SaveLocalizationButton"
                             HorizontalAlignment="Left"
