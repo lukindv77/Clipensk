@@ -1,12 +1,10 @@
-using System.Globalization;
-
 namespace Clipensk.Core.Clipboard;
 
 public sealed record ApplicationClipboardFormatSetup(
     string FormatName,
     ClipboardCapturePolicyRule? Capture,
     bool OverrideMaxBytes,
-    string? MaxBytesText);
+    string? MaxKilobytesText);
 
 /// <summary>
 /// Validates and composes per-application clipboard policy overrides while preserving
@@ -43,7 +41,7 @@ public static class ApplicationClipboardCapturePolicySetup
 
             ClipboardCapturePolicyRule formatRule = RequireApplicationRule(format.Capture, nameof(formats));
             long? maxBytes = format.OverrideMaxBytes
-                ? ParsePositiveByteLimit(format.MaxBytesText, nameof(formats))
+                ? ClipboardFormatSizeLimit.ParseKilobytesAsBytes(format.MaxKilobytesText, nameof(formats))
                 : null;
 
             if (formatRule == ClipboardCapturePolicyRule.Inherit && !maxBytes.HasValue)
@@ -65,19 +63,4 @@ public static class ApplicationClipboardCapturePolicySetup
         rule is ClipboardCapturePolicyRule.Inherit or ClipboardCapturePolicyRule.Allow or ClipboardCapturePolicyRule.Deny
             ? rule.Value
             : throw new ArgumentException("Choose Inherit, Allow, or Deny.", parameterName);
-
-    private static long ParsePositiveByteLimit(string? text, string parameterName)
-    {
-        if (!long.TryParse(
-                text?.Trim(),
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out long size) ||
-            size <= 0)
-        {
-            throw new ArgumentException("Size must be a positive integer number of bytes.", parameterName);
-        }
-
-        return size;
-    }
 }

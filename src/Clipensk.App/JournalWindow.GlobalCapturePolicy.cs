@@ -77,6 +77,17 @@ public sealed partial class JournalWindow
             var editor = new PolicyFormatEditor(name, rule, limit, bytes);
             rule.SelectionChanged += (_, _) => UpdateLimitAvailability(editor);
             limit.SelectionChanged += (_, _) => UpdateLimitAvailability(editor);
+
+            long? defaultMaxBytes = GetDefaultCaptureMaxBytes(name);
+            if (defaultMaxBytes.HasValue)
+            {
+                rule.SelectedIndex = 0;
+                limit.SelectedIndex = 0;
+                bytes.Text = ClipboardFormatSizeLimit
+                    .BytesToKilobytesRoundedUp(defaultMaxBytes.Value)
+                    .ToString(CultureInfo.InvariantCulture);
+            }
+
             _policyFormatEditors.Add(editor);
             GlobalPolicyFormatRows.Children.Add(row);
         }
@@ -100,6 +111,36 @@ public sealed partial class JournalWindow
         };
         addCustomFormatButton.Click += (_, _) => AddCustomPolicyFormatEditor();
         GlobalPolicyFormatRows.Children.Add(addCustomFormatButton);
+    }
+
+    /// <summary>
+    /// Maps a standard format to its 2026-09-20 default capture size limit, in bytes, for pre-filling
+    /// the first-run setup editor per <see cref="DefaultClipboardFormatCaptureLimits"/>. WebLink and
+    /// ApplicationLink have no default and keep requiring an explicit choice.
+    /// </summary>
+    private static long? GetDefaultCaptureMaxBytes(string formatName)
+    {
+        if (formatName == StandardDataFormats.Text)
+        {
+            return DefaultClipboardFormatCaptureLimits.PlainTextMaxBytes;
+        }
+        if (formatName == StandardDataFormats.Html)
+        {
+            return DefaultClipboardFormatCaptureLimits.HtmlMaxBytes;
+        }
+        if (formatName == StandardDataFormats.Rtf)
+        {
+            return DefaultClipboardFormatCaptureLimits.RtfMaxBytes;
+        }
+        if (formatName == StandardDataFormats.Bitmap)
+        {
+            return DefaultClipboardFormatCaptureLimits.ImageMaxBytes;
+        }
+        if (formatName == StandardDataFormats.StorageItems)
+        {
+            return DefaultClipboardFormatCaptureLimits.StorageItemsMaxBytes;
+        }
+        return null;
     }
 
     private ComboBox CreatePolicyRuleEditor(string label)
@@ -386,7 +427,7 @@ public sealed partial class JournalWindow
             bool standard = labels.TryGetValue(name, out string? friendly);
             string label = standard ? friendly! : name;
             string limit = format.MaxBytes.HasValue
-                ? format.MaxBytes.Value.ToString(CultureInfo.InvariantCulture) + " " + PolicyText("ByteUnit")
+                ? ClipboardFormatSizeLimit.BytesToKilobytesRoundedUp(format.MaxBytes.Value).ToString(CultureInfo.InvariantCulture) + " " + PolicyText("ByteUnit")
                 : PolicyText("Unlimited");
             string line = label + ": " + PolicyText(format.Capture == ClipboardCapturePolicyRule.Allow ? "Allow" : "Deny") + "; " + limit;
             if (!standard && format.Capture == ClipboardCapturePolicyRule.Allow)

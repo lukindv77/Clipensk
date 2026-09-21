@@ -1,12 +1,10 @@
-using System.Globalization;
-
 namespace Clipensk.Core.Clipboard;
 
 public sealed record GlobalClipboardFormatSetup(
     string FormatName,
     ClipboardCapturePolicyRule? Capture,
     bool? LimitEnabled,
-    string? MaxBytesText);
+    string? MaxKilobytesText);
 
 /// <summary>Validates explicit user choices without selecting rules or size defaults.</summary>
 public static class GlobalClipboardCapturePolicySetup
@@ -32,12 +30,7 @@ public static class GlobalClipboardCapturePolicySetup
                 }
                 if (format.LimitEnabled.Value)
                 {
-                    if (!long.TryParse(format.MaxBytesText?.Trim(), NumberStyles.None,
-                        CultureInfo.InvariantCulture, out long size) || size <= 0)
-                    {
-                        throw new ArgumentException("Size must be a positive integer number of bytes.", nameof(formats));
-                    }
-                    maxBytes = size;
+                    maxBytes = ClipboardFormatSizeLimit.ParseKilobytesAsBytes(format.MaxKilobytesText, nameof(formats));
                 }
             }
             if (!rules.TryAdd(format.FormatName, new ClipboardFormatCapturePolicy(rule, maxBytes)))

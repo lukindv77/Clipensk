@@ -43,25 +43,26 @@ public sealed class GlobalClipboardCapturePolicySetupTests
     [InlineData("1,024")]
     [InlineData("1e3")]
     [InlineData("9223372036854775808")]
-    public void InvalidByteLimitIsNotRoundedClampedOrReplaced(string text)
+    [InlineData("9223372036854775807")]
+    public void InvalidKilobyteLimitIsNotRoundedClampedOrReplaced(string text)
     {
         Assert.Throws<ArgumentException>(() => GlobalClipboardCapturePolicySetup.Create(
             ClipboardCapturePolicyRule.Allow, [new("Text", ClipboardCapturePolicyRule.Allow, true, text)]));
     }
 
     [Fact]
-    public void ExplicitChoicesPreserveExactNamesAndLongByteLimits()
+    public void ExplicitChoicesPreserveExactNamesAndKilobyteLimitsConvertedToBytes()
     {
         ClipboardCapturePolicy policy = GlobalClipboardCapturePolicySetup.Create(
             ClipboardCapturePolicyRule.Allow,
             [
-                new("Text", ClipboardCapturePolicyRule.Allow, true, " 9223372036854775807 "),
+                new("Text", ClipboardCapturePolicyRule.Allow, true, " 5 "),
                 new("text", ClipboardCapturePolicyRule.Allow, false, "obsolete value"),
                 new("HTML Format", ClipboardCapturePolicyRule.Deny, true, "obsolete value"),
             ]);
         Assert.Equal(ClipboardCapturePolicyRule.Allow, policy.Capture);
         Assert.Equal(3, policy.Formats.Count);
-        Assert.Equal(long.MaxValue, policy.Formats["Text"].MaxBytes);
+        Assert.Equal(5L * 1024, policy.Formats["Text"].MaxBytes);
         Assert.Null(policy.Formats["text"].MaxBytes);
         Assert.Equal(new ClipboardFormatCapturePolicy(ClipboardCapturePolicyRule.Deny), policy.Formats["HTML Format"]);
     }

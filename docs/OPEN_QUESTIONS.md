@@ -100,18 +100,38 @@ external objects `Files -> Trash` после authoritative Current+Archive live-
 **Решение пользователя (2026-09-20): при новой установке по умолчанию включены Plain/Unicode Text,
 HTML, RTF, изображения, custom binary и `CF_HDROP`.**
 
-Не зафиксированы и по-прежнему открыты **конкретные числовые лимиты** для каждого из них:
+**Решение пользователя (2026-09-20, реализовано): числовые лимиты по умолчанию** для стандартных
+форматов, зафиксированные в `DefaultClipboardFormatCaptureLimits`
+(`src/Clipensk.Core/Clipboard/DefaultClipboardFormatCaptureLimits.cs`) как байтовые константы:
 
-- лимит Plain/Unicode Text;
-- лимит HTML;
-- лимит RTF;
-- лимиты изображений;
-- лимиты explicitly enabled custom binary formats;
-- ограничения `CF_HDROP` по количеству элементов/размеру canonical metadata representation.
+- Plain/Unicode Text — 2 МБ;
+- HTML — 8 МБ;
+- RTF — 5 МБ (ниже HTML, так как встроенные изображения в RTF hex-encoded и уже отдельно
+  сохраняются как PNG);
+- изображения — 15 МБ (по нормализованным PNG bytes);
+- `CF_HDROP`/StorageItems — 2 МБ (по canonical metadata JSON, не по содержимому файлов).
 
-Не реализовано: сейчас первичная настройка требует явного выбора пользователем и не предлагает
-никакого набора по умолчанию. Применение решения выше — отдельная невыполненная задача, которая
-блокируется отсутствием числовых лимитов.
+Custom binary формат явного числового default не имеет: решение включает механизм, а не конкретный
+формат — whitelist остаётся пустым, пока пользователь не укажет точное имя формата и расширение
+файла, и тогда же задаёт его лимит на том же экране. WebLink и ApplicationLink не входят в решение
+от 2026-09-20 и по-прежнему требуют явного выбора без предзаполнения.
+
+Реализовано: первичная настройка (`JournalWindow.GlobalCapturePolicy.BuildGlobalPolicyEditors`)
+предзаполняет Allow + перечисленный default только для этих пяти стандартных форматов; это лишь
+подсказка редактора — пользователь может изменить или отключить любой из них до сохранения, и
+после сохранения ничего не принудительно возвращает эти точные числа.
+
+**Решение пользователя (2026-09-21, реализовано): единица ввода — целое число килобайт.**
+Ранее лимит вводился как raw-байты; теперь Settings UI (первичная настройка, изменение global
+policy, per-application override) принимает и показывает только целое положительное число
+килобайт. Конвертация КБ↔байты вынесена в `ClipboardFormatSizeLimit`
+(`src/Clipensk.Core/Clipboard/ClipboardFormatSizeLimit.cs`): `ParseKilobytesAsBytes` строго требует
+целое положительное число килобайт (без дробей, разделителей разрядов или экспоненты) и умножает
+на 1024; `BytesToKilobytesRoundedUp` округляет сохранённые байты в КБ **вверх**, чтобы повторное
+сохранение неизменного значения никогда не ужесточало ранее заданный лимит. `MaxBytes` в БД и в
+enforcement pipeline остаётся точным значением в байтах — конвертация целиком на стороне editing
+surface, аналогично уже существующему паттерну `ArchiveRotationSettingsDraft` (МБ-editing-surface ↔
+байтовое хранилище).
 
 Семантика измерения `MaxBytes` зафиксирована в `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`: текстовые representations и ссылки измеряются в UTF-8, изображения — по нормализованным PNG bytes, custom binary — по точным сохраняемым bytes, `CF_HDROP`/StorageItems — по exact UTF-8 bytes versioned canonical JSON metadata representation.
 

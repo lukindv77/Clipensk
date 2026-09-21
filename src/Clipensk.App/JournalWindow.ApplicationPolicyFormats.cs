@@ -394,7 +394,7 @@ public sealed partial class JournalWindow
             PlaceholderText = PolicyText("BytesPlaceholder"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Text = maxBytes.HasValue
-                ? maxBytes.Value.ToString(CultureInfo.InvariantCulture)
+                ? ClipboardFormatSizeLimit.BytesToKilobytesRoundedUp(maxBytes.Value).ToString(CultureInfo.InvariantCulture)
                 : string.Empty,
             IsEnabled = maxBytes.HasValue,
         };

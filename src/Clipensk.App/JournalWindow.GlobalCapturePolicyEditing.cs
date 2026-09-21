@@ -239,7 +239,9 @@ public sealed partial class JournalWindow
         if (format.Capture == ClipboardCapturePolicyRule.Allow)
         {
             editor.Limit.SelectedIndex = format.MaxBytes.HasValue ? 0 : 1;
-            editor.Bytes.Text = format.MaxBytes?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+            editor.Bytes.Text = format.MaxBytes.HasValue
+                ? ClipboardFormatSizeLimit.BytesToKilobytesRoundedUp(format.MaxBytes.Value).ToString(CultureInfo.InvariantCulture)
+                : string.Empty;
         }
         else
         {

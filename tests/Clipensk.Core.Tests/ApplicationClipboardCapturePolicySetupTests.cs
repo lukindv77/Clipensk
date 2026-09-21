@@ -11,7 +11,7 @@ public sealed class ApplicationClipboardCapturePolicySetupTests
         ClipboardCapturePolicy policy = ApplicationClipboardCapturePolicySetup.Create(
             ClipboardCapturePolicyRule.Inherit,
             [
-                new("UnicodeText", ClipboardCapturePolicyRule.Inherit, true, "4096"),
+                new("UnicodeText", ClipboardCapturePolicyRule.Inherit, true, "4"),
                 new("HTML Format", ClipboardCapturePolicyRule.Allow, false, null),
                 new("Rich Text Format", ClipboardCapturePolicyRule.Deny, false, null),
             ]);
@@ -54,10 +54,10 @@ public sealed class ApplicationClipboardCapturePolicySetupTests
 
         ClipboardCapturePolicy policy = ApplicationClipboardCapturePolicySetup.Create(
             ClipboardCapturePolicyRule.Deny,
-            [new("Text", ClipboardCapturePolicyRule.Allow, true, " 9223372036854775807 ")],
+            [new("Text", ClipboardCapturePolicyRule.Allow, true, " 5 ")],
             preserved);
 
-        Assert.Equal(long.MaxValue, policy.Formats["Text"].MaxBytes);
+        Assert.Equal(5L * 1024, policy.Formats["Text"].MaxBytes);
         Assert.Equal(ClipboardCapturePolicyRule.Allow, policy.Formats["Text"].Capture);
         Assert.Equal(new ClipboardFormatCapturePolicy(ClipboardCapturePolicyRule.Allow, 200), policy.Formats["text"]);
     }
@@ -88,7 +88,8 @@ public sealed class ApplicationClipboardCapturePolicySetupTests
     [InlineData("1,024")]
     [InlineData("1e3")]
     [InlineData("9223372036854775808")]
-    public void InvalidByteOverrideIsRejected(string text)
+    [InlineData("9223372036854775807")]
+    public void InvalidKilobyteOverrideIsRejected(string text)
     {
         Assert.Throws<ArgumentException>(() => ApplicationClipboardCapturePolicySetup.Create(
             ClipboardCapturePolicyRule.Inherit,
