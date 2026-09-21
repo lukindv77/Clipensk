@@ -284,9 +284,7 @@ Storage 595, Core 260, Infrastructure 75 — все зелёные локаль�
    `OnEscapeKeyboardAcceleratorInvoked`) и авто-скрытие по клику мимо (`Window.Activated` →
    `OnWindowActivated` на `WindowActivationState.Deactivated`). Поле `_systemPickerOpen` защищает
    auto-hide от ложного срабатывания, пока открыт `FileOpenPicker`/`FolderPicker` (загрузка файла
-   перевода, выбор каталога данных). Лежит на ветке `feat/journal-escape-autohide`, ожидает
-   build/test/CI/promotion (см. §J); тестов нет — весь этот код WinUI/P/Invoke, как
-   `WindowsIdleTimeReader`/`WindowsForegroundFocusTracker`.
+   перевода, выбор каталога данных). Принято в `main` (`79afc77…`).
 5. ~~Режим «вставить как plain text»~~ — **реализовано в коде** (`OPEN_QUESTIONS.md` §10):
    `ClipboardRestorePlanFactory.CreatePlainTextOnly` строит план из одного текстового представления
    записи (тот же выбор кандидата, что и превью в журнале — первый payload с непустым `SearchText`,

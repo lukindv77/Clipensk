@@ -21,13 +21,44 @@ public partial class App
     /// Returns <c>null</c> when there is no current protected session to restore from. A genuine
     /// failure propagates so the caller can distinguish it from "not available".
     /// </summary>
-    internal async Task<ClipboardRestorePlan?> TryRestoreToClipboardAsync(
+    internal Task<ClipboardRestorePlan?> TryRestoreToClipboardAsync(
         ProtectedStorageSessionLease session,
         ClipboardHistoryEntry entry,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        TryRestoreToClipboardCoreAsync(
+            session,
+            entry,
+            prepared => ClipboardRestorePlanFactory.Create(
+                prepared,
+                WindowsClipboardRestoreWriter.PlainTextFormatName),
+            cancellationToken);
+
+    /// <summary>
+    /// The "paste as plain text" mode from the product decision in <c>docs/OPEN_QUESTIONS.md</c>
+    /// §10: republishes only the entry's plain-text representation, discarding every other captured
+    /// format, regardless of what was actually saved.
+    /// </summary>
+    internal Task<ClipboardRestorePlan?> TryRestorePlainTextToClipboardAsync(
+        ProtectedStorageSessionLease session,
+        ClipboardHistoryEntry entry,
+        CancellationToken cancellationToken = default) =>
+        TryRestoreToClipboardCoreAsync(
+            session,
+            entry,
+            prepared => ClipboardRestorePlanFactory.CreatePlainTextOnly(
+                prepared,
+                WindowsClipboardRestoreWriter.PlainTextFormatName),
+            cancellationToken);
+
+    private async Task<ClipboardRestorePlan?> TryRestoreToClipboardCoreAsync(
+        ProtectedStorageSessionLease session,
+        ClipboardHistoryEntry entry,
+        Func<RestorableClipboardEntry, ClipboardRestorePlan> buildPlan,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(buildPlan);
 
         JournalWindow? window = _window;
         ResidentWindowsHost? host = _residentWindowsHost;
@@ -52,9 +83,7 @@ public partial class App
                     await new ProtectedClipboardHistoryRestoreService(session)
                         .PrepareAsync(entry, token)
                         .ConfigureAwait(false);
-                return ClipboardRestorePlanFactory.Create(
-                    prepared,
-                    WindowsClipboardRestoreWriter.PlainTextFormatName);
+                return buildPlan(prepared);
             },
             token);
 

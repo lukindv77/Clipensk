@@ -16,7 +16,8 @@ public sealed record RestorableClipboardPayload(
     string? InlineCanonicalText,
     string? ExternalFilePath,
     ClipboardHistoryExternalReference? ExternalReference,
-    long CanonicalByteCount);
+    long CanonicalByteCount,
+    string? SearchText);
 
 public sealed record RestorableClipboardEntry(
     Guid EventId,
@@ -116,7 +117,8 @@ public sealed class ProtectedClipboardHistoryRestoreService
                     inlineText,
                     ExternalFilePath: null,
                     ExternalReference: null,
-                    payload.CanonicalByteCount);
+                    payload.CanonicalByteCount,
+                    payload.SearchText);
 
             case ClipboardHistoryPayloadKind.PngImage:
             case ClipboardHistoryPayloadKind.CustomBinary:
@@ -141,7 +143,8 @@ public sealed class ProtectedClipboardHistoryRestoreService
                     InlineCanonicalText: null,
                     path,
                     reference,
-                    payload.CanonicalByteCount);
+                    payload.CanonicalByteCount,
+                    payload.SearchText);
 
             default:
                 throw new InvalidDataException(

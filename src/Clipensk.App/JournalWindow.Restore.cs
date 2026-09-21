@@ -1,4 +1,5 @@
 using Clipensk.Core.Clipboard;
+using Clipensk.Core.History;
 using Clipensk.Core.Storage;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,14 +13,35 @@ public sealed partial class JournalWindow
 
     private void UpdateJournalCopyAvailability(bool busy = false)
     {
-        JournalCopyButton.IsEnabled =
+        bool baseAvailable =
             !busy &&
             _lifecycle.CanAccessProtectedData &&
-            _protectedStorageSession?.IsActive == true &&
-            JournalEntriesList.SelectedItem is JournalListItem;
+            _protectedStorageSession?.IsActive == true;
+        JournalListItem? selected = JournalEntriesList.SelectedItem as JournalListItem;
+
+        JournalCopyButton.IsEnabled = baseAvailable && selected is not null;
+
+        // "Paste as plain text" needs an entry that actually has a plain-text representation to
+        // publish — the same rule the preview column already uses, so the button and the preview
+        // never disagree about whether one exists.
+        JournalCopyPlainTextButton.IsEnabled = baseAvailable &&
+            selected is not null &&
+            GetPlainTextRepresentation(selected.Entry) is not null;
     }
 
-    private async void OnJournalCopyClicked(object sender, RoutedEventArgs e)
+    private async void OnJournalCopyClicked(object sender, RoutedEventArgs e) =>
+        await RestoreSelectedEntryToClipboardAsync(
+            (app, session, entry, token) => app.TryRestoreToClipboardAsync(session, entry, token),
+            BuildJournalCopyMessage);
+
+    private async void OnJournalCopyPlainTextClicked(object sender, RoutedEventArgs e) =>
+        await RestoreSelectedEntryToClipboardAsync(
+            (app, session, entry, token) => app.TryRestorePlainTextToClipboardAsync(session, entry, token),
+            BuildJournalPlainTextCopyMessage);
+
+    private async Task RestoreSelectedEntryToClipboardAsync(
+        Func<App, ProtectedStorageSessionLease, ClipboardHistoryEntry, CancellationToken, Task<ClipboardRestorePlan?>> restoreAsync,
+        Func<ClipboardRestorePlan, string> buildSuccessMessage)
     {
         if (JournalEntriesList.SelectedItem is not JournalListItem selected)
         {
@@ -41,10 +63,7 @@ public sealed partial class JournalWindow
         UpdateJournalCopyAvailability(busy: true);
         try
         {
-            ClipboardRestorePlan? plan = await app.TryRestoreToClipboardAsync(
-                session,
-                selected.Entry,
-                session.CancellationToken);
+            ClipboardRestorePlan? plan = await restoreAsync(app, session, selected.Entry, session.CancellationToken);
 
             if (plan is null)
             {
@@ -52,7 +71,7 @@ public sealed partial class JournalWindow
                 return;
             }
 
-            ShowJournalCopyMessage(InfoBarSeverity.Success, BuildJournalCopyMessage(plan));
+            ShowJournalCopyMessage(InfoBarSeverity.Success, buildSuccessMessage(plan));
         }
         catch (OperationCanceledException)
         {
@@ -86,6 +105,25 @@ public sealed partial class JournalWindow
         {
             message += " " + JournalText("Copy.ConvertedToText");
         }
+
+        if (plan.SkippedFormatNames.Count > 0)
+        {
+            message += " " + string.Format(
+                _localization.GetString("Journal.Copy.Skipped"),
+                string.Join(", ", plan.SkippedFormatNames));
+        }
+
+        return message;
+    }
+
+    /// <summary>
+    /// Says explicitly that only plain text reached the clipboard, so the user never mistakes this
+    /// for a full restore that happened to lose formats — every other format is deliberately
+    /// discarded by this mode, not skipped due to a storage decision.
+    /// </summary>
+    private string BuildJournalPlainTextCopyMessage(ClipboardRestorePlan plan)
+    {
+        string message = JournalText("Copy.PlainTextCompleted");
 
         if (plan.SkippedFormatNames.Count > 0)
         {

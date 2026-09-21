@@ -139,6 +139,9 @@
                         <Button x:Name="JournalCopyButton"
                                 IsEnabled="False"
                                 Click="OnJournalCopyClicked" />
+                        <Button x:Name="JournalCopyPlainTextButton"
+                                IsEnabled="False"
+                                Click="OnJournalCopyPlainTextClicked" />
                         <Button x:Name="JournalLoadMoreButton"
                                 Visibility="Collapsed"
                                 Click="OnJournalLoadMoreClicked" />

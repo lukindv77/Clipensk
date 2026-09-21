@@ -32,6 +32,7 @@ public sealed partial class JournalWindow
         JournalLoadButton.Content = JournalText("Load");
         JournalLoadMoreButton.Content = JournalText("LoadMore");
         JournalCopyButton.Content = JournalText("Copy.Action");
+        JournalCopyPlainTextButton.Content = JournalText("Copy.PlainTextAction");
 
         ShellNavigation.SelectionChanged -= OnJournalNavigationSelectionChanged;
         ShellNavigation.SelectionChanged += OnJournalNavigationSelectionChanged;
@@ -428,6 +429,27 @@ public sealed partial class JournalWindow
 
     private string BuildJournalPreview(ClipboardHistoryEntry entry)
     {
+        if (GetPlainTextRepresentation(entry) is not { } candidate)
+        {
+            return JournalText("NoPreview");
+        }
+
+        string normalized = NormalizeJournalPreview(candidate);
+        return normalized.Length > JournalPreviewLength
+            ? normalized[..JournalPreviewLength] + "…"
+            : normalized;
+    }
+
+    /// <summary>
+    /// The same plain-text candidate <see cref="ClipboardRestorePlanFactory.CreatePlainTextOnly"/>
+    /// would choose to publish: the first payload in stored order with a non-empty
+    /// <see cref="ClipboardHistoryPayload.SearchText"/>, falling back to the raw URL for a Link
+    /// payload. Shared with <see cref="BuildJournalPreview"/> and
+    /// <see cref="UpdateJournalCopyAvailability"/> so the preview and the "paste as plain text"
+    /// button availability never disagree about whether an entry has one.
+    /// </summary>
+    private static string? GetPlainTextRepresentation(ClipboardHistoryEntry entry)
+    {
         foreach (ClipboardHistoryPayload payload in entry.Payloads.OrderBy(item => item.PayloadOrder))
         {
             string? candidate = payload.SearchText;
@@ -439,16 +461,11 @@ public sealed partial class JournalWindow
 
             if (!string.IsNullOrWhiteSpace(candidate))
             {
-                string normalized = NormalizeJournalPreview(candidate);
-                if (normalized.Length > JournalPreviewLength)
-                {
-                    return normalized[..JournalPreviewLength] + "…";
-                }
-                return normalized;
+                return candidate;
             }
         }
 
-        return JournalText("NoPreview");
+        return null;
     }
 
     private string BuildJournalDetails(UnifiedClipboardHistoryEntry unified)
