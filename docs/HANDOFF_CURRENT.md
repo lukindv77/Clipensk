@@ -14,7 +14,7 @@ Clipensk — resident Windows clipboard-history manager.
 - C# / .NET 10 / WinUI 3 / Windows App SDK;
 - protected SQLite uses SQLCipher; один MasterKey на storage;
 - Current schema v10, Storage Catalog schema v3, Archive schema v1;
-- обязательные правила: `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/CI_LOG_ACCESS.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
+- обязательные правила: `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/CI_LOG_ACCESS.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/APPLICATION_GROUP_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
 
 ## B. User intent
 
@@ -332,9 +332,12 @@ Windows 11, комментарий/экспорт шаблона локализ�
     policy должна перестать чистить историю. Первоначально пользователь выбрал это по ошибочному
     описанию ассистента («правка policy и так действует только на будущее»); ошибка найдена при
     сверке с кодом перед реализацией, пользователь подтвердил решение повторно уже с верной вводной.
-    Полная спецификация — `APPLICATION_IDENTITY.md` §9. Реализация — **Opus, высокая сложность**,
-    по цене ошибки (ретроактивное безвозвратное удаление зашифрованной истории Current+Archive и
-    внешних файлов) аналог Archive Rotation/Split.
+    Полная спецификация — `APPLICATION_IDENTITY.md` §9; технический протокол и 13 этапов реализации
+    — `docs/APPLICATION_GROUP_PROTOCOL.md` (текущий прогресс — в его §10). Реализация — **Opus,
+    высокая сложность**, по цене ошибки (ретроактивное безвозвратное удаление зашифрованной истории
+    Current+Archive и внешних файлов) аналог Archive Rotation/Split. Вычищенные внешние файлы идут
+    через Trash с обычным сроком хранения (выбор пользователя после исправления ещё одного
+    ошибочного описания ассистента).
 
 Отдельно, не код:
 
