@@ -6,11 +6,11 @@ Schema versions принадлежат конкретной роли БД, а н
 
 Текущее production состояние:
 
-- `current.db`: schema version **10**;
+- `current.db`: schema version **11**;
 - `storage-catalog.db`: schema version **3**;
 - Archive DB: schema version **1**.
 
-`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration, pending policy maintenance, discovered application formats, pending archive split state, pending archive rotation state или assigned Archive coverage.
+`storage-catalog.db` остаётся rebuildable accelerator. Он не является source of truth для application identity, capture policies, clipboard history, custom-binary extension configuration, pending policy maintenance, discovered application formats, pending archive split state, pending archive rotation state, application groups или assigned Archive coverage.
 
 ## Current v2 — durable application identity
 
@@ -154,11 +154,33 @@ Pending rotation и pending split взаимно исключаются: start �
 
 Schema v10 и repository **не реализуют** rotation scheduler, storage-backed shadow construction, physical publication, source purge, Catalog publication или recovery coordinator; это последующие slices.
 
+## Current v11 — application groups
+
+Current v11 добавила `ApplicationGroupMember` из `APPLICATION_GROUP_PROTOCOL.md` §2:
+
+- `ApplicationId TEXT NOT NULL PRIMARY KEY` — член группы;
+- `ParentApplicationId TEXT NOT NULL` — корень группы;
+- `RetainedFromApplicationId TEXT NULL` — задан только у удерживающей identity (split без переноса
+  записей);
+- `JoinedAtUtc TEXT NOT NULL`;
+- CHECK: член не равен своему корню, удерживающая identity не удержана от самой себя;
+- три FK на `ApplicationIdentity(ApplicationId)` **без** ON DELETE action: identity не удаляются, а
+  удаление identity, участвующей в группе, должно завершаться ошибкой, а не молча менять группу;
+- индекс `IX_ApplicationGroupMember_ParentApplicationId`.
+
+Это отдельная таблица, а не колонка `ApplicationIdentity`, потому что схема `ApplicationIdentity`
+общая для Current и Archive v1: колонка потребовала бы миграции всех архивов.
+
+Таблица создаётся **пустой**. Инварианты данных (плоская группа, у члена нет своей capture policy,
+у удерживающей identity нет aliases, canonical GUID, UTC-время) проверяет
+`SqliteApplicationGroupRepository` при чтении и через `ApplicationGroupSnapshot` в Core;
+нарушение — fail-closed.
+
 ## New storage initialization
 
 Новая storage pair создаётся staging-операцией:
 
-1. `current.db` создаётся сразу как v10 со всеми Current v2-v10 contracts, включая пустые `PendingPolicyMaintenance`, `ApplicationDiscoveredFormat`, `PendingArchiveSplit`, `PendingArchiveSplitSegment`, `PendingArchiveRotation` и `PendingArchiveRotationTarget`;
+1. `current.db` создаётся сразу как v11 со всеми Current v2-v11 contracts, включая пустые `PendingPolicyMaintenance`, `ApplicationDiscoveredFormat`, `PendingArchiveSplit`, `PendingArchiveSplitSegment`, `PendingArchiveRotation`, `PendingArchiveRotationTarget` и `ApplicationGroupMember`;
 2. `storage-catalog.db` создаётся сразу как v3 с `ExternalPayloadAddressIndex` и пустой `ArchiveSegmentIndex`;
 3. обе БД полностью валидируются;
 4. только затем staging `Current` перемещается на final path.
@@ -236,6 +258,13 @@ Policy, custom-binary mappings, pending maintenance, discovered formats, pending
 
 Existing identity/application policy, history, global policy, custom-binary mappings, pending policy-maintenance state, discovered formats, pending archive split state и Catalog rows не переписываются соответствующими последующими migration steps.
 
+### Current v10 → v11
+
+1. валидировать все Current v10 contracts;
+2. создать пустую `ApplicationGroupMember` и её индекс;
+3. version `10 → 11` и `user_version = 11`;
+4. cancellation check и COMMIT.
+
 ### Catalog v1 → v2 → v3
 
 Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SCHEMA.md`:
@@ -247,7 +276,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 
 Ошибка/отмена до COMMIT оставляет полноценную предыдущую schema version, поэтому следующий unlock может повторить конкретный step.
 
-Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7→8→9→10`, Catalog — `1→2→3`; durable boundaries не схлопываются.
+Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7→8→9→10→11`, Catalog — `1→2→3`; durable boundaries не схлопываются.
 
 ## Fail-closed validation
 
@@ -262,6 +291,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 - Current v8+ application-discovered-format contract.
 - Current v9+ pending archive-split operation/segment contracts.
 - Current v10+ pending archive-rotation operation/target contracts.
+- Current v11+ application-group membership contract.
 - Catalog v2+ обязан иметь external-payload address contract.
 - Catalog v3+ дополнительно обязан иметь archive-segment projection table/index contract.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
@@ -280,6 +310,7 @@ Repositories schema не создают и не мигрируют. Это пр�
 - `SqliteApplicationDiscoveredFormatRepository`: Current v8+;
 - `SqlitePendingArchiveSplitRepository`: Current v9+;
 - `SqlitePendingArchiveRotationRepository`: Current v10+;
+- `SqliteApplicationGroupRepository`: Current v11+;
 - `SqliteExternalPayloadAddressIndex`: Catalog v2+;
 - `ProtectedArchiveSegmentCatalog`: Catalog v3 + active Current history schema.
 

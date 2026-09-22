@@ -13,7 +13,7 @@ Clipensk — resident Windows clipboard-history manager.
 - Windows x64/AMD64 only; ARM64 вне scope;
 - C# / .NET 10 / WinUI 3 / Windows App SDK;
 - protected SQLite uses SQLCipher; один MasterKey на storage;
-- Current schema v10, Storage Catalog schema v3, Archive schema v1;
+- Current schema v11 (v11 — `ApplicationGroupMember`, `docs/APPLICATION_GROUP_PROTOCOL.md`), Storage Catalog schema v3, Archive schema v1;
 - обязательные правила: `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, `docs/CI_LOG_ACCESS.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/APPLICATION_GROUP_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
 
 ## B. User intent

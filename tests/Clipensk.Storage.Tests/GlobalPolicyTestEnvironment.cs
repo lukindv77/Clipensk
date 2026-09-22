@@ -75,6 +75,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     }
 
     public void DowngradeToV4() => Execute("""
+        DROP TABLE ApplicationGroupMember;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -89,6 +90,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV5() => Execute("""
+        DROP TABLE ApplicationGroupMember;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -101,6 +103,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV6() => Execute("""
+        DROP TABLE ApplicationGroupMember;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -112,6 +115,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV7() => Execute("""
+        DROP TABLE ApplicationGroupMember;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -122,6 +126,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV8() => Execute("""
+        DROP TABLE ApplicationGroupMember;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -131,10 +136,17 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV9() => Execute("""
+        DROP TABLE ApplicationGroupMember;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         UPDATE DatabaseIdentity SET SchemaVersion = 9;
         PRAGMA user_version = 9;
+        """);
+
+    public void DowngradeToV10() => Execute("""
+        DROP TABLE ApplicationGroupMember;
+        UPDATE DatabaseIdentity SET SchemaVersion = 10;
+        PRAGMA user_version = 10;
         """);
 
     public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>
