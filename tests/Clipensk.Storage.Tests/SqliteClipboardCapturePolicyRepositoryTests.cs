@@ -187,6 +187,93 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
         });
     }
 
+    [Fact]
+    public async Task GetApplicationPolicyAsync_GroupMemberResolvesToItsRootPolicy()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        DurableApplicationId root = DurableApplicationId.New();
+        DurableApplicationId member = DurableApplicationId.New();
+        database.SeedApplication(root);
+        database.SeedApplication(member);
+        var repository = database.CreateRepository(
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        var rootPolicy = new ClipboardCapturePolicy(
+            ClipboardCapturePolicyRule.Allow,
+            new Dictionary<string, ClipboardFormatCapturePolicy>
+            {
+                ["HTML Format"] = new(ClipboardCapturePolicyRule.Deny),
+            });
+        await repository.SetApplicationPolicyAsync(root, rootPolicy);
+        database.AddGroupMember(member, root);
+
+        ClipboardCapturePolicy? governing = await repository.GetApplicationPolicyAsync(member);
+
+        Assert.NotNull(governing);
+        Assert.Equal(ClipboardCapturePolicyRule.Allow, governing.Capture);
+        Assert.Equal(
+            new ClipboardFormatCapturePolicy(ClipboardCapturePolicyRule.Deny),
+            governing.Formats["HTML Format"]);
+    }
+
+    [Fact]
+    public async Task GetApplicationPolicyAsync_GroupMemberOfAnUnconfiguredRootHasNoPersonalPolicy()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        DurableApplicationId root = DurableApplicationId.New();
+        DurableApplicationId member = DurableApplicationId.New();
+        database.SeedApplication(root);
+        database.SeedApplication(member);
+        database.AddGroupMember(member, root);
+        var repository = database.CreateRepository(
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+
+        Assert.Null(await repository.GetApplicationPolicyAsync(member));
+    }
+
+    [Fact]
+    public async Task SetApplicationPolicyAsync_RejectsAGroupMemberWithoutWriting()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        DurableApplicationId root = DurableApplicationId.New();
+        DurableApplicationId member = DurableApplicationId.New();
+        database.SeedApplication(root);
+        database.SeedApplication(member);
+        database.AddGroupMember(member, root);
+        var repository = database.CreateRepository(
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await repository.SetApplicationPolicyAsync(
+                member,
+                new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny)));
+
+        Assert.Equal(0, database.CountRows("ApplicationCapturePolicy"));
+    }
+
+    [Fact]
+    public async Task GetApplicationPolicyAsync_RejectsGroupDataThatBreaksTheInvariants()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        DurableApplicationId root = DurableApplicationId.New();
+        DurableApplicationId member = DurableApplicationId.New();
+        DurableApplicationId nested = DurableApplicationId.New();
+        database.SeedApplication(root);
+        database.SeedApplication(member);
+        database.SeedApplication(nested);
+        var repository = database.CreateRepository(
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+
+        database.AddGroupMember(member, root);
+        database.Execute($"INSERT INTO ApplicationCapturePolicy VALUES ('{member}', 'Deny');");
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await repository.GetApplicationPolicyAsync(member));
+
+        database.Execute($"DELETE FROM ApplicationCapturePolicy WHERE ApplicationId = '{member}';");
+        database.AddGroupMember(nested, member);
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await repository.GetApplicationPolicyAsync(nested));
+    }
+
     private sealed class TestDatabase : IDisposable
     {
         private readonly byte[] _key;
@@ -257,6 +344,24 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
                 DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             command.ExecuteNonQuery();
         }
+
+        public void Execute(string sql)
+        {
+            using SqliteConnection connection = _factory.Open(
+                CurrentDatabasePath,
+                Session.DangerousGetMasterKeyMemory(),
+                SqliteOpenMode.ReadWrite);
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
+        }
+
+        public void AddGroupMember(DurableApplicationId member, DurableApplicationId parent) =>
+            Execute($"""
+                INSERT INTO ApplicationGroupMember (
+                    ApplicationId, ParentApplicationId, RetainedFromApplicationId, JoinedAtUtc)
+                VALUES ('{member}', '{parent}', NULL, '2026-09-22T10:00:00.0000000+00:00');
+                """);
 
         public int CountRows(string tableName)
         {
@@ -342,6 +447,10 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
             if (schemaVersion >= ApplicationCapturePolicySqlSchema.MinimumCurrentSchemaVersion)
             {
                 ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
+            }
+            if (schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion)
+            {
+                ApplicationGroupMemberSqlSchema.CreateTable(connection, transaction);
             }
 
             using (SqliteCommand userVersion = connection.CreateCommand())

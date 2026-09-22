@@ -37,6 +37,12 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         return ValueTask.FromResult(_globalPolicy);
     }
 
+    /// <summary>
+    /// Returns the personal policy that governs capture for <paramref name="applicationId"/>: its
+    /// group root's, per <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §2.3. A group member never has a
+    /// policy of its own, so nothing is hidden by resolving through the root. Null means the root has
+    /// no personal policy and only the global policy applies.
+    /// </summary>
     public ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
         DurableApplicationId applicationId,
         CancellationToken cancellationToken = default)
@@ -46,8 +52,15 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         CancellationToken token = linkedCancellation.Token;
         token.ThrowIfCancellationRequested();
 
-        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadOnly, token);
-        ClipboardCapturePolicy? policy = ReadApplicationPolicy(connection, applicationId, token);
+        using SqliteConnection connection = OpenValidatedCurrent(
+            SqliteOpenMode.ReadOnly,
+            token,
+            out int schemaVersion);
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        DurableApplicationId governing = schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion
+            ? ResolveGroupRoot(connection, transaction, applicationId, token)
+            : applicationId;
+        ClipboardCapturePolicy? policy = ReadApplicationPolicy(connection, transaction, governing, token);
         token.ThrowIfCancellationRequested();
         return ValueTask.FromResult(policy);
     }
@@ -65,8 +78,17 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         CancellationToken token = linkedCancellation.Token;
         token.ThrowIfCancellationRequested();
 
-        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
+        using SqliteConnection connection = OpenValidatedCurrent(
+            SqliteOpenMode.ReadWrite,
+            token,
+            out int schemaVersion);
         using SqliteTransaction transaction = connection.BeginTransaction();
+        if (schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion &&
+            ReadParentApplicationId(connection, transaction, applicationId) is not null)
+        {
+            throw new InvalidOperationException(
+                "A group member cannot have its own capture policy; change the group root's policy instead.");
+        }
 
         using (SqliteCommand upsert = connection.CreateCommand())
         {
@@ -128,7 +150,7 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         CancellationToken token = linkedCancellation.Token;
         token.ThrowIfCancellationRequested();
 
-        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
+        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token, out _);
         using SqliteTransaction transaction = connection.BeginTransaction();
         using SqliteCommand command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -153,7 +175,8 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
 
     private SqliteConnection OpenValidatedCurrent(
         SqliteOpenMode mode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        out int schemaVersion)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!_session.IsActive)
@@ -169,9 +192,13 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         {
             cancellationToken.ThrowIfCancellationRequested();
             EnableForeignKeys(connection);
-            ValidateCurrentDatabase(connection);
+            schemaVersion = ValidateCurrentDatabase(connection);
             ApplicationIdentitySqlSchema.ValidateTables(connection);
             ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+            if (schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion)
+            {
+                ApplicationGroupMemberSqlSchema.ValidateTable(connection);
+            }
             cancellationToken.ThrowIfCancellationRequested();
             return connection;
         }
@@ -182,7 +209,7 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         }
     }
 
-    private void ValidateCurrentDatabase(SqliteConnection connection)
+    private int ValidateCurrentDatabase(SqliteConnection connection)
     {
         int schemaVersion;
         using (SqliteCommand command = connection.CreateCommand())
@@ -217,10 +244,79 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
             throw new InvalidDataException(
                 "Current database user_version does not match the capture policy schema contract.");
         }
+
+        return schemaVersion;
+    }
+
+    private static DurableApplicationId ResolveGroupRoot(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DurableApplicationId applicationId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        DurableApplicationId? parent = ReadParentApplicationId(connection, transaction, applicationId);
+        if (parent is null)
+        {
+            return applicationId;
+        }
+
+        if (ReadParentApplicationId(connection, transaction, parent) is not null)
+        {
+            throw new InvalidDataException(
+                "Application groups must be flat: a group root cannot be a member.");
+        }
+
+        using SqliteCommand ownPolicy = connection.CreateCommand();
+        ownPolicy.Transaction = transaction;
+        ownPolicy.CommandText = """
+            SELECT COUNT(*)
+            FROM ApplicationCapturePolicy
+            WHERE ApplicationId = $applicationId;
+            """;
+        ownPolicy.Parameters.AddWithValue("$applicationId", applicationId.ToString());
+        if (Convert.ToInt64(ownPolicy.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
+        {
+            throw new InvalidDataException("A group member cannot have its own capture policy.");
+        }
+
+        return parent;
+    }
+
+    private static DurableApplicationId? ReadParentApplicationId(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DurableApplicationId applicationId)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT ParentApplicationId
+            FROM ApplicationGroupMember
+            WHERE ApplicationId = $applicationId;
+            """;
+        command.Parameters.AddWithValue("$applicationId", applicationId.ToString());
+        object? value = command.ExecuteScalar();
+        if (value is null or DBNull)
+        {
+            return null;
+        }
+
+        if (value is not string text ||
+            !Guid.TryParseExact(text, "D", out Guid parsed) ||
+            parsed == Guid.Empty ||
+            !string.Equals(text, parsed.ToString("D"), StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Application group membership contains a non-canonical parent ApplicationId.");
+        }
+
+        return new DurableApplicationId(parsed);
     }
 
     private static ClipboardCapturePolicy? ReadApplicationPolicy(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         DurableApplicationId applicationId,
         CancellationToken cancellationToken)
     {
@@ -228,6 +324,7 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         ClipboardCapturePolicyRule captureRule;
         using (SqliteCommand policyCommand = connection.CreateCommand())
         {
+            policyCommand.Transaction = transaction;
             policyCommand.CommandText = """
                 SELECT CaptureRule
                 FROM ApplicationCapturePolicy
@@ -249,6 +346,7 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         var formats = new Dictionary<string, ClipboardFormatCapturePolicy>(StringComparer.Ordinal);
         using (SqliteCommand formatsCommand = connection.CreateCommand())
         {
+            formatsCommand.Transaction = transaction;
             formatsCommand.CommandText = """
                 SELECT FormatName, CaptureRule, MaxBytes
                 FROM ApplicationFormatCapturePolicy
