@@ -7,7 +7,8 @@ public sealed record PolicyMaintenanceResumeDispatchResult(
     bool HadPendingOperation,
     Guid? OperationId,
     GlobalPolicyMaintenanceResumeResult? Global,
-    ApplicationPolicyMaintenanceResumeResult? Application);
+    ApplicationPolicyMaintenanceResumeResult? Application,
+    ApplicationHistoryPurgeResumeResult? HistoryPurge = null);
 
 /// <summary>
 /// Dispatches one durable pending capture-policy maintenance marker to the coordinator that owns
@@ -86,6 +87,25 @@ public sealed class ProtectedPolicyMaintenanceResumeDispatcher
                 OperationId: pending.OperationId,
                 Global: null,
                 Application: application);
+        }
+
+        if (string.Equals(
+                pending.OperationKind,
+                ProtectedApplicationHistoryPurgeService.OperationKind,
+                StringComparison.Ordinal))
+        {
+            ApplicationHistoryPurgeResumeResult historyPurge =
+                await new ProtectedApplicationHistoryPurgeContinuation(
+                        _session,
+                        _connectionFactory)
+                    .ResumeAsync(deletionDate, token)
+                    .ConfigureAwait(false);
+            return new PolicyMaintenanceResumeDispatchResult(
+                HadPendingOperation: true,
+                OperationId: pending.OperationId,
+                Global: null,
+                Application: null,
+                HistoryPurge: historyPurge);
         }
 
         throw new InvalidOperationException(

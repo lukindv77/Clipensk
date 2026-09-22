@@ -3,7 +3,6 @@ using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Databases;
-using Clipensk.Storage.ExternalFiles;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
 using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
@@ -40,7 +39,7 @@ public sealed class ProtectedCapturePolicyPublishService
         ClipboardCapturePolicy policy,
         CancellationToken cancellationToken = default)
     {
-        ValidateGlobalPolicy(policy);
+        CapturePolicySql.ValidateGlobalPolicy(policy);
         await RunAsync(
                 (connection, transaction, token) =>
                 {
@@ -50,7 +49,7 @@ public sealed class ProtectedCapturePolicyPublishService
                             "Editing the global capture policy requires the initial setup to be saved first.");
                     }
 
-                    ReplaceGlobalPolicy(connection, transaction, policy, token);
+                    CapturePolicySql.ReplaceGlobalPolicyInTransaction(connection, transaction, policy, token);
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -63,8 +62,8 @@ public sealed class ProtectedCapturePolicyPublishService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(rootApplicationId);
-        ValidateApplicationPolicy(policy);
-        Dictionary<string, string> requestedMappings = NormalizeCustomBinaryConfigurations(
+        CapturePolicySql.ValidateApplicationPolicy(policy);
+        Dictionary<string, string> requestedMappings = CapturePolicySql.NormalizeCustomBinaryConfigurations(
             policy,
             customBinaryConfigurations ?? []);
 
@@ -72,12 +71,18 @@ public sealed class ProtectedCapturePolicyPublishService
                 (connection, transaction, token) =>
                 {
                     RequireConfiguredRoot(connection, transaction, rootApplicationId, token);
-                    InsertMissingCustomBinaryConfigurations(
+                    CapturePolicySql.InsertMissingCustomBinaryConfigurationsInTransaction(
                         connection,
                         transaction,
                         requestedMappings,
                         token);
-                    ReplaceApplicationPolicy(connection, transaction, rootApplicationId, policy, token);
+                    CapturePolicySql.WriteApplicationPolicyInTransaction(
+                        connection,
+                        transaction,
+                        rootApplicationId,
+                        policy,
+                        replaceExisting: true,
+                        token);
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -227,222 +232,6 @@ public sealed class ProtectedCapturePolicyPublishService
         {
             throw new InvalidOperationException(
                 "A first personal policy purges history and must go through its own maintenance operation.");
-        }
-    }
-
-    private static void ReplaceGlobalPolicy(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        ClipboardCapturePolicy policy,
-        CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        using (SqliteCommand update = connection.CreateCommand())
-        {
-            update.Transaction = transaction;
-            update.CommandText = """
-                UPDATE GlobalCapturePolicy
-                SET CaptureRule = $captureRule
-                WHERE SingletonId = 1;
-                """;
-            update.Parameters.AddWithValue("$captureRule", policy.Capture.ToString());
-            if (update.ExecuteNonQuery() != 1)
-            {
-                throw new InvalidDataException("Global capture policy singleton is missing.");
-            }
-        }
-
-        using (SqliteCommand deleteFormats = connection.CreateCommand())
-        {
-            deleteFormats.Transaction = transaction;
-            deleteFormats.CommandText = "DELETE FROM GlobalFormatCapturePolicy WHERE SingletonId = 1;";
-            deleteFormats.ExecuteNonQuery();
-        }
-
-        foreach ((string formatName, ClipboardFormatCapturePolicy format) in
-                 policy.Formats.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-        {
-            token.ThrowIfCancellationRequested();
-            using SqliteCommand insert = connection.CreateCommand();
-            insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO GlobalFormatCapturePolicy (SingletonId, FormatName, CaptureRule, MaxBytes)
-                VALUES (1, $formatName, $captureRule, $maxBytes);
-                """;
-            insert.Parameters.AddWithValue("$formatName", formatName);
-            insert.Parameters.AddWithValue("$captureRule", format.Capture.ToString());
-            insert.Parameters.AddWithValue(
-                "$maxBytes",
-                format.MaxBytes.HasValue ? format.MaxBytes.Value : DBNull.Value);
-            insert.ExecuteNonQuery();
-        }
-    }
-
-    private static void ReplaceApplicationPolicy(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        DurableApplicationId applicationId,
-        ClipboardCapturePolicy policy,
-        CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        using (SqliteCommand update = connection.CreateCommand())
-        {
-            update.Transaction = transaction;
-            update.CommandText = """
-                UPDATE ApplicationCapturePolicy
-                SET CaptureRule = $captureRule
-                WHERE ApplicationId = $applicationId;
-                """;
-            update.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            update.Parameters.AddWithValue("$captureRule", policy.Capture.ToString());
-            if (update.ExecuteNonQuery() != 1)
-            {
-                throw new InvalidDataException("Application capture policy changed during publication.");
-            }
-        }
-
-        using (SqliteCommand deleteFormats = connection.CreateCommand())
-        {
-            deleteFormats.Transaction = transaction;
-            deleteFormats.CommandText = """
-                DELETE FROM ApplicationFormatCapturePolicy
-                WHERE ApplicationId = $applicationId;
-                """;
-            deleteFormats.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            deleteFormats.ExecuteNonQuery();
-        }
-
-        foreach ((string formatName, ClipboardFormatCapturePolicy format) in
-                 policy.Formats.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-        {
-            token.ThrowIfCancellationRequested();
-            using SqliteCommand insert = connection.CreateCommand();
-            insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO ApplicationFormatCapturePolicy (ApplicationId, FormatName, CaptureRule, MaxBytes)
-                VALUES ($applicationId, $formatName, $captureRule, $maxBytes);
-                """;
-            insert.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            insert.Parameters.AddWithValue("$formatName", formatName);
-            insert.Parameters.AddWithValue("$captureRule", format.Capture.ToString());
-            insert.Parameters.AddWithValue(
-                "$maxBytes",
-                format.MaxBytes.HasValue ? format.MaxBytes.Value : DBNull.Value);
-            insert.ExecuteNonQuery();
-        }
-    }
-
-    private static void InsertMissingCustomBinaryConfigurations(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        IReadOnlyDictionary<string, string> requested,
-        CancellationToken token)
-    {
-        foreach ((string formatName, string fileExtension) in
-                 requested.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
-        {
-            token.ThrowIfCancellationRequested();
-            using (SqliteCommand read = connection.CreateCommand())
-            {
-                read.Transaction = transaction;
-                read.CommandText = """
-                    SELECT FileExtension
-                    FROM CustomBinaryFormatConfiguration
-                    WHERE FormatName = $formatName COLLATE BINARY;
-                    """;
-                read.Parameters.AddWithValue("$formatName", formatName);
-                if (read.ExecuteScalar() is string existing)
-                {
-                    if (!string.Equals(existing, fileExtension, StringComparison.Ordinal))
-                    {
-                        throw new InvalidOperationException(
-                            $"Custom binary format '{formatName}' is already mapped to a different extension; rebind requires cleanup.");
-                    }
-                    continue;
-                }
-            }
-
-            using SqliteCommand insert = connection.CreateCommand();
-            insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO CustomBinaryFormatConfiguration (FormatName, FileExtension)
-                VALUES ($formatName, $fileExtension);
-                """;
-            insert.Parameters.AddWithValue("$formatName", formatName);
-            insert.Parameters.AddWithValue("$fileExtension", fileExtension);
-            insert.ExecuteNonQuery();
-        }
-    }
-
-    private static Dictionary<string, string> NormalizeCustomBinaryConfigurations(
-        ClipboardCapturePolicy policy,
-        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration> configurations)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (ApplicationCustomBinaryFormatConfiguration configuration in configurations)
-        {
-            ArgumentNullException.ThrowIfNull(configuration);
-            if (string.IsNullOrWhiteSpace(configuration.FormatName) ||
-                !ClipboardCaptureFormatGuard.IsCaptureAllowed(configuration.FormatName))
-            {
-                throw new ArgumentException(
-                    $"Clipboard format '{configuration.FormatName}' cannot be mapped for capture.",
-                    nameof(configurations));
-            }
-            if (!policy.Formats.TryGetValue(configuration.FormatName, out ClipboardFormatCapturePolicy format) ||
-                format.Capture != ClipboardCapturePolicyRule.Allow)
-            {
-                throw new ArgumentException(
-                    $"Custom binary mapping '{configuration.FormatName}' requires an explicit Allow rule.",
-                    nameof(configurations));
-            }
-
-            string normalized = ExternalPayloadAddressFactory.NormalizeCustomBinaryExtension(
-                configuration.FileExtension);
-            if (!result.TryAdd(configuration.FormatName, normalized))
-            {
-                throw new ArgumentException(
-                    $"Duplicate custom binary mapping '{configuration.FormatName}' is not allowed.",
-                    nameof(configurations));
-            }
-        }
-        return result;
-    }
-
-    private static void ValidateGlobalPolicy(ClipboardCapturePolicy policy)
-    {
-        ArgumentNullException.ThrowIfNull(policy);
-        if (policy.Capture is not (ClipboardCapturePolicyRule.Allow or ClipboardCapturePolicyRule.Deny))
-        {
-            throw new ArgumentOutOfRangeException(nameof(policy), "Global capture rules must be explicit Allow or Deny.");
-        }
-        foreach ((string formatName, ClipboardFormatCapturePolicy format) in policy.Formats)
-        {
-            if (string.IsNullOrWhiteSpace(formatName) ||
-                format.Capture is not (ClipboardCapturePolicyRule.Allow or ClipboardCapturePolicyRule.Deny) ||
-                format.MaxBytes is <= 0)
-            {
-                throw new ArgumentException("Global capture policy contains an invalid format rule.", nameof(policy));
-            }
-        }
-    }
-
-    private static void ValidateApplicationPolicy(ClipboardCapturePolicy policy)
-    {
-        ArgumentNullException.ThrowIfNull(policy);
-        if (!Enum.IsDefined(policy.Capture))
-        {
-            throw new ArgumentOutOfRangeException(nameof(policy), "Application capture policy contains an unknown rule.");
-        }
-        foreach ((string formatName, ClipboardFormatCapturePolicy format) in policy.Formats)
-        {
-            if (string.IsNullOrWhiteSpace(formatName) ||
-                !Enum.IsDefined(format.Capture) ||
-                format.MaxBytes is <= 0)
-            {
-                throw new ArgumentException("Application capture policy contains an invalid format rule.", nameof(policy));
-            }
         }
     }
 }
