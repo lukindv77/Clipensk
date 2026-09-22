@@ -90,7 +90,7 @@ public sealed partial class JournalWindow
                     {
                         controls.Error.IsOpen = true;
                         controls.Error.Message =
-                            "Изменение не завершено. Если durable-операция уже началась, сбор оставлен безопасно приостановленным и будет продолжен при следующей разблокировке.";
+                            "Изменение не сохранено: прежние правила остались в силе. Повторите попытку после проверки хранилища.";
                         args.Cancel = true;
                         return;
                     }
@@ -138,7 +138,7 @@ public sealed partial class JournalWindow
         var root = new StackPanel { Spacing = 16 };
         root.Children.Add(new TextBlock
         {
-            Text = "Изменяются базовое правило и стандартные форматы. Пользовательские бинарные форматы и их file-extension mappings сохраняются без изменений.",
+            Text = "Изменяются базовое правило и стандартные форматы. Пользовательские бинарные форматы и их file-extension mappings сохраняются без изменений. Изменение действует только на новые записи; уже сохранённая история не удаляется.",
             TextWrapping = TextWrapping.Wrap,
         });
 

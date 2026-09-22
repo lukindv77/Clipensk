@@ -107,7 +107,9 @@ App выполняет composition после active protected session и пуб
 
 Application-policy maintenance реализован как durable workflow Current → Archive → Catalog → Trash → Completion с `PendingPolicyMaintenance` marker. Mapping-aware Current phase публикует новые exact custom mappings, application policy, Current cleanup и v2 marker одной transaction. Legacy operations продолжают использовать v1 marker; v2 отдельно фиксирует fingerprint полного custom-binary configuration snapshot. Rebind/update/delete mapping не входят в этот contract.
 
-Application discovered-format editor подключён к этому mapping-aware path через отдельный App boundary с теми же recovery, quiescence и resume semantics. Global-policy update/cleanup остаётся отдельным maintenance contract.
+Application discovered-format editor подключён к этому mapping-aware path через отдельный App boundary с теми же recovery, quiescence и resume semantics.
+
+**Изменение после решения 2026-09-22** (`REQUIREMENTS.md` §18, `APPLICATION_GROUP_PROTOCOL.md` §3): правка глобальной policy и правка уже заданной персональной policy корня группы больше **не чистят** сохранённую историю и не создают marker. Их публикует `ProtectedCapturePolicyPublishService` одной транзакцией Current под mutation lease (с той же приостановкой runtime в App): новые custom-binary mappings вставляются вместе с policy, rebind запрещён, при pending marker публикация отклоняется. Первое назначение персональной policy ненастроенному корню — не правка: оно чистит запрещённую историю и до реализации `ApplicationHistoryPurge` идёт прежним application-policy maintenance путём. Прежние global/application maintenance marker больше не создаются, но их resume-путь сохранён для доведения операций, начатых до изменения.
 
 Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md` и `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
 
@@ -142,4 +144,4 @@ Application discovered-format UI tranche меняет `src/Clipensk.App/**`, loc
 
 **Manual WinUI/real-clipboard smoke остаётся UNVERIFIED.** Unit/CI tests не эмулируют настоящий foreground application, `WM_CLIPBOARDUPDATE`, WinRT `DataPackageView`, suspension во время active capture и пользовательскую работу dynamic custom rows.
 
-Global-policy cleanup/update и mapping rebind/update/delete остаются отдельными этапами. Format/size defaults по-прежнему не назначены.
+Mapping rebind/update/delete остаются отдельными этапами. Format/size defaults назначены решением пользователя 2026-09-20 (`OPEN_QUESTIONS.md` §6) и предзаполняются на первичной настройке.

@@ -82,6 +82,7 @@ public sealed partial class JournalWindow
                 Text = ApplicationPolicyText("FormatsHelp"),
                 TextWrapping = TextWrapping.Wrap,
             });
+            content.Children.Add(CreatePolicyChangeScopeNotice(isFirstAssignment: currentPolicy is null));
             content.Children.Add(error);
 
             var editors = new List<ApplicationFormatPolicyEditor>();

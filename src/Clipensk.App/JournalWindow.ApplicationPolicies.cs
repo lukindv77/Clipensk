@@ -276,6 +276,7 @@ public sealed partial class JournalWindow
                 Text = ApplicationPolicyText("EditHelp"),
                 TextWrapping = TextWrapping.Wrap,
             });
+            content.Children.Add(CreatePolicyChangeScopeNotice(isFirstAssignment: currentPolicy is null));
             content.Children.Add(error);
             content.Children.Add(rule);
 
@@ -416,6 +417,18 @@ public sealed partial class JournalWindow
         ReferenceEquals(session, _protectedStorageSession) &&
         session.IsActive &&
         _lifecycle.CanAccessProtectedData;
+
+    /// <summary>
+    /// States what saving will do to saved history: an edit of existing personal rules only affects
+    /// future capture, while a first assignment purges what the new rules disallow.
+    /// </summary>
+    private InfoBar CreatePolicyChangeScopeNotice(bool isFirstAssignment) => new()
+    {
+        IsOpen = true,
+        IsClosable = false,
+        Severity = isFirstAssignment ? InfoBarSeverity.Warning : InfoBarSeverity.Informational,
+        Message = ApplicationPolicyText(isFirstAssignment ? "FirstAssignmentPurge" : "EditFutureOnly"),
+    };
 
     private string ApplicationPolicyText(string key) =>
         _localization.GetString("ApplicationPolicy." + key);
