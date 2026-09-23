@@ -41,6 +41,7 @@ public sealed partial class JournalWindow
             _lifecycle.IsDataRootConfigured &&
             !string.IsNullOrWhiteSpace(_settings.DataRootPath) &&
             _credentialState != ProtectedStorageCredentialState.Invalid;
+        UpdateDataRootBackupButtons();
     }
 
     private async void OnRelocateDataRootClicked(object sender, RoutedEventArgs e)
