@@ -47,8 +47,25 @@ public partial class App : Application
             return;
         }
 
-        var settingsStore = new JsonApplicationSettingsStore(SettingsPathProvider.GetDefaultSettingsPath());
-        ApplicationSettings settings = await settingsStore.LoadAsync();
+        string settingsPath = SettingsPathProvider.GetDefaultSettingsPath();
+        var settingsStore = new JsonApplicationSettingsStore(settingsPath);
+        ApplicationSettings settings;
+        try
+        {
+            settings = await settingsStore.LoadAsync();
+        }
+        catch
+        {
+            // Starting with defaults would forget where the storage is (and any unfinished
+            // relocation), so an unreadable settings file stops Clipensk with an explanation.
+            WindowsStartupMessage.ShowError(
+                localization.GetString("Startup.SettingsUnreadable")
+                    .Replace("{0}", settingsPath, StringComparison.Ordinal),
+                localization.GetString("App.Title"));
+            Exit();
+            return;
+        }
+
         await TryApplyActiveLocalizationAsync(localization, settings);
 
         if (!TryClaimSingleInstance(localization))
@@ -56,6 +73,17 @@ public partial class App : Application
             Exit();
             return;
         }
+
+        (ApplicationSettings? recoveredSettings, StartupNotice? startupNotice) =
+            await RecoverDataRootRelocationAsync(settingsStore, settings, localization);
+        if (recoveredSettings is null)
+        {
+            ReleaseSingleInstance();
+            Exit();
+            return;
+        }
+
+        settings = recoveredSettings;
 
         _lifecycle = new ProtectedApplicationLifecycle(
             isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));
@@ -93,6 +121,11 @@ public partial class App : Application
             _credentialService,
             _databaseService,
             credentialState);
+        if (startupNotice is not null)
+        {
+            _window.ShowStartupNotice(startupNotice.Message, startupNotice.Severity);
+        }
+
         _window.GlobalCapturePolicyInitialized += OnGlobalCapturePolicyInitialized;
         _hotKeyService.Pressed += OnJournalHotKeyPressed;
         _window.Closed += OnWindowClosed;

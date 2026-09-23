@@ -372,6 +372,12 @@
                 <StackPanel Spacing="4">
                     <TextBlock x:Name="DataRootTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
                     <TextBlock x:Name="DataRootValue" TextWrapping="Wrap" />
+                    <Button x:Name="RelocateDataRootButton"
+                            HorizontalAlignment="Left"
+                            Margin="0,4,0,0"
+                            IsEnabled="False"
+                            Click="OnRelocateDataRootClicked" />
+                    <InfoBar x:Name="DataRootRelocationInfo" IsOpen="False" IsClosable="True" />
                 </StackPanel>
 
                 <StackPanel Spacing="8">

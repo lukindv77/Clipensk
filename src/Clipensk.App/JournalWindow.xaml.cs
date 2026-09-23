@@ -625,6 +625,7 @@ public sealed partial class JournalWindow : Window
     private void RefreshLifecycleUi()
     {
         RefreshNavigationAvailability();
+        UpdateDataRootRelocationButton();
         DataRootValue.Text = _settings.DataRootPath ?? _localization.GetString("Settings.DataRoot.NotConfigured");
         PasswordHintValue.Text = string.IsNullOrWhiteSpace(_settings.PasswordHint)
             ? _localization.GetString("Lock.PasswordHintEmpty")
