@@ -190,15 +190,20 @@ UNLOCKED
 
 ## 12. Что ещё не реализовано
 
-Остаются:
+Пункты, которые перечислялись здесь в первой версии документа и с тех пор реализованы (таблицы
+истории, Catalog, Archive, миграции, восстановление Catalog, автоблокировка, проверенный
+publish-путь `sqlcipher.dll` для unpackaged-сборки), описаны в своих документах.
 
-- packaging/delivery verified `sqlcipher.dll` для выбранной схемы распространения;
+Остаются (варианты и рекомендации — `OPEN_QUESTIONS.md` §4):
+
 - byte-for-byte reproducibility/provenance hardening;
-- таблицы clipboard history;
-- catalog index schema;
-- Archive schema/creation/read path;
-- migrations;
-- password/MasterKey change;
-- crypto-metadata recovery;
-- partial Current/Catalog recovery + catalog rebuild;
-- auto-lock runtime и уничтожение всех storage handles при lock.
+- смена пароля и/или MasterKey;
+- восстановление при потере или повреждении `storage-crypto.json`;
+- стратегия при потере `current.db`;
+- срок хранения резервных копий `Current/CatalogQuarantine`.
+
+Граница блокировки: lock отзывает MasterKey и защищённую сессию, но не ждёт завершения уже начатых
+операций (`ProtectedStorageSessionLease.Dispose`) — операция, открывшая соединение до отзыва,
+закрывает его сама при завершении или отмене. Поэтому перенос хранилища, которому нужна гарантия
+отсутствия открытых файлов, дополнительно открывает их эксклюзивно
+(`DATA_ROOT_RELOCATION_PROTOCOL.md` §1).
