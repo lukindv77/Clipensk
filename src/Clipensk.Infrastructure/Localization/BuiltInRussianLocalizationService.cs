@@ -386,7 +386,7 @@ public sealed class BuiltInRussianLocalizationService : ILocalizationService
         ["OpenDataRoot.Confirm"] = "Открыть",
         ["OpenDataRoot.LockFailed"] = "Не удалось заблокировать Clipensk перед переключением хранилища. Повторите позже.",
         ["OpenDataRoot.Completed"] = "Открыто хранилище «{0}». Прежнее хранилище «{1}» осталось на месте. Введите пароль этого хранилища, чтобы продолжить работу.",
-        ["OpenDataRoot.ProtectionSkipped"] = "Права доступа к папке не изменялись: она не пуста или файловая система их не поддерживает.",
+        ["OpenDataRoot.ProtectionSkipped"] = "Права доступа к папке не изменялись: Clipensk ограничивает доступ только к пустой папке, а на этой файловой системе ограничение может быть и не поддержано. У резервной копии, созданной Clipensk, доступ ограничен при её создании; папку, скопированную или созданную иначе, проверьте сами.",
         ["OpenDataRoot.Failed"] = "Хранилище не открыто, Clipensk работает с прежним каталогом.",
         ["OpenDataRoot.Refused.RelocationPending"] = "Предыдущий перенос хранилища ещё не завершён. Перезапустите Clipensk, чтобы он завершился.",
         ["OpenDataRoot.Refused.TargetMissing"] = "Папка «{0}» не найдена.",
