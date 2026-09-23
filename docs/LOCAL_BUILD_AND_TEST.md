@@ -62,7 +62,8 @@ dotnet test tests/Clipensk.Infrastructure.Tests/Clipensk.Infrastructure.Tests.cs
 
 - Локальный PASS **не является** acceptance evidence. Принятие изменения по-прежнему требует exact-SHA CI.
 - Изменения в `src/Clipensk.Storage/**` или `src/Clipensk.Core/Storage/**` по-прежнему требуют exact-main Build **и** Native SQLCipher.
-- Локальные тесты идут на `e_sqlite3`, а не на SQLCipher, поэтому поведение шифрования, native provenance и published-runtime loading локально не проверяются вообще.
+- Локальные тесты идут на `e_sqlite3`, а не на SQLCipher, поэтому поведение шифрования, native provenance и published-runtime loading ими не проверяются.
+- Поведение самого SQLCipher можно предварительно посмотреть на пакете Ubuntu (`apt-get install sqlcipher`, сейчас 4.5.6) — консолью `sqlcipher` или smoke-хостом `tools/Clipensk.SqlCipher.Smoke`, опубликованным с символической ссылкой `libsqlcipher.so` → `/usr/lib/x86_64-linux-gnu/libsqlcipher.so.1` в папке публикации и запущенным с `LD_LIBRARY_PATH` на неё. В 4.5.6 нет `PRAGMA cipher_status`, а порог версии в `SqlCipherConnectionFactory` — 4.12.0, поэтому для такого прогона их приходится **временно** обойти в рабочей копии и вернуть до коммита. Это предварительная проверка, не evidence: для production-сборки 4.17.0 evidence даёт только Native CI.
 - Manual production WinUI smoke остаётся отдельным и независимым от любой автоматики.
 
 Практическая ценность локального прогона — ловить ошибки компиляции, регрессии контрактов схемы и логики репозиториев до пуша, экономя CI-циклы.
