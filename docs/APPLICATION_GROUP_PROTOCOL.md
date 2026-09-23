@@ -1,9 +1,14 @@
 # Протокол групп приложений и очистки истории по политике
 
-Статус: **спроектировано, не реализовано.** Продуктовые решения — `APPLICATION_IDENTITY.md` §9,
-`OPEN_QUESTIONS.md` §11, `REQUIREMENTS.md` §18 (решения пользователя от 2026-09-22). Этот документ
-фиксирует техническую реализацию: модель данных, durable-фазы, восстановление после сбоя и порядок
-этапов (slices).
+Статус: **версия 2, реализуется.** Продуктовые решения — `APPLICATION_IDENTITY.md` §9,
+`OPEN_QUESTIONS.md` §11, `REQUIREMENTS.md` §18 (решение пользователя от 2026-09-23, заменившее
+решение от 2026-09-22). Этот документ фиксирует техническую реализацию: модель данных, durable-фазы,
+восстановление после сбоя и порядок этапов (slices).
+
+Версия 1 (2026-09-22) описывала группу как приложение-корень с детьми, merge «ребёнок → родитель»,
+split и удерживающую identity. 2026-09-23 пользователь уточнил модель: группа — отдельная сущность со
+своими настройками, группа по умолчанию — глобальная политика. Версия 1 отменена; что из уже
+реализованного по ней переиспользуется — §11.
 
 Протокол устроен как roll-forward: после commit первой фазы операция только доводится до конца,
 отката нет. Каждая фаза идемпотентна и пересчитывает свой набор изменений из зафиксированного
@@ -11,108 +16,140 @@
 
 ## 1. Инварианты
 
-1. Durable-ключ приложения остаётся `ApplicationId` (`APPLICATION_IDENTITY.md` §1). Ни группа, ни
-   merge/split не меняют durable-ключи и не выводят тождество из пути/имени/hash.
-2. Группа — не отдельная сущность. Группу представляет `ApplicationId` её **корня** (родителя).
-   Членство хранится только в Current.
-3. Группа плоская: корень не может быть членом другой группы, член не может иметь своих членов.
-4. У члена группы нет собственной capture policy. Эффективная policy при захвате —
-   `Merge(global, policy(корень))`.
-5. Историю по политике чистят **только** две операции: первое назначение персональной policy
-   ненастроенному корню и merge. Правка глобальной policy и уже заданной персональной policy
-   историю не трогает.
-6. Правило очистки — только Allow/Deny эффективной policy по `FormatName` представления. `MaxBytes`
-   при очистке не учитывается.
-7. Очистка охватывает Current и **все** Archive, включая встроенные представления. Запись без
+1. Durable-ключ приложения остаётся `ApplicationId` (`APPLICATION_IDENTITY.md` §1). Группы не меняют
+   durable-ключи и не выводят тождество из пути/имени/hash.
+2. **Группа — отдельная сущность** `ApplicationGroup`: собственный `GroupId` (GUID), обязательное
+   имя, уникальное без учёта регистра, и **полная собственная capture policy** той же формы, что
+   глобальная: общее правило и правила форматов только `Allow`/`Deny`, без `Inherit`.
+3. **Группа по умолчанию — это глобальная policy.** Строкой `ApplicationGroup` она не хранится:
+   приложение без строки членства состоит в группе по умолчанию. Она существует всегда, в том числе
+   без приложений. Переносить приложение в группу по умолчанию нельзя.
+4. Приложение состоит ровно в одной группе. Эффективная policy при захвате: для члена пользовательской
+   группы — policy этой группы как есть; для группы по умолчанию — глобальная. Policy группы и
+   глобальная **не смешиваются**: новая группа получает копию глобальной на момент создания и дальше
+   от неё не зависит.
+5. Историю по политике чистит **только** перенос приложения в пользовательскую группу — новую или
+   существующую, из группы по умолчанию или из другой пользовательской группы. Правка настроек любой
+   группы, включая группу по умолчанию (глобальную policy), историю не трогает и действует на все
+   приложения группы.
+6. При переносе **вся** история приложения следует за ним. Запись истории хранит только
+   `SourceApplicationId`; принадлежность группе вычисляется из текущего членства. Операций,
+   переписывающих `SourceApplicationId`, и «удерживающих» identity нет.
+7. Правило очистки — только Allow/Deny policy целевой группы по `FormatName` представления.
+   `MaxBytes` при очистке не учитывается.
+8. Очистка охватывает Current и **все** Archive, включая встроенные представления. Запись без
    оставшихся представлений удаляется целиком.
-8. Внешний файл уходит в Trash через существующий last-reference путь (Catalog rebuild →
+9. Внешний файл уходит в Trash через существующий last-reference путь (Catalog rebuild →
    `ProtectedExternalPayloadTrashCollector`) и удаляется оттуда по обычному сроку хранения.
-9. Пока существует durable marker любой из операций этого протокола, capture не работает:
-   protected delivery composition fail-closed при наличии `PendingPolicyMaintenance` (уже
-   существующее поведение), а App держит runtime в приостановке до снятия marker. Поэтому набор
-   записей в области операции между фазами не пополняется.
-10. Пока marker существует, изменение policy, членства и повторный merge/split отклоняются
-    (`PendingPolicyMaintenanceException`), как и для существующей policy maintenance.
-11. Удаление в SQLite выполняется с `PRAGMA secure_delete = ON`: удалённое содержимое затирается и
-    в свободных страницах зашифрованного файла.
-12. Archive schema остаётся v1. Операции этого протокола не требуют миграции архивов.
+10. Пока существует durable marker, capture не работает: protected delivery composition fail-closed
+    при наличии `PendingPolicyMaintenance`, а App держит runtime в приостановке до снятия marker.
+    Поэтому набор записей в области операции между фазами не пополняется.
+11. Пока marker существует, правка policy, создание/переименование/удаление групп и переносы
+    отклоняются (`PendingPolicyMaintenanceException`).
+12. Удаление в SQLite выполняется с `PRAGMA secure_delete = ON`.
+13. Archive schema остаётся v1: группы живут только в Current, архивы не мигрируются.
+14. Очистке всегда предшествует предпросмотр с итоговыми цифрами и явное подтверждение. Старт
+    операции сверяет, что правило и область всё ещё совпадают с подтверждённым предпросмотром, иначе
+    отказывает без записи.
 
-## 2. Модель данных: Current v11
+## 2. Модель данных: Current v12
 
-### 2.1 Таблица `ApplicationGroupMember`
+### 2.1 Таблицы
 
 ```sql
-CREATE TABLE ApplicationGroupMember (
-    ApplicationId TEXT NOT NULL PRIMARY KEY,
-    ParentApplicationId TEXT NOT NULL,
-    RetainedFromApplicationId TEXT NULL,
-    JoinedAtUtc TEXT NOT NULL,
-    CHECK (ApplicationId <> ParentApplicationId),
-    CHECK (RetainedFromApplicationId IS NULL OR RetainedFromApplicationId <> ApplicationId),
-    FOREIGN KEY (ApplicationId) REFERENCES ApplicationIdentity(ApplicationId),
-    FOREIGN KEY (ParentApplicationId) REFERENCES ApplicationIdentity(ApplicationId),
-    FOREIGN KEY (RetainedFromApplicationId) REFERENCES ApplicationIdentity(ApplicationId)
+CREATE TABLE ApplicationGroup (
+    GroupId TEXT NOT NULL PRIMARY KEY,               -- канонический GUID "D", нижний регистр
+    Name TEXT NOT NULL CHECK (length(Name) > 0),
+    NameKey TEXT NOT NULL UNIQUE,                    -- ключ уникальности имени без учёта регистра
+    CaptureRule TEXT NOT NULL CHECK (CaptureRule IN ('Allow', 'Deny')),
+    CreatedAtUtc TEXT NOT NULL
 );
 
-CREATE INDEX IX_ApplicationGroupMember_ParentApplicationId
-    ON ApplicationGroupMember(ParentApplicationId);
+CREATE TABLE ApplicationGroupFormatCapturePolicy (
+    GroupId TEXT NOT NULL,
+    FormatName TEXT NOT NULL CHECK (length(FormatName) > 0),
+    CaptureRule TEXT NOT NULL CHECK (CaptureRule IN ('Allow', 'Deny')),
+    MaxBytes INTEGER NULL CHECK (MaxBytes IS NULL OR MaxBytes > 0),
+    PRIMARY KEY (GroupId, FormatName),
+    FOREIGN KEY (GroupId) REFERENCES ApplicationGroup(GroupId)
+);
+
+CREATE TABLE ApplicationGroupMembership (
+    ApplicationId TEXT NOT NULL PRIMARY KEY,
+    GroupId TEXT NOT NULL,
+    JoinedAtUtc TEXT NOT NULL,
+    FOREIGN KEY (ApplicationId) REFERENCES ApplicationIdentity(ApplicationId),
+    FOREIGN KEY (GroupId) REFERENCES ApplicationGroup(GroupId)
+);
+
+CREATE INDEX IX_ApplicationGroupMembership_GroupId ON ApplicationGroupMembership(GroupId);
 ```
 
-- строка есть — приложение является членом группы `ParentApplicationId`;
-- строки нет — приложение само является корнем (одиночным либо с членами);
-- `RetainedFromApplicationId` задан только у **удерживающей identity** (§7.2);
-- FK без каскада: identity в Clipensk не удаляются, а попытка удалить identity, участвующую в
-  группе, должна завершаться ошибкой, а не молча менять группу.
+Правила имени группы (`ApplicationGroupName` в Core): обрезка пробелов по краям, непустое, не длиннее
+100 символов, без управляющих символов. `NameKey` = обрезанное имя в `ToUpperInvariant()`: сравнение
+без учёта регистра, в том числе для кириллицы. Имя в UI вводит пользователь; автоматически поле не
+заполняется. Кнопка «Взять имя приложения» подставляет имя приложения, если пользователь нажмёт её
+сам, и после этого имя можно править.
 
-Таблица отдельная, а не колонка в `ApplicationIdentity`, потому что `ApplicationIdentitySqlSchema`
-общий для Current и Archive: колонка в `ApplicationIdentity` потребовала бы миграции всех архивов.
+### 2.2 Миграция v11 → v12
 
-Валидация (fail-closed при чтении любого контракта v11):
+Одна транзакция, как и прежние шаги миграции Current:
 
-- canonical GUID во всех трёх колонках, UTC `JoinedAtUtc`;
-- плоскость: нет строки, у которой `ParentApplicationId` сам присутствует как `ApplicationId`;
-- у члена группы нет строк в `ApplicationCapturePolicy`/`ApplicationFormatCapturePolicy`;
-- у удерживающей identity нет aliases (она никогда не разрешается при захвате).
+1. создать таблицы §2.1;
+2. для каждого приложения со строкой `ApplicationCapturePolicy` (индивидуальная policy, заданная до
+   решения) создать группу:
+   - имя — имя приложения: имя файла из первого executable-path alias, иначе первый AUMID, иначе
+     `ApplicationId`; при совпадении `NameKey` добавляется суффикс ` (2)`, ` (3)`, …;
+   - policy группы — полностью разрешённая эффективная policy этого приложения
+     `Merge(global, policy приложения)`, чтобы поведение захвата не изменилось. Индивидуальная policy
+     без глобальной — недопустимое состояние, миграция завершается fail-closed;
+   - приложение становится членом этой группы;
+3. строки v11 `ApplicationGroupMember` (UI их никогда не создавал): член корня, получившего группу на
+   шаге 2, становится членом той же группы, иначе остаётся в группе по умолчанию; затем таблица
+   `ApplicationGroupMember` удаляется;
+4. таблицы `ApplicationCapturePolicy`/`ApplicationFormatCapturePolicy` **остаются как legacy**: их
+   читает только продолжение незавершённого legacy-marker `ApplicationPolicyMaintenance` (сверка
+   отпечатка policy). Захват, настройки и новые операции их не читают и не пишут. Удаление — в
+   будущей версии схемы, когда legacy-marker уже не может существовать;
+5. `DatabaseIdentity.SchemaVersion` и `user_version` = 12.
 
-### 2.2 Миграция v10 → v11
-
-По образцу существующих шагов (`CURRENT_DATABASE_SCHEMA.md`): валидировать все контракты v10,
-создать пустую `ApplicationGroupMember` и индекс, `DatabaseIdentity.SchemaVersion 10 → 11`,
-`PRAGMA user_version = 11`, проверка отмены и COMMIT. Новое хранилище создаётся сразу как v11.
-Existing identity/policy/history не переписываются.
+Миграция не зависит от pending marker: legacy-операции глобальной policy и policy приложения
+доводятся прежним путём. Marker `ApplicationHistoryPurge` формата v1 (движок этапа 5 по модели v1)
+App никогда не создавал; codec v2 его не принимает, и восстановление завершается fail-closed.
 
 ### 2.3 Производные понятия
 
-- `Root(X)` = `ParentApplicationId` строки X, иначе X.
-- `Members(R)` = `{R}` ∪ все `ApplicationId` с `ParentApplicationId = R`.
-- «Настроен» корень R ⇔ существует строка `ApplicationCapturePolicy` для R. Персональную policy
-  можно задать только корню; редактор policy для члена группы открывает policy корня.
-- Запись истории с `SourceApplicationId = NULL` не принадлежит ни одному приложению и операциями
-  этого протокола не затрагивается.
+- `GroupOf(A)` — группа из строки членства A, иначе группа по умолчанию.
+- `Members(G)` — приложения со строкой членства в G; для группы по умолчанию — все identity без
+  строки членства.
+- `EffectivePolicy(A)` — policy `GroupOf(A)`; для группы по умолчанию — глобальная.
+- Запись истории с `SourceApplicationId = NULL` не принадлежит ни одному приложению: захвачена по
+  глобальной policy, операциями переноса не затрагивается и в фильтре группы не участвует.
 
-## 3. Изменение policy после решения 2026-09-22
+## 3. Действия
 
-| Действие | Что происходит |
-|---|---|
-| Правка глобальной policy | одна транзакция: публикация policy; очистки нет; marker не создаётся |
-| Правка policy **настроенного** корня | одна транзакция: публикация policy (и custom-binary mappings); очистки нет |
-| Первое назначение policy **ненастроенному** корню | операция `ApplicationHistoryPurge` (§5), причина `FirstAssignment`, область — `Members(R)` |
-| Merge | операция `ApplicationHistoryPurge` (§6), причина `Merge` |
-| Split с переносом записей | одна транзакция (§7.1) |
-| Split без переноса | операция `ApplicationGroupSplit` (§7.2) |
+| Действие | Выполнение | Очистка истории | Marker |
+|---|---|---|---|
+| Правка настроек группы по умолчанию (глобальной policy) | один commit (publish) | нет | нет |
+| Правка настроек пользовательской группы | один commit (publish), действует на всех её членов | нет | нет |
+| Создать группу и перенести в неё приложение | операция `ApplicationGroupMove` (§5) | да, по policy новой группы | да |
+| Перенести приложение в существующую группу | операция `ApplicationGroupMove` (§5) | да, по policy целевой группы | да |
+| Переименовать группу | один commit | нет | нет |
+| Удалить пустую группу | один commit; группа с членами не удаляется | нет | нет |
+| Перенести приложение в группу по умолчанию | запрещено | — | — |
 
-Runtime на время любого из этих действий приостанавливается тем же App-механизмом, что сейчас
-(`TryQuiesceClipboardRuntimeAsync`), и возобновляется только когда marker отсутствует.
+Все действия выполняются под mutation lease и отклоняются при наличии любого pending marker.
 
-Существующие виды marker `GlobalCapturePolicyMaintenance` и `ApplicationCapturePolicyMaintenance`
-больше **не создаются**, но их resume-путь сохраняется без изменений: marker, оставшийся после сбоя
-в старой версии, доводится до конца по старым правилам.
+Если перенос опустошает исходную **пользовательскую** группу, UI спрашивает, оставить её или удалить,
+и передаёт ответ в запрос переноса. Ответ «удалить» исполняется в той же транзакции фазы Current.
+Про группу по умолчанию не спрашивают: она остаётся всегда.
 
 ## 4. Предпросмотр очистки
 
-`ProtectedApplicationHistoryPurgePreviewService` (только чтение) получает область — набор
-`SourceApplicationId` — и эффективную policy, открывает Current и каждый Archive ReadOnly и
-возвращает:
+`ProtectedApplicationHistoryPurgePreviewService` (только чтение) для запрошенного переноса
+вычисляет область — одно приложение — и правило `FromEffectivePolicy(policy целевой группы)`: для
+новой группы это запрошенная policy, для существующей — её текущая policy. Затем открывает Current и
+каждый Archive ReadOnly и возвращает:
 
 - число удаляемых представлений по каждому `FormatName`;
 - число записей, которые будут усечены (часть представлений остаётся);
@@ -121,67 +158,66 @@ Runtime на время любого из этих действий приост
 - всё это отдельно для Current и Archive.
 
 Детальный просмотр «записи для выбранных представлений» — обычное чтение журнала
-(`ProtectedUnifiedClipboardHistoryRepository`) с `ClipboardHistoryFilter` по набору источников и
-точному `FormatName`; готовый фильтр даёт `ApplicationHistoryPurgePreview.RecordsLosing(format)`
-(только для удаляемого формата).
+(`ProtectedUnifiedClipboardHistoryRepository`) с `ClipboardHistoryFilter` по приложению и точному
+`FormatName`; готовый фильтр даёт `RecordsLosing(format)`, только для удаляемого формата.
 
 Предпросмотр, как и чтение журнала, не берёт mutation lease (не блокирует захват, пока пользователь
 решает) и читает Current раньше Archive. Логическая запись, временно лежащая и в Current, и в
 Archive (копия Current→Archive зафиксирована раньше очистки Current), считается один раз — в
 Current. Изменение набора файлов Archive за время чтения — ошибка, предпросмотр повторяется.
-Предусловия и область вычисляются тем же кодом, что и при старте операции
-(`ApplicationHistoryPurgeScope`).
+Предусловия, область и правило вычисляются тем же кодом, что и при старте операции.
 
-Предпросмотр — снимок на момент показа. Применение пересчитывает затронутые строки тем же правилом
-уже под приостановленным runtime; фактические цифры возвращаются в результате и показываются после
-завершения. Записи, успевшие появиться между предпросмотром и подтверждением, подпадают под то же
-правило, которое пользователь подтвердил.
+Предпросмотр — снимок на момент показа. Старт операции пересчитывает правило и область и сверяет их с
+подтверждённым предпросмотром; при расхождении (изменилась policy целевой группы, группа удалена,
+приложение уже перенесено) старт отказывает без записи, и UI показывает новый предпросмотр. Записи,
+появившиеся между предпросмотром и подтверждением, подпадают под то же подтверждённое правило.
 
-## 5. Операция `ApplicationHistoryPurge`
+## 5. Операция `ApplicationGroupMove`
 
 ### 5.1 Marker
 
-Используется существующий singleton `PendingPolicyMaintenance` с новым `OperationKind =
-"ApplicationHistoryPurge"`. `StateJson` v1:
+Используется существующий singleton `PendingPolicyMaintenance` с `OperationKind =
+"ApplicationHistoryPurge"` (вид, уже маршрутизируемый dispatcher'ом). `StateJson` версии 2:
 
 ```json
 {
-  "version": 1,
-  "reason": "FirstAssignment | Merge",
-  "rootApplicationId": "<guid>",
-  "childApplicationId": "<guid> | null",
-  "sourceApplicationIds": ["<guid>", "..."],
+  "version": 2,
+  "applicationId": "<guid>",
+  "groupId": "<guid>",
+  "createdGroup": true,
   "effectivePolicy": { "capture": "Allow|Deny", "allowedFormats": ["..."] },
-  "rootPolicyFingerprint": "<sha256 | null>",
+  "groupPolicyFingerprint": "<sha256>",
   "archive": "pending|completed",
   "catalog": "pending|completed",
   "trash": "pending|completed"
 }
 ```
 
-- `sourceApplicationIds` — отсортированный набор источников области, зафиксированный при старте;
-- `effectivePolicy` — только то, что нужно правилу очистки: общее правило и множество форматов с
-  эффективным Allow. Фазы Archive/Catalog/Trash не перечитывают policy — правило берётся из marker;
-- `rootPolicyFingerprint` — отпечаток сохранённой персональной policy корня (или `null`, если корень
-  остаётся ненастроенным). Каждая фаза сверяет его с Current и завершается fail-closed при
-  расхождении;
+- область очистки — только `applicationId`;
+- `effectivePolicy` — только то, что нужно правилу очистки. Фазы Archive/Catalog/Trash не
+  перечитывают policy, правило берётся из marker;
+- `groupPolicyFingerprint` — отпечаток сохранённой policy целевой группы. Каждая фаза сверяет с
+  Current: группа существует, `applicationId` — её член, отпечаток совпадает. Иначе — fail-closed;
+- версия 1 не принимается;
 - фазы идут строго по порядку; завершённая фаза не может стоять после незавершённой.
 
 ### 5.2 Правило очистки
 
-Представление `p` записи `e` удаляется, если `e.SourceApplicationId ∈ sourceApplicationIds` и
-**не** выполняется `effectivePolicy.capture = Allow ∧ p.FormatName ∈ allowedFormats`. После удаления
-представлений удаляется каждая запись `e` из области, у которой не осталось ни одного представления
+Представление `p` записи `e` удаляется, если `e.SourceApplicationId = applicationId` и **не**
+выполняется `effectivePolicy.capture = Allow ∧ p.FormatName ∈ allowedFormats`. После удаления
+представлений удаляется каждая запись `e` приложения, у которой не осталось ни одного представления
 (включая записи, пустые ещё до операции).
 
 ### 5.3 Фазы
 
 1. **Current** — инициирующая транзакция под mutation lease (`deferred: false`, `secure_delete`):
-   - проверить предусловия (§5.4 для `FirstAssignment`, §6.1 для `Merge`) и отсутствие любого
-     pending marker;
-   - опубликовать policy корня (и новые custom-binary mappings, как в существующем mapping-aware
-     пути);
-   - для `Merge` — изменения членства (§6.2);
+   - предусловия (§5.4) и отсутствие любого pending marker;
+   - сверка с подтверждённым предпросмотром (§4);
+   - для новой группы — вставить `ApplicationGroup` и её policy (плюс новые custom-binary mappings,
+     как в существующем mapping-aware пути);
+   - записать членство `applicationId → groupId` (вставка или замена);
+   - если исходная пользовательская группа опустела и пользователь выбрал «удалить» — удалить её
+     policy и строку;
    - удалить представления и опустевшие записи в Current по правилу §5.2;
    - создать marker (все остальные фазы `pending`);
    - проверка отмены непосредственно перед COMMIT; после COMMIT поздняя отмена результат не
@@ -193,86 +229,44 @@ Current. Изменение набора файлов Archive за время ч
 3. **Catalog** — `ProtectedExternalPayloadCatalogRebuildService` из authoritative Current+Archive,
    затем отметка фазы.
 4. **Trash** — `ProtectedExternalPayloadTrashCollector` с датой удаления, затем отметка фазы.
-5. **Completion** — сверить marker и отпечаток policy, удалить marker.
+5. **Completion** — сверить marker, членство и отпечаток policy, удалить marker.
 
-Фазы 2–5 выполняются общим resume-координатором; инициатор вызывает его сразу после COMMIT фазы 1.
-`ProtectedPolicyMaintenanceResumeDispatcher` направляет новый вид marker в этот координатор, а
+Фазы 2–5 выполняет общий resume-координатор; инициатор вызывает его сразу после COMMIT фазы 1.
+`ProtectedPolicyMaintenanceResumeDispatcher` направляет этот вид marker в координатор, а
 startup-последовательность (`ProtectedStorageStartupRecoveryCoordinator`) доводит его до конца до
 возобновления capture.
 
-### 5.4 Предусловия `FirstAssignment`
+### 5.4 Предусловия
 
-- R существует и является корнем (не член группы);
-- у R нет строки `ApplicationCapturePolicy`;
 - глобальная policy существует;
-- область = `Members(R)` на момент транзакции.
+- приложение существует (`ApplicationIdentity`);
+- новая группа: имя проходит правила §2.1 и свободно по `NameKey`, policy проходит валидацию
+  глобальной policy (только Allow/Deny);
+- существующая группа: существует, и приложение ещё не её член;
+- ни одного pending marker.
 
-## 6. Merge
+## 6. Правка настроек группы
 
-### 6.1 Предусловия
+Publish-only, как правка глобальной policy (`ProtectedCapturePolicyPublishService`): одна транзакция
+Current под mutation lease, замена policy группы и новых custom-binary mappings, без marker и без
+очистки. Отклоняется при pending marker. Изменение действует на будущий захват всех членов группы.
 
-- C ≠ P; обе identity существуют;
-- C — корень без членов (не состоит в группе и сам не является родителем);
-- P — корень (не член группы);
-- ни C, ни P не являются удерживающей identity;
-- отсутствует любой pending marker.
+## 7. Переименование и удаление группы
 
-### 6.2 Действия фазы Current
-
-- вставить `ApplicationGroupMember(C → P)`;
-- удалить собственную policy C (`ApplicationCapturePolicy`/`ApplicationFormatCapturePolicy`) — после
-  merge она не действует; правила, которые пользователь захотел сохранить, он переносит в policy P
-  на экране merge до подтверждения;
-- опубликовать итоговую policy P, если она задана/изменена на экране merge;
-- область очистки:
-  - всегда `{C}`;
-  - плюс `Members(P)`, если P был ненастроен и получает первую policy в этой же операции (это одновременно
-    первое назначение для P);
-- эффективная policy = `Merge(global, итоговая policy P)`; если P остаётся ненастроенным — `global`.
-
-После split (§7) бывший член группы — ненастроенный корень: его прежняя собственная policy не
-восстанавливается.
-
-## 7. Split
-
-### 7.1 С переносом записей
-
-Одна транзакция Current: удалить строку `ApplicationGroupMember` ребёнка. Записи с
-`SourceApplicationId = C` сразу принадлежат C как отдельному корню, потому что принадлежность группе
-вычисляется из членства, а не хранится в записях. Marker не нужен.
-
-### 7.2 Без переноса записей — удерживающая identity
-
-Записи должны остаться в группе P, сохранив происхождение от C, а новые записи C — принадлежать
-отдельному C. Архивы при этом не мигрируются: записи C переводятся на новую **удерживающую
-identity** R.
-
-Операция `ApplicationGroupSplit`, marker `StateJson` v1:
-`{ "version": 1, "parentApplicationId", "childApplicationId", "retainedApplicationId", "archive": "pending|completed" }`.
-
-1. **Current** (одна транзакция): создать `ApplicationIdentity` R без aliases; вставить
-   `ApplicationGroupMember(R → P, RetainedFromApplicationId = C)`; перевести записи Current
-   `SourceApplicationId C → R`; удалить членство C; создать marker.
-2. **Archive**: в каждом архиве, где есть записи C, — вставить строку R в `ApplicationIdentity`
-   архива (если её нет) и перевести записи `C → R`; затем отметить фазу.
-3. **Completion**: удалить marker.
-
-Корректность фазы Archive опирается на инвариант 9: пока marker существует, новых записей C нет,
-поэтому все записи C в архивах на этой фазе — созданные до split.
-
-В журнале удерживающая identity показывается как «<имя C> (до выделения)». В первой реализации её
-нельзя выделить из группы или присоединить к другой группе.
+- Переименование: правила имени §2.1, свободный `NameKey`, одна транзакция.
+- Удаление: только группа без членов; её policy и строка удаляются в одной транзакции. Группу по
+  умолчанию удалить нельзя — она не хранится строкой.
 
 ## 8. Журнал
 
-- Запись, у которой `Root(SourceApplicationId)` не настроен, помечается «нет индивидуальных
-  настроек».
-- Список ненастроенных корней доступен из журнала; из него открывается первое назначение policy
-  (§5) или merge (§6).
-- Фильтр по приложению становится фильтром по группе: `SourceApplicationId ∈ выбранные члены`.
-  Репозитории Current/Archive/unified принимают `ClipboardHistoryFilter` (набор идентификаторов
-  и/или точный `FormatName`) вместо одного `Guid?` — сделано в этапе 6.
-  Архивы при этом не меняются: членство разрешается в Current до запроса.
+- Для записи показывается группа её источника по текущему членству: имя группы или «Группа по
+  умолчанию».
+- Список приложений группы по умолчанию («нераспределённые») доступен из журнала. Из него
+  открывается выбор: создать группу с новыми настройками или перенести приложение в существующую
+  группу.
+- Фильтр по группе: `SourceApplicationId ∈ Members(G)` с переключением отдельных членов
+  (`ClipboardHistoryFilter`). Для группы по умолчанию набор — все identity без членства. Членство
+  разрешается в Current до запроса, архивы не меняются.
 
 ## 9. Отмена и сбои
 
@@ -280,8 +274,8 @@ identity** R.
   отменой.
 - Сбой после COMMIT фазы Current оставляет marker; runtime остаётся приостановленным до ручного или
   стартового resume.
-- Любое расхождение (identity архива, набор архивов, отпечаток policy, членство, неожиданный вид
-  marker) — fail-closed без частичного «исправления».
+- Любое расхождение (identity архива, набор архивов, отпечаток policy, членство, неожиданная версия
+  или вид marker) — fail-closed без частичного «исправления».
 
 ## 10. Этапы реализации
 
@@ -289,42 +283,59 @@ identity** R.
 или `src/Clipensk.Core/Storage/**`, требуют Build **и** Native SQLCipher; этапы только `Clipensk.App`
 — Build и ручной dispatch Native на том же SHA (он единственный проверяет publish-путь App).
 
-1. Этот протокол + согласование `APPLICATION_IDENTITY.md` §9.
-2. Current v11: `ApplicationGroupMember`, миграция v10→v11, валидация, repository групп (чтение +
-   `…InTransaction`-помощники).
-3. Эффективная capture policy через корень группы; API чтения групп и «настроенности» для UI.
-4. Правка глобальной и уже заданной персональной policy без очистки (publish-only); App-обвязка;
-   resume старых marker сохраняется.
-5. Движок `ApplicationHistoryPurge`: codec marker, фаза Current для `FirstAssignment`, фазы
-   Archive/Catalog/Trash/Completion, resume-координатор, маршрутизация в dispatcher и startup.
-6. Предпросмотр очистки + `ClipboardHistoryFilter` (набор источников и `FormatName`) в
-   репозиториях журнала Current, Archive и unified.
-7. UI первого назначения: предпросмотр → подтверждение → применение; пометка «нет индивидуальных
-   настроек» и список ненастроенных приложений в журнале.
-8. Merge на движке этапа 5.
-9. UI merge: выбор родителя, обе policy рядом, перенос правил, предпросмотр, подтверждение.
-10. Split: с переносом (одна транзакция) и без переноса (`ApplicationGroupSplit`, удерживающая
-    identity, resume).
-11. UI групп: состав группы в настройках корня, split с вопросом о переносе, отображение
-    удерживающей identity.
-12. Фильтр журнала по группе с переключением членов (UI поверх `ClipboardHistoryFilter` из
-    этапа 6).
-13. Финальное обновление документации и handoff.
+Выполнено по версии 1 (в `main`, переиспользование — §11):
+
+1. Протокол v1.
+2. Current v11 `ApplicationGroupMember` и repository групп.
+3. Эффективная policy через корень группы.
+4. Правка глобальной и уже заданной policy без очистки (publish-only).
+5. Движок `ApplicationHistoryPurge` (фазы Current/Archive/Catalog/Trash, continuation, dispatcher).
+6. Предпросмотр очистки, `ClipboardHistoryFilter` в репозиториях журнала, подсчёт с дедупликацией.
+
+Версия 2:
+
+7. Этот протокол и документы решения от 2026-09-23.
+8. Core: модель групп (`ApplicationGroupName`, снимок групп и членства, эффективная policy по
+   группе), имя приложения для отображения — в Core.
+9. Current v12: таблицы §2.1, миграция v11→v12 (§2.2), валидация, repository групп.
+10. Захват по policy группы (без смешивания с глобальной), publish policy группы, снятие
+    разрешения через корень версии 1.
+11. `ApplicationGroupMove`: codec v2, предпросмотр переноса, подтверждённый старт со сверкой,
+    continuation со сверкой членства, координатор; переименование и удаление пустой группы.
+12. App: настройки приложения — из группы по умолчанию выбор «создать группу» (имя обязательно,
+    кнопка «Взять имя приложения») или «перенести в существующую»; из пользовательской группы —
+    правка настроек группы и перенос; предпросмотр → подтверждение → применение; вопрос об
+    опустевшей исходной группе; снятие legacy-путей очистки из App.
+13. Журнал: группа записи, список нераспределённых приложений, фильтр по группе с переключением
+    членов.
+14. Управление группами: список, состав, переименование, удаление пустой.
+15. Финальное обновление документации и handoff.
 
 ### Accepted
 
-Все этапы ниже промотированы в `main` fast-forward (`b431d82..f88d524`, 2026-09-22); evidence —
-dispatch-прогоны на feature-ветках на тех же exact SHA, до промоушена.
-
 | Этап | Commit | Build | Native SQLCipher |
 |---|---|---|---|
-| 1. Протокол | `b431d82` | `35758391270` — SUCCESS (push, docs-only) | не требовался |
+| 1. Протокол v1 | `b431d82` | `35758391270` — SUCCESS (push, docs-only) | не требовался |
 | 2. Current v11 + repository групп | `d57523e` | `35759180102` — SUCCESS | `35759183138` — SUCCESS |
 | 3. Эффективная policy через корень | `922cdd8` | `35760096683` — SUCCESS | `35760100602` — SUCCESS |
 | 4. Правка policy без очистки | `94f2459` | `35760103390` — SUCCESS | `35760106905` — SUCCESS |
 | 5. Движок `ApplicationHistoryPurge` | `f88d524` | `35761173067` — SUCCESS | `35761176193` — SUCCESS |
+| 6. Предпросмотр + `ClipboardHistoryFilter` | `a4983eb` | `35804741569` — SUCCESS | `35804743191` — SUCCESS |
 
-Этап 5 намеренно не подключён к App: первое назначение персональной policy в App пока идёт прежним
-путём `ProtectedCurrentApplicationPolicyMaintenanceService` (очистка без подтверждения, Archive —
-только ссылки на файлы). Переключение на движок — в этапе 7 вместе с предпросмотром и
-подтверждением.
+Evidence — dispatch-прогоны на feature-ветках на тех же exact SHA до fast-forward промоушена.
+
+Движок очистки к App ещё не подключён: первое назначение индивидуальной policy в App пока идёт
+прежним путём `ProtectedCurrentApplicationPolicyMaintenanceService`. Он заменяется в этапе 12.
+
+## 11. Что из версии 1 переиспользуется
+
+| Реализовано по v1 | Судьба в v2 |
+|---|---|
+| Current v11 `ApplicationGroupMember` (этап 2) | таблица удаляется миграцией v11→v12 (§2.2) |
+| Разрешение policy через корень (этап 3) | заменяется захватом по policy группы (этап 10) |
+| Publish-only правка глобальной policy (этап 4) | без изменений |
+| Publish-only правка policy корня (этап 4) | превращается в правку policy группы (этап 10) |
+| Фазы Archive/Catalog/Trash, continuation, dispatcher, `secure_delete` (этап 5) | без изменений |
+| Codec marker v1 (этап 5) | заменяется версией 2 (§5.1, этап 11) |
+| Предпросмотр, накопитель с дедупликацией, `ClipboardHistoryFilter` (этап 6) | без изменений; область — одно приложение |
+| Подтверждённый старт и координатор (ветка `feat/first-assignment-confirmation`, в `main` не продвигалась) | адаптируются в этапе 11 |
