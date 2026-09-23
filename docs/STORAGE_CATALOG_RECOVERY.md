@@ -187,6 +187,23 @@ old destination bytes     -> Current/CatalogQuarantine/...
 
 Cancellation не проверяется после successful `File.Replace`: validated replacement уже durable, а старый Catalog сохранён в quarantine.
 
+### Срок хранения quarantine
+
+Решение пользователя 2026-09-23 (`OPEN_QUESTIONS.md` §4): копии в `Current/CatalogQuarantine`
+удаляются по тому же сроку, что и корзина внешних файлов (`TrashRetentionDays`, по умолчанию 30
+дней). Catalog — только проекция Current и Archive, поэтому копия нужна лишь для диагностики.
+
+`ProtectedCatalogQuarantineRetentionService` вызывается стартовым проходом
+(`ProtectedStorageStartupRecoveryCoordinator.RunAsync`) сразу после очистки корзины и под той же
+мутационной арендой хранилища:
+
+- дата копии берётся из имени (`CatalogQuarantineFileName`, UTC-время замены), а не из атрибутов
+  файла — `File.Replace` оставляет у копии время прежнего Catalog;
+- копия от даты `D` удаляется в день `D + TrashRetentionDays`, не раньше (правило корзины);
+- файлы с другим именем, подкаталоги, ссылки и копии с датой в будущем (часы сдвинулись) не
+  удаляются и возвращаются как пропущенные; каталог-ссылка — отказ;
+- отсутствующий или неположительный срок — очистка не выполняется (как у корзины).
+
 ## Failure boundaries
 
 Recovery/replacement fail closed при:
@@ -212,7 +229,6 @@ Recovery/replacement fail closed при:
 - восстановление отсутствующего `current.db`;
 - пользовательский recovery UI / confirmation flow;
 - автоматическое решение, когда именно invalid Catalog следует replacement-нуть;
-- retention/удаление quarantine backups;
 - external-file Trash/GC;
 - policy cleanup.
 

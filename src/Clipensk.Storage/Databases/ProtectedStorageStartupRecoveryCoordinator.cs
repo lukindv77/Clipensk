@@ -21,7 +21,8 @@ public sealed record ProtectedStorageStartupRecoveryResult(
 public sealed record ProtectedStorageStartupResult(
     ProtectedStorageStartupRecoveryResult Recovery,
     ArchiveRotationRunResult? StartedRotation,
-    ExternalPayloadTrashRetentionResult? TrashRetention);
+    ExternalPayloadTrashRetentionResult? TrashRetention,
+    CatalogQuarantineRetentionResult? CatalogQuarantineRetention = null);
 
 /// <summary>
 /// Completes every durable storage operation that may have been interrupted, in the single order
@@ -52,6 +53,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
     private readonly ProtectedPolicyMaintenanceResumeDispatcher _policyMaintenanceResume;
     private readonly ProtectedArchiveRotationStartService _rotationStart;
     private readonly ProtectedExternalPayloadTrashRetentionService _trashRetention;
+    private readonly ProtectedCatalogQuarantineRetentionService _catalogQuarantineRetention;
 
     public ProtectedStorageStartupRecoveryCoordinator(
         ProtectedStorageSessionLease session,
@@ -66,6 +68,7 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
         _policyMaintenanceResume = new ProtectedPolicyMaintenanceResumeDispatcher(session, factory);
         _rotationStart = new ProtectedArchiveRotationStartService(session, factory);
         _trashRetention = new ProtectedExternalPayloadTrashRetentionService(session);
+        _catalogQuarantineRetention = new ProtectedCatalogQuarantineRetentionService(session);
     }
 
     /// <summary>
@@ -82,7 +85,9 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
     /// Trash retention runs last, after the policy-maintenance continuation that moves
     /// newly unreferenced payloads into Trash, so one startup never deletes on a stale view of it.
     /// A retention that is absent or not positive is skipped rather than raised: startup must not
-    /// leave clipboard capture suspended over a hand-edited settings value.
+    /// leave clipboard capture suspended over a hand-edited settings value. The same retention
+    /// applies to the replaced Catalogs kept in <c>Current/CatalogQuarantine</c>
+    /// (<c>docs/OPEN_QUESTIONS.md</c> §4, decision 2026-09-23).
     /// </summary>
     public async Task<ProtectedStorageStartupResult> RunAsync(
         DateOnly currentLocalDate,
@@ -103,14 +108,18 @@ public sealed class ProtectedStorageStartupRecoveryCoordinator
         }
 
         ExternalPayloadTrashRetentionResult? retention = null;
+        CatalogQuarantineRetentionResult? quarantineRetention = null;
         if (trashRetentionDays is int days && days > 0)
         {
             retention = await _trashRetention
                 .CollectAsync(currentLocalDate, days, cancellationToken)
                 .ConfigureAwait(false);
+            quarantineRetention = await _catalogQuarantineRetention
+                .CollectAsync(currentLocalDate, days, cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        return new ProtectedStorageStartupResult(recovery, rotation, retention);
+        return new ProtectedStorageStartupResult(recovery, rotation, retention, quarantineRetention);
     }
 
     public async Task<ProtectedStorageStartupRecoveryResult> RecoverAsync(

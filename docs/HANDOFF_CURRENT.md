@@ -293,7 +293,13 @@ Trash, принято в `main`:
     - принятый минус: одинаковые ключ и соль во всех базах — вставку страницы из другой базы того же
       хранилища SQLCipher не замечает.
 
-Storage 689, Core 327, Infrastructure 106 — все зелёные локально. Ручной smoke групп, переноса
+36. Срок хранения копий `Current/CatalogQuarantine` (`OPEN_QUESTIONS.md` §4, решение 2026-09-23;
+    `STORAGE_CATALOG_RECOVERY.md`, «Срок хранения quarantine»): `ProtectedCatalogQuarantineRetentionService`
+    удаляет копии по сроку корзины (`TrashRetentionDays`) в стартовом проходе сразу после корзины;
+    дата — из имени (`CatalogQuarantineFileName`), посторонние файлы, ссылки и копии «из будущего»
+    не трогаются.
+
+Storage 693, Core 327, Infrastructure 106 — все зелёные локально. Ручной smoke групп, переноса
 хранилища и разблокировки по заголовкам баз на Windows — `UNVERIFIED`.
 
 ## F. Load-bearing design decisions
@@ -404,8 +410,9 @@ Windows 11, комментарий/экспорт шаблона локализ�
     реализованы:
     - смена пароля = перешифровка всех баз новым MasterKey, соль прежняя (`CRYPTOGRAPHY.md` §12);
     - явное действие «Начать текущую базу заново» при потере `current.db` (пароль проверяется по
-      уцелевшим базам, `StorageId` и соль прежние);
-    - удаление копий `Current/CatalogQuarantine` по сроку корзины (`TrashRetentionDays`).
+      уцелевшим базам, `StorageId` и соль прежние).
+
+    Удаление копий `Current/CatalogQuarantine` по сроку корзины — реализовано (§E пункт 36).
 
 Отдельно, не код:
 
@@ -423,7 +430,7 @@ Windows 11, комментарий/экспорт шаблона локализ�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит handoff поверх `68ec635` (ключ хранилища без `storage-crypto.json`, §E пункт 35). §I.9 (перенос хранилища), §I.11 (группы приложений) и модель ключа завершены; открыты решённые, но не реализованные крипто-пункты (§I.12: смена пароля, «Начать текущую базу заново», срок карантина Catalog) и ручной smoke на Windows (§I.10) — его может выполнить только пользователь.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит handoff поверх `68ec635` (ключ хранилища без `storage-crypto.json`, §E пункт 35). §I.9 (перенос хранилища), §I.11 (группы приложений) и модель ключа завершены; открыты решённые, но не реализованные крипто-пункты (§I.12: смена пароля, «Начать текущую базу заново»; срок карантина Catalog реализован — §E пункт 36) и ручной smoke на Windows (§I.10) — его может выполнить только пользователь.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
 5. Не переделывать заново принятые слайсы ротации (включая дефолты порогов и валидацию), Archive Split, возврата в clipboard (включая режим «вставить как обычный текст»), Trash retention, журнала (период/поиск/фильтр/дефолт 30 дней), блокировки (ручная + автоблокировка по простою), внешней локализации (включая экспорт шаблона с русским комментарием), оболочки (tray/автозапуск/«О программе»), single-instance/защиты каталога данных, таргета только Windows 11, focus restoration (minimize-to-tray, Escape, авто-скрытие по клику мимо), дефолтов/KB-редактирования числовых лимитов форматов (`OPEN_QUESTIONS.md` §6) групп приложений с ретроактивной очисткой (`APPLICATION_GROUP_PROTOCOL.md` этапы 1–15) и переноса хранилища с `settings.json` рядом с программой (`DATA_ROOT_RELOCATION_PROTOCOL.md` этапы 1–4).

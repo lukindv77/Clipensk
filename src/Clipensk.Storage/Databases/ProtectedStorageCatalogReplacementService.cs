@@ -161,10 +161,10 @@ public sealed class ProtectedStorageCatalogReplacementService
 
             string quarantineDirectory = Path.Combine(
                 currentDirectory,
-                "CatalogQuarantine");
+                CatalogQuarantineFileName.DirectoryName);
             Directory.CreateDirectory(quarantineDirectory);
             string quarantineFileName =
-                $"storage-catalog-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssfffffffZ}-{Guid.NewGuid():N}.db";
+                CatalogQuarantineFileName.Create(DateTimeOffset.UtcNow, Guid.NewGuid());
             string quarantinePath = Path.Combine(
                 quarantineDirectory,
                 quarantineFileName);

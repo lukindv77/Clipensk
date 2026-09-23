@@ -235,6 +235,74 @@ public sealed class ProtectedStorageStartupRecoveryCoordinatorTests
         Assert.True(Directory.Exists(expired));
     }
 
+    [Fact]
+    public async Task RunAsync_DeletesCatalogQuarantineCopiesAsOldAsTheTrashRetention()
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        string expired = SeedQuarantinedCatalog(environment, new DateTimeOffset(2026, 1, 30, 23, 0, 0, TimeSpan.Zero));
+        string lastDay = SeedQuarantinedCatalog(environment, new DateTimeOffset(2026, 1, 31, 8, 0, 0, TimeSpan.Zero));
+        string future = SeedQuarantinedCatalog(environment, new DateTimeOffset(2026, 4, 1, 8, 0, 0, TimeSpan.Zero));
+        string quarantine = Path.GetDirectoryName(expired)!;
+        File.WriteAllText(Path.Combine(quarantine, "notes.txt"), "keep");
+        File.WriteAllBytes(Path.Combine(quarantine, "storage-catalog-2026.db"), [1]);
+        Directory.CreateDirectory(Path.Combine(quarantine, "nested"));
+
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, rotationSettings: null, trashRetentionDays: 30);
+
+        // Quarantined on 2026-01-30: 30 complete days have passed by 2026-03-01. On 2026-01-31: not yet.
+        Assert.NotNull(result.CatalogQuarantineRetention);
+        Assert.Equal(1, result.CatalogQuarantineRetention!.DeletedFileCount);
+        Assert.False(File.Exists(expired));
+        Assert.True(File.Exists(lastDay));
+        Assert.True(File.Exists(future));
+        Assert.Equal(
+            ["nested", "notes.txt", "storage-catalog-2026.db", Path.GetFileName(future)],
+            result.CatalogQuarantineRetention.SkippedEntryNames.Order(StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    public async Task RunAsync_KeepsTheCatalogQuarantineWhenRetentionIsNotUsable(int? trashRetentionDays)
+    {
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        string expired = SeedQuarantinedCatalog(environment, new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        ProtectedStorageStartupResult result = await Coordinator(environment)
+            .RunAsync(Today, rotationSettings: null, trashRetentionDays);
+
+        Assert.Null(result.CatalogQuarantineRetention);
+        Assert.True(File.Exists(expired));
+    }
+
+    [Fact]
+    public void CatalogQuarantineFileName_KeepsTheFormatReplacementHasAlwaysWritten()
+    {
+        var quarantinedAt = new DateTimeOffset(2026, 9, 23, 11, 22, 33, TimeSpan.FromHours(3)).AddTicks(4567891);
+        var id = Guid.Parse("0123456789abcdef0123456789abcdef");
+
+        string name = CatalogQuarantineFileName.Create(quarantinedAt, id);
+
+        Assert.Equal("storage-catalog-20260923T0822334567891Z-0123456789abcdef0123456789abcdef.db", name);
+        Assert.True(CatalogQuarantineFileName.TryParse(name, out DateTimeOffset parsed));
+        Assert.Equal(quarantinedAt, parsed);
+        Assert.Equal(TimeSpan.Zero, parsed.Offset);
+        Assert.False(CatalogQuarantineFileName.TryParse("storage-catalog-20261323T0822334567891Z-0123456789abcdef0123456789abcdef.db", out _));
+        Assert.False(CatalogQuarantineFileName.TryParse(name + "-journal", out _));
+    }
+
+    private static string SeedQuarantinedCatalog(
+        GlobalPolicyTestEnvironment environment,
+        DateTimeOffset quarantinedAtUtc)
+    {
+        string quarantine = Path.Combine(environment.Root, "Current", CatalogQuarantineFileName.DirectoryName);
+        Directory.CreateDirectory(quarantine);
+        string path = Path.Combine(quarantine, CatalogQuarantineFileName.Create(quarantinedAtUtc, Guid.NewGuid()));
+        File.WriteAllBytes(path, [1, 2, 3]);
+        return path;
+    }
+
     private static string SeedTrashedPayload(
         GlobalPolicyTestEnvironment environment,
         string deletionDate)

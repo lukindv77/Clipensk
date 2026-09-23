@@ -265,8 +265,10 @@ publish-путь `sqlcipher.dll` для unpackaged-сборки), описаны
 
 - byte-for-byte reproducibility/provenance hardening;
 - смена пароля (§12);
-- действие «Начать текущую базу заново» при потере `current.db`;
-- удаление резервных копий `Current/CatalogQuarantine` по сроку корзины.
+- действие «Начать текущую базу заново» при потере `current.db`.
+
+Резервные копии `Current/CatalogQuarantine` удаляются по сроку корзины
+(`STORAGE_CATALOG_RECOVERY.md`, «Срок хранения quarantine»).
 
 Граница блокировки: lock отзывает MasterKey и защищённую сессию, но не ждёт завершения уже начатых
 операций (`ProtectedStorageSessionLease.Dispose`) — операция, открывшая соединение до отзыва,
