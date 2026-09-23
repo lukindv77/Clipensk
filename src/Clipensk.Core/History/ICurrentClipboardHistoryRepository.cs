@@ -12,14 +12,16 @@ public interface ICurrentClipboardHistoryRepository
     /// (including non-ASCII alphabets). It never widens which physical database this call opens;
     /// the period alone decides that, per <c>docs/REQUIREMENTS.md</c> §8.
     ///
-    /// <paramref name="sourceApplicationId"/>, when non-null, restricts results to events captured
-    /// from that source application, per <c>docs/REQUIREMENTS.md</c> §1.
+    /// <paramref name="filter"/>, when non-null, restricts results to events from its source
+    /// applications and/or holding a representation of its exact format — see
+    /// <see cref="ClipboardHistoryFilter"/> (<c>docs/REQUIREMENTS.md</c> §1,
+    /// <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §4 and §8).
     /// </summary>
     ValueTask<IReadOnlyList<ClipboardHistoryEntry>> ReadAsync(
         JournalDateRange period,
         int limit,
         string? searchText = null,
-        Guid? sourceApplicationId = null,
+        ClipboardHistoryFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -27,7 +29,7 @@ public interface ICurrentClipboardHistoryRepository
     /// UTC/EventId order. The period must match the cursor's period. An empty result
     /// means no further events were visible for that read; pages are separate snapshots.
     ///
-    /// <paramref name="searchText"/> and <paramref name="sourceApplicationId"/> have the same
+    /// <paramref name="searchText"/> and <paramref name="filter"/> have the same
     /// meaning as in <see cref="ReadAsync"/> and must be the same values used to produce
     /// <paramref name="before"/>, so a page and its continuation filter identically.
     /// </summary>
@@ -36,6 +38,6 @@ public interface ICurrentClipboardHistoryRepository
         int limit,
         ClipboardHistoryCursor before,
         string? searchText = null,
-        Guid? sourceApplicationId = null,
+        ClipboardHistoryFilter? filter = null,
         CancellationToken cancellationToken = default);
 }

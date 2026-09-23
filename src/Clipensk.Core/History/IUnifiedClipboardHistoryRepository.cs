@@ -8,7 +8,7 @@ public interface IUnifiedClipboardHistoryRepository
     /// UTC timestamp then EventId descending. A temporarily duplicated logical event
     /// is returned once with every verified physical location.
     ///
-    /// <paramref name="searchText"/> and <paramref name="sourceApplicationId"/>, when supplied,
+    /// <paramref name="searchText"/> and <paramref name="filter"/>, when supplied,
     /// restrict results per <see cref="ICurrentClipboardHistoryRepository.ReadAsync"/>. Both are
     /// applied within each already-selected physical database and never change which ones are
     /// opened.
@@ -17,7 +17,7 @@ public interface IUnifiedClipboardHistoryRepository
         JournalDateRange period,
         int limit,
         string? searchText = null,
-        Guid? sourceApplicationId = null,
+        ClipboardHistoryFilter? filter = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -30,6 +30,6 @@ public interface IUnifiedClipboardHistoryRepository
         int limit,
         ClipboardHistoryCursor before,
         string? searchText = null,
-        Guid? sourceApplicationId = null,
+        ClipboardHistoryFilter? filter = null,
         CancellationToken cancellationToken = default);
 }

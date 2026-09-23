@@ -66,11 +66,12 @@ internal static class ApplicationGroupMaintenanceDatabase
         }
     }
 
-    public static SqliteConnection OpenArchiveForWrite(
+    public static SqliteConnection OpenArchive(
         ProtectedStorageSessionLease session,
         IKeyedSqliteConnectionFactory connectionFactory,
         ArchiveFileName fileName,
         Guid expectedDatabaseId,
+        SqliteOpenMode mode,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -79,11 +80,14 @@ internal static class ApplicationGroupMaintenanceDatabase
         SqliteConnection connection = connectionFactory.Open(
             Path.Combine(ArchiveDirectory(session), fileName.FileName),
             session.DangerousGetMasterKeyMemory(),
-            SqliteOpenMode.ReadWrite);
+            mode);
         try
         {
             EnableForeignKeys(connection);
-            ClipboardHistoryPurge.EnableSecureDelete(connection);
+            if (mode != SqliteOpenMode.ReadOnly)
+            {
+                ClipboardHistoryPurge.EnableSecureDelete(connection);
+            }
             ValidateIdentity(
                 connection,
                 session.StorageId,

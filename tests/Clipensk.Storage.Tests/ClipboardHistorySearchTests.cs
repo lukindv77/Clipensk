@@ -138,7 +138,7 @@ public sealed class ClipboardHistorySearchTests
         var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
 
         IReadOnlyList<ClipboardHistoryEntry> fromA =
-            await repository.ReadAsync(Period, 10, sourceApplicationId: appA);
+            await repository.ReadAsync(Period, 10, filter: ClipboardHistoryFilter.ForSource(appA));
         IReadOnlyList<ClipboardHistoryEntry> all = await repository.ReadAsync(Period, 10);
 
         Assert.Single(fromA);
@@ -154,7 +154,7 @@ public sealed class ClipboardHistorySearchTests
         var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
 
         IReadOnlyList<ClipboardHistoryEntry> filtered =
-            await repository.ReadAsync(Period, 10, sourceApplicationId: Guid.NewGuid());
+            await repository.ReadAsync(Period, 10, filter: ClipboardHistoryFilter.ForSource(Guid.NewGuid()));
 
         Assert.Empty(filtered);
     }
@@ -171,7 +171,7 @@ public sealed class ClipboardHistorySearchTests
         var repository = new SqliteCurrentClipboardHistoryRepository(environment.Session, environment.Factory);
 
         IReadOnlyList<ClipboardHistoryEntry> entries =
-            await repository.ReadAsync(Period, 10, searchText: "match", sourceApplicationId: appA);
+            await repository.ReadAsync(Period, 10, searchText: "match", filter: ClipboardHistoryFilter.ForSource(appA));
 
         ClipboardHistoryEntry entry = Assert.Single(entries);
         Assert.Equal(appA, entry.SourceApplicationId!.Value);
@@ -187,9 +187,9 @@ public sealed class ClipboardHistorySearchTests
         var repository = new ProtectedUnifiedClipboardHistoryRepository(environment.Session, environment.Factory);
 
         IReadOnlyList<UnifiedClipboardHistoryEntry> matched =
-            await repository.ReadAsync(Period, 10, sourceApplicationId: appA);
+            await repository.ReadAsync(Period, 10, filter: ClipboardHistoryFilter.ForSource(appA));
         IReadOnlyList<UnifiedClipboardHistoryEntry> unmatched =
-            await repository.ReadAsync(Period, 10, sourceApplicationId: Guid.NewGuid());
+            await repository.ReadAsync(Period, 10, filter: ClipboardHistoryFilter.ForSource(Guid.NewGuid()));
 
         Assert.Single(matched);
         Assert.Empty(unmatched);

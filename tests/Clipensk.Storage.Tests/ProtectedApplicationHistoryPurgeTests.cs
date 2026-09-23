@@ -9,6 +9,7 @@ using Clipensk.Storage.Databases;
 using Clipensk.Storage.History;
 using Microsoft.Data.Sqlite;
 using Xunit;
+using static Clipensk.Storage.Tests.ApplicationGroupTestData;
 using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.Storage.Tests;
@@ -100,7 +101,7 @@ public sealed class ProtectedApplicationHistoryPurgeTests
 
         Guid archivedHtml = InsertEvent(environment, archive, root, ("HTML Format", "Text"), ("Text", "Text"));
         (Guid archivedImage, string sourcePath, string trashPath) =
-            InsertArchivedImage(environment, archive, root);
+            InsertArchivedImage(environment, archive, root, DeletionDate);
         Guid otherHtml = InsertEvent(environment, archive, other, ("HTML Format", "Text"));
 
         await Service(environment).StartFirstAssignmentAsync(root, DenyHtmlAndPng);
@@ -264,164 +265,6 @@ public sealed class ProtectedApplicationHistoryPurgeTests
                 item => item.Name,
                 item => new ClipboardFormatCapturePolicy(item.Rule),
                 StringComparer.Ordinal));
-
-    private static DurableApplicationId InsertIdentity(GlobalPolicyTestEnvironment environment)
-    {
-        DurableApplicationId applicationId = DurableApplicationId.New();
-        environment.Execute($"""
-            INSERT INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
-            VALUES ('{applicationId}', '2026-09-10T00:00:00.0000000+00:00');
-            """);
-        return applicationId;
-    }
-
-    private static void AddMember(
-        GlobalPolicyTestEnvironment environment,
-        DurableApplicationId member,
-        DurableApplicationId root) =>
-        environment.Execute($"""
-            INSERT INTO ApplicationGroupMember VALUES (
-                '{member}', '{root}', NULL, '2026-09-22T10:00:00.0000000+00:00');
-            """);
-
-    private static async Task<ArchiveFileName> CreateArchiveAsync(GlobalPolicyTestEnvironment environment)
-    {
-        var fileName = new ArchiveFileName(31, ArchiveFileName.NoSplit);
-        await new ProtectedArchiveDatabaseService(environment.Session, environment.Factory)
-            .CreateAsync(
-                fileName,
-                new JournalDateRange(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 31)));
-        return fileName;
-    }
-
-    private static void InsertArchiveIdentity(
-        GlobalPolicyTestEnvironment environment,
-        ArchiveFileName archive,
-        DurableApplicationId applicationId) =>
-        Execute(environment, archive, $"""
-            INSERT INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
-            VALUES ('{applicationId}', '2026-09-10T00:00:00.0000000+00:00');
-            """);
-
-    private static Guid InsertEvent(
-        GlobalPolicyTestEnvironment environment,
-        ArchiveFileName? archive,
-        DurableApplicationId? source,
-        params (string FormatName, string PayloadKind)[] payloads) =>
-        InsertEvent(environment, archive, source, payloads, secretText: "text");
-
-    private static Guid InsertEvent(
-        GlobalPolicyTestEnvironment environment,
-        ArchiveFileName? archive,
-        DurableApplicationId? source,
-        (string FormatName, string PayloadKind) payload,
-        string secretText) =>
-        InsertEvent(environment, archive, source, [payload], secretText);
-
-    private static Guid InsertEvent(
-        GlobalPolicyTestEnvironment environment,
-        ArchiveFileName? archive,
-        DurableApplicationId? source,
-        (string FormatName, string PayloadKind)[] payloads,
-        string secretText)
-    {
-        Guid eventId = Guid.NewGuid();
-        string sourceSql = source is null ? "NULL" : $"'{source}'";
-        var sql = new StringBuilder($"""
-            INSERT INTO ClipboardHistoryEvent (
-                EventId, EventUtc, LocalOffsetMinutes, WindowsTimeZoneId, CalendarDate,
-                SourceApplicationId, SourceProcessId, SourceExecutablePath, SourceApplicationUserModelId)
-            VALUES ('{eventId:D}', '2026-01-10T12:00:00.0000000+00:00', 0, 'UTC', '2026-01-10',
-                {sourceSql}, NULL, NULL, NULL);
-            """);
-        for (int order = 0; order < payloads.Length; order++)
-        {
-            sql.Append($"""
-                INSERT INTO ClipboardHistoryPayload (
-                    EventId, PayloadOrder, FormatName, PayloadKind, CanonicalByteCount,
-                    InlineCanonicalText, SearchText, ExternalSha256, ExternalRelativePath, ExternalSizeBytes)
-                VALUES ('{eventId:D}', {order}, '{payloads[order].FormatName}', '{payloads[order].PayloadKind}', 40,
-                    '{secretText}', '{secretText}', NULL, NULL, NULL);
-                """);
-        }
-
-        Execute(environment, archive, sql.ToString());
-        return eventId;
-    }
-
-    private static (Guid EventId, string SourcePath, string TrashPath) InsertArchivedImage(
-        GlobalPolicyTestEnvironment environment,
-        ArchiveFileName archive,
-        DurableApplicationId source)
-    {
-        byte[] bytes = Encoding.UTF8.GetBytes("png-bytes-for-history-purge");
-        string sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        string relativePath = "2026-01-10/" + sha + ".png";
-        string sourcePath = Path.Combine(environment.Root, "Files", "2026-01-10", sha + ".png");
-        Directory.CreateDirectory(Path.GetDirectoryName(sourcePath)!);
-        File.WriteAllBytes(sourcePath, bytes);
-
-        Guid eventId = Guid.NewGuid();
-        Execute(environment, archive, $"""
-            INSERT INTO ClipboardHistoryEvent (
-                EventId, EventUtc, LocalOffsetMinutes, WindowsTimeZoneId, CalendarDate,
-                SourceApplicationId, SourceProcessId, SourceExecutablePath, SourceApplicationUserModelId)
-            VALUES ('{eventId:D}', '2026-01-10T12:00:00.0000000+00:00', 0, 'UTC', '2026-01-10',
-                '{source}', NULL, NULL, NULL);
-            INSERT INTO ClipboardHistoryPayload (
-                EventId, PayloadOrder, FormatName, PayloadKind, CanonicalByteCount,
-                InlineCanonicalText, SearchText, ExternalSha256, ExternalRelativePath, ExternalSizeBytes)
-            VALUES ('{eventId:D}', 0, 'PNG', 'PngImage', {bytes.Length},
-                NULL, NULL, '{sha}', '{relativePath}', {bytes.Length});
-            """);
-
-        string trashPath = Path.Combine(
-            environment.Root,
-            "Trash",
-            DeletionDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            "2026-01-10",
-            sha + ".png");
-        return (eventId, sourcePath, trashPath);
-    }
-
-    private static void Execute(GlobalPolicyTestEnvironment environment, ArchiveFileName? archive, string sql)
-    {
-        if (archive is null)
-        {
-            environment.Execute(sql);
-            return;
-        }
-
-        using SqliteConnection connection = environment.Factory.Open(
-            Path.Combine(environment.Root, "Archive", archive.Value.FileName),
-            environment.Key,
-            SqliteOpenMode.ReadWrite);
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
-    }
-
-    private static long Scalar(GlobalPolicyTestEnvironment environment, ArchiveFileName? archive, string sql)
-    {
-        if (archive is null)
-        {
-            return environment.Scalar(sql);
-        }
-
-        using SqliteConnection connection = environment.Factory.Open(
-            Path.Combine(environment.Root, "Archive", archive.Value.FileName),
-            environment.Key,
-            SqliteOpenMode.ReadOnly);
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = sql;
-        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-    }
-
-    private static long PayloadCount(GlobalPolicyTestEnvironment environment, ArchiveFileName? archive, Guid eventId) =>
-        Scalar(environment, archive, $"SELECT COUNT(*) FROM ClipboardHistoryPayload WHERE EventId = '{eventId:D}';");
-
-    private static long EventCount(GlobalPolicyTestEnvironment environment, ArchiveFileName? archive, Guid eventId) =>
-        Scalar(environment, archive, $"SELECT COUNT(*) FROM ClipboardHistoryEvent WHERE EventId = '{eventId:D}';");
 
     private static string ReadDatabaseText(string path)
     {

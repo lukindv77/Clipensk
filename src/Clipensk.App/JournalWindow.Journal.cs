@@ -264,19 +264,22 @@ public sealed partial class JournalWindow
                 async () =>
                 {
                     var repository = new ProtectedUnifiedClipboardHistoryRepository(session);
+                    ClipboardHistoryFilter? filter = sourceApplicationId is Guid sourceId
+                        ? ClipboardHistoryFilter.ForSource(sourceId)
+                        : null;
                     return before is null
                         ? await repository.ReadAsync(
                             period,
                             JournalPageSize,
                             searchTerm,
-                            sourceApplicationId,
+                            filter,
                             session.CancellationToken)
                         : await repository.ReadBeforeAsync(
                             period,
                             JournalPageSize,
                             before,
                             searchTerm,
-                            sourceApplicationId,
+                            filter,
                             session.CancellationToken);
                 },
                 session.CancellationToken);

@@ -52,7 +52,61 @@ internal sealed record ClipboardHistoryPurgePlan(
     IReadOnlyList<string> Records,
     ClipboardHistoryPurgeSummary Summary)
 {
-    internal sealed record PayloadKey(string EventId, long PayloadOrder);
+    internal sealed record PayloadKey(
+        string EventId,
+        long PayloadOrder,
+        string FormatName,
+        bool IsExternalReference);
+}
+
+/// <summary>
+/// Sums the purge plans of several history databases, counting each logical event once. An event
+/// can temporarily exist in two databases (a Current→Archive copy is committed before Current is
+/// purged); both copies hold the same representations, so only the first plan that touches the
+/// event counts it. Plans must therefore be added Current first, then Archives.
+/// </summary>
+internal sealed class ClipboardHistoryPurgeSummaryAccumulator
+{
+    private readonly HashSet<string> _countedEvents = new(StringComparer.Ordinal);
+
+    public ClipboardHistoryPurgeSummary AddDistinct(ClipboardHistoryPurgePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var records = new HashSet<string>(
+            plan.Records.Where(eventId => !_countedEvents.Contains(eventId)),
+            StringComparer.Ordinal);
+        var trimmed = new HashSet<string>(StringComparer.Ordinal);
+        var byFormat = new Dictionary<string, int>(StringComparer.Ordinal);
+        int representations = 0;
+        int externalReferences = 0;
+        foreach (ClipboardHistoryPurgePlan.PayloadKey key in plan.Representations)
+        {
+            if (_countedEvents.Contains(key.EventId))
+            {
+                continue;
+            }
+
+            representations++;
+            byFormat[key.FormatName] = byFormat.GetValueOrDefault(key.FormatName) + 1;
+            if (key.IsExternalReference)
+            {
+                externalReferences++;
+            }
+            if (!records.Contains(key.EventId))
+            {
+                trimmed.Add(key.EventId);
+            }
+        }
+
+        _countedEvents.UnionWith(records);
+        _countedEvents.UnionWith(trimmed);
+        return new ClipboardHistoryPurgeSummary(
+            representations,
+            externalReferences,
+            records.Count,
+            trimmed.Count,
+            byFormat);
+    }
 }
 
 /// <summary>
@@ -147,9 +201,14 @@ internal static class ClipboardHistoryPurge
                 }
 
                 currentDeleted++;
-                representations.Add(new ClipboardHistoryPurgePlan.PayloadKey(eventId, payloadOrder));
+                bool isExternalReference = payloadKind is "PngImage" or "CustomBinary";
+                representations.Add(new ClipboardHistoryPurgePlan.PayloadKey(
+                    eventId,
+                    payloadOrder,
+                    formatName,
+                    isExternalReference));
                 byFormat[formatName] = byFormat.GetValueOrDefault(formatName) + 1;
-                if (payloadKind is "PngImage" or "CustomBinary")
+                if (isExternalReference)
                 {
                     externalReferences++;
                 }

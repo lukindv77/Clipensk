@@ -1,7 +1,6 @@
 using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
-using Clipensk.Storage.Applications;
 using Clipensk.Storage.History;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -68,20 +67,13 @@ public sealed class ProtectedApplicationHistoryPurgeService
         return await RunAsync(
                 (connection, transaction, token) =>
                 {
-                    ClipboardCapturePolicy global = ReadRequiredGlobalPolicy(connection, transaction, token);
-                    ApplicationGroupSnapshot groups =
-                        SqliteApplicationGroupRepository.ReadSnapshotInTransaction(connection, transaction, token);
-                    RequireIdentity(connection, transaction, rootApplicationId);
-                    if (groups.IsMember(rootApplicationId))
-                    {
-                        throw new InvalidOperationException(
-                            "A group member has no policy of its own; assign the group root's policy instead.");
-                    }
-                    if (groups.IsPersonallyConfigured(rootApplicationId))
-                    {
-                        throw new InvalidOperationException(
-                            "The group root already has a personal policy; an edit publishes without a purge.");
-                    }
+                    ApplicationHistoryPurgeScope scope =
+                        ApplicationHistoryPurgeScope.ResolveFirstAssignmentInTransaction(
+                            connection,
+                            transaction,
+                            rootApplicationId,
+                            policy,
+                            token);
 
                     CapturePolicySql.InsertMissingCustomBinaryConfigurationsInTransaction(
                         connection,
@@ -96,14 +88,12 @@ public sealed class ProtectedApplicationHistoryPurgeService
                         replaceExisting: false,
                         token);
 
-                    ClipboardHistoryPurgeRule rule = ClipboardHistoryPurgeRule.FromEffectivePolicy(
-                        new ClipboardCapturePolicyEvaluator().Merge(global, policy));
                     return ApplicationHistoryPurgeStateCodec.CreateStarted(
                         ApplicationHistoryPurgeReason.FirstAssignment,
                         rootApplicationId.ToString(),
                         childApplicationId: null,
-                        groups.MembersOf(rootApplicationId).Select(static id => id.ToString()),
-                        rule,
+                        scope.SourceApplicationIds.Select(static id => id.ToString()),
+                        scope.Rule,
                         ApplicationPolicyMaintenanceStateCodec.ComputePolicyFingerprint(policy));
                 },
                 cancellationToken)
@@ -170,32 +160,5 @@ public sealed class ProtectedApplicationHistoryPurgeService
                 },
                 CancellationToken.None)
             .ConfigureAwait(false);
-    }
-
-    private static ClipboardCapturePolicy ReadRequiredGlobalPolicy(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        CancellationToken token) =>
-        CapturePolicySql.ReadGlobalPolicyInTransaction(connection, transaction, token)
-        ?? throw new InvalidOperationException(
-            "A history purge requires the initial global capture policy to be saved first.");
-
-    private static void RequireIdentity(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        ApplicationId applicationId)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT COUNT(*)
-            FROM ApplicationIdentity
-            WHERE ApplicationId = $applicationId COLLATE BINARY;
-            """;
-        command.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-        if (Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 1)
-        {
-            throw new InvalidOperationException("A history purge requires an existing application identity.");
-        }
     }
 }

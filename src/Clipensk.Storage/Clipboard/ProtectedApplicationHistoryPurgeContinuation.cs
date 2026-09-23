@@ -159,11 +159,12 @@ public sealed class ProtectedApplicationHistoryPurgeContinuation
             ClipboardHistoryPurgeSummary archiveSummary = await Task.Run(
                     () =>
                     {
-                        using SqliteConnection connection = ApplicationGroupMaintenanceDatabase.OpenArchiveForWrite(
+                        using SqliteConnection connection = ApplicationGroupMaintenanceDatabase.OpenArchive(
                             _session,
                             _connectionFactory,
                             fileName,
                             identity.DatabaseId,
+                            SqliteOpenMode.ReadWrite,
                             token);
                         using SqliteTransaction transaction = connection.BeginTransaction(deferred: false);
                         ClipboardHistoryPurgePlan plan = ClipboardHistoryPurge.PlanInTransaction(

@@ -44,16 +44,16 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
         JournalDateRange period,
         int limit,
         string? searchText = null,
-        Guid? sourceApplicationId = null,
+        ClipboardHistoryFilter? filter = null,
         CancellationToken cancellationToken = default) =>
-        ReadCoreAsync(period, limit, before: null, searchText, sourceApplicationId, cancellationToken);
+        ReadCoreAsync(period, limit, before: null, searchText, filter, cancellationToken);
 
     public ValueTask<IReadOnlyList<UnifiedClipboardHistoryEntry>> ReadBeforeAsync(
         JournalDateRange period,
         int limit,
         ClipboardHistoryCursor before,
         string? searchText = null,
-        Guid? sourceApplicationId = null,
+        ClipboardHistoryFilter? filter = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(before);
@@ -64,7 +64,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
                 nameof(before));
         }
 
-        return ReadCoreAsync(period, limit, before, searchText, sourceApplicationId, cancellationToken);
+        return ReadCoreAsync(period, limit, before, searchText, filter, cancellationToken);
     }
 
     private async ValueTask<IReadOnlyList<UnifiedClipboardHistoryEntry>> ReadCoreAsync(
@@ -72,7 +72,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
         int limit,
         ClipboardHistoryCursor? before,
         string? searchText,
-        Guid? sourceApplicationId,
+        ClipboardHistoryFilter? filter,
         CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -106,7 +106,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
                 limit,
                 before,
                 searchText,
-                sourceApplicationId,
+                filter,
                 token).ConfigureAwait(false);
             foreach (ClipboardHistoryEntry entry in currentEntries)
             {
@@ -124,7 +124,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
                 segment,
                 _connectionFactory);
             IReadOnlyList<ClipboardHistoryEntry> archiveEntries = await archiveRepository
-                .ReadAsync(period, limit, before, searchText, sourceApplicationId, token)
+                .ReadAsync(period, limit, before, searchText, filter, token)
                 .ConfigureAwait(false);
             ClipboardHistoryPhysicalLocation location =
                 ClipboardHistoryPhysicalLocation.Archive(
@@ -162,7 +162,7 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
         int limit,
         ClipboardHistoryCursor? before,
         string? searchText,
-        Guid? sourceApplicationId,
+        ClipboardHistoryFilter? filter,
         CancellationToken token)
     {
         return await Task.Run(
@@ -171,12 +171,12 @@ public sealed class ProtectedUnifiedClipboardHistoryRepository : IUnifiedClipboa
                 if (before is null)
                 {
                     return await _currentRepository
-                        .ReadAsync(period, limit, searchText, sourceApplicationId, token)
+                        .ReadAsync(period, limit, searchText, filter, token)
                         .ConfigureAwait(false);
                 }
 
                 return await _currentRepository
-                    .ReadBeforeAsync(period, limit, before, searchText, sourceApplicationId, token)
+                    .ReadBeforeAsync(period, limit, before, searchText, filter, token)
                     .ConfigureAwait(false);
             },
             CancellationToken.None).ConfigureAwait(false);
