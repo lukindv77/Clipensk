@@ -1,4 +1,5 @@
 using System.Globalization;
+using Clipensk.Core.Security;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Clipboard;
@@ -29,6 +30,8 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     public const int CatalogSchemaVersion = 3;
     public const int CurrentEncryptionVersion = 1;
 
+    private const int SqliteNotADatabase = 26;
+
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
 
     public ProtectedStorageDatabaseService(IKeyedSqliteConnectionFactory? connectionFactory = null)
@@ -48,9 +51,9 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         {
             throw new ArgumentException("StorageId не может быть пустым.", nameof(storageId));
         }
-        if (masterKey.Length != 32)
+        if (masterKey.Length != StorageKeyMaterial.LengthBytes)
         {
-            throw new ArgumentException("MasterKey должен содержать 32 байта.", nameof(masterKey));
+            throw new ArgumentException("Ключ хранилища должен содержать 48 байт: MasterKey и соль.", nameof(masterKey));
         }
 
         return Task.Run(
@@ -61,6 +64,98 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 allowInitialize,
                 cancellationToken),
             cancellationToken);
+    }
+
+    public Task<ProtectedStorageIdentityResult> IdentifyAsync(
+        string dataRootPath,
+        ReadOnlyMemory<byte> storageKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataRootPath);
+        if (storageKey.Length != StorageKeyMaterial.LengthBytes)
+        {
+            throw new ArgumentException("Ключ хранилища должен содержать 48 байт: MasterKey и соль.", nameof(storageKey));
+        }
+
+        return Task.Run(
+            () => IdentifyCore(Path.GetFullPath(dataRootPath), storageKey, cancellationToken),
+            cancellationToken);
+    }
+
+    private ProtectedStorageIdentityResult IdentifyCore(
+        string dataRootPath,
+        ReadOnlyMemory<byte> storageKey,
+        CancellationToken cancellationToken)
+    {
+        ReadOnlySpan<byte> salt = StorageKeyMaterial.GetSalt(storageKey.Span);
+        Span<byte> header = stackalloc byte[StorageSalt.LengthBytes];
+        int attempted = 0;
+        int rejected = 0;
+        ProtectedStorageDatabaseStatus failure = ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity;
+
+        foreach (string databasePath in StorageDatabaseFiles.EnumerateExisting(dataRootPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A database with another salt was not written with this key and could not accept it.
+            if (!StorageDatabaseFiles.TryReadSalt(databasePath, header) || !header.SequenceEqual(salt))
+            {
+                continue;
+            }
+
+            attempted++;
+            try
+            {
+                if (TryReadStorageId(databasePath, storageKey) is { } storageId)
+                {
+                    return new ProtectedStorageIdentityResult(ProtectedStorageIdentityStatus.Identified, storageId);
+                }
+            }
+            catch (ProtectedStorageEncryptionUnavailableException)
+            {
+                return new ProtectedStorageIdentityResult(
+                    ProtectedStorageIdentityStatus.Unreadable,
+                    Guid.Empty,
+                    ProtectedStorageDatabaseStatus.EncryptionEngineUnavailable);
+            }
+            catch (SqliteException exception) when (exception.SqliteErrorCode == SqliteNotADatabase)
+            {
+                // SQLCipher checks the first page's HMAC: a wrong key reads as "not a database".
+                rejected++;
+            }
+            catch (SqliteException)
+            {
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                failure = ProtectedStorageDatabaseStatus.StorageFailure;
+            }
+        }
+
+        if (attempted == 0)
+        {
+            return new ProtectedStorageIdentityResult(ProtectedStorageIdentityStatus.NoDatabases, Guid.Empty);
+        }
+
+        return rejected == attempted
+            ? new ProtectedStorageIdentityResult(ProtectedStorageIdentityStatus.KeyRejected, Guid.Empty)
+            : new ProtectedStorageIdentityResult(ProtectedStorageIdentityStatus.Unreadable, Guid.Empty, failure);
+    }
+
+    private Guid? TryReadStorageId(string databasePath, ReadOnlyMemory<byte> storageKey)
+    {
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath,
+            storageKey,
+            SqliteOpenMode.ReadOnly);
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT StorageId FROM DatabaseIdentity WHERE SingletonId = 1;";
+        return command.ExecuteScalar() is string text &&
+               Guid.TryParse(text, out Guid storageId) &&
+               storageId != Guid.Empty
+            ? storageId
+            : null;
     }
 
     private ProtectedStorageDatabaseResult InitializeOrValidateCore(

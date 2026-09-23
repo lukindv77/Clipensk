@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Clipensk.Core.Security;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -32,9 +33,9 @@ public sealed class ProtectedStorageCatalogReplacementService
         {
             throw new ArgumentException("StorageId не может быть пустым.", nameof(storageId));
         }
-        if (masterKey.Length != 32)
+        if (masterKey.Length != StorageKeyMaterial.LengthBytes)
         {
-            throw new ArgumentException("MasterKey должен содержать 32 байта.", nameof(masterKey));
+            throw new ArgumentException("Ключ хранилища должен содержать 48 байт: MasterKey и соль.", nameof(masterKey));
         }
 
         string root = Path.GetFullPath(dataRootPath);

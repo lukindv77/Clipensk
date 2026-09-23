@@ -138,7 +138,7 @@ public sealed class SqliteExternalPayloadAddressIndexTests
                 "Clipensk.Storage.Tests",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
-            byte[] key = RandomNumberGenerator.GetBytes(32);
+            byte[] key = RandomNumberGenerator.GetBytes(48);
             var factory = new PlainSqliteConnectionFactory();
             Guid storageId = Guid.NewGuid();
 

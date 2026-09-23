@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Clipensk.Core.Security;
 using Microsoft.Data.Sqlite;
 using SQLitePCL;
 
@@ -17,9 +18,11 @@ public sealed class SqlCipherConnectionFactory : IKeyedSqliteConnectionFactory
         SqliteOpenMode mode)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
-        if (masterKey.Length != 32)
+        if (masterKey.Length != StorageKeyMaterial.LengthBytes)
         {
-            throw new ArgumentException("SQLCipher требует 32-байтовый MasterKey.", nameof(masterKey));
+            throw new ArgumentException(
+                "SQLCipher требует ключ хранилища: 32-байтовый MasterKey и 16-байтовую соль.",
+                nameof(masterKey));
         }
 
         EnsureProvider();
@@ -95,9 +98,9 @@ public sealed class SqlCipherConnectionFactory : IKeyedSqliteConnectionFactory
         }
     }
 
-    private static void ApplyRawKey(SqliteConnection connection, ReadOnlySpan<byte> masterKey)
+    private static void ApplyRawKey(SqliteConnection connection, ReadOnlySpan<byte> storageKey)
     {
-        byte[] sqlCipherRawKey = BuildSqlCipherRawKey(masterKey);
+        byte[] sqlCipherRawKey = BuildSqlCipherRawKey(storageKey);
         try
         {
             int result = raw.sqlite3_key(connection.Handle, sqlCipherRawKey);
@@ -120,15 +123,20 @@ public sealed class SqlCipherConnectionFactory : IKeyedSqliteConnectionFactory
         }
     }
 
-    private static byte[] BuildSqlCipherRawKey(ReadOnlySpan<byte> masterKey)
+    /// <summary>
+    /// <c>x'&lt;64 hex MasterKey&gt;&lt;32 hex salt&gt;'</c>: a raw key with an explicit salt. SQLCipher
+    /// writes the salt into the first 16 bytes of a new file and refuses an existing file whose
+    /// header carries another salt (<c>docs/CRYPTOGRAPHY.md</c> §6).
+    /// </summary>
+    private static byte[] BuildSqlCipherRawKey(ReadOnlySpan<byte> storageKey)
     {
         const string hex = "0123456789ABCDEF";
-        byte[] result = new byte[67];
+        byte[] result = new byte[(StorageKeyMaterial.LengthBytes * 2) + 3];
         result[0] = (byte)'x';
         result[1] = (byte)'\'';
 
         int destination = 2;
-        foreach (byte value in masterKey)
+        foreach (byte value in storageKey)
         {
             result[destination++] = (byte)hex[value >> 4];
             result[destination++] = (byte)hex[value & 0x0F];

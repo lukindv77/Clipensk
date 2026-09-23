@@ -22,7 +22,7 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
 
     public string Root { get; }
     public Guid StorageId { get; } = Guid.NewGuid();
-    public byte[] Key { get; } = Enumerable.Repeat((byte)0x37, 32).ToArray();
+    public byte[] Key { get; } = Enumerable.Repeat((byte)0x37, 48).ToArray();
     public TestConnectionFactory Factory { get; } = new();
     public ProtectedStorageDatabaseService Service { get; }
     public ProtectedApplicationLifecycle Lifecycle { get; private set; } = null!;

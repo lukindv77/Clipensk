@@ -15,7 +15,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
     public void Create_ComposesHistoryServicesWithoutEagerDatabaseAccess()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = Enumerable.Repeat((byte)0x77, 32).ToArray();
+        byte[] key = Enumerable.Repeat((byte)0x77, 48).ToArray();
         var lifecycle = CreateUnlockedLifecycle();
         using var session = ProtectedStorageSessionLease.Create(
             lifecycle,
@@ -45,7 +45,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
     public void Create_AfterProtectedAccessRevocationFailsClosed()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = Enumerable.Repeat((byte)0x88, 32).ToArray();
+        byte[] key = Enumerable.Repeat((byte)0x88, 48).ToArray();
         var lifecycle = CreateUnlockedLifecycle();
         using var session = ProtectedStorageSessionLease.Create(
             lifecycle,
@@ -75,7 +75,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
             lifecycle,
             root,
             Guid.NewGuid(),
-            new MasterKeyLease(Enumerable.Repeat((byte)0x99, 32).ToArray()));
+            new MasterKeyLease(Enumerable.Repeat((byte)0x99, 48).ToArray()));
         var factory = new ThrowingConnectionFactory();
         var extensionProvider = new ThrowingExtensionProvider();
         ProtectedClipboardHistoryServices services = ProtectedClipboardHistoryServices.Create(
@@ -108,7 +108,7 @@ public sealed class ProtectedClipboardHistoryServicesTests
             lifecycle,
             root,
             Guid.NewGuid(),
-            new MasterKeyLease(Enumerable.Repeat((byte)0x9A, 32).ToArray()));
+            new MasterKeyLease(Enumerable.Repeat((byte)0x9A, 48).ToArray()));
         var factory = new ThrowingConnectionFactory();
         var extensionProvider = new ThrowingExtensionProvider();
         ProtectedClipboardHistoryServices services = ProtectedClipboardHistoryServices.Create(

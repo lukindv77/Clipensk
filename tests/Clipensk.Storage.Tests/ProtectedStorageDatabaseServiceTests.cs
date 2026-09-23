@@ -13,7 +13,7 @@ public sealed class ProtectedStorageDatabaseServiceTests
     public async Task Initialize_CreatesCurrentAndCatalog_WithSelfDescribingIdentity()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
 
         try
@@ -61,7 +61,7 @@ public sealed class ProtectedStorageDatabaseServiceTests
     public async Task Validate_RejectsDifferentStorageId()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
 
         try
         {
@@ -93,7 +93,7 @@ public sealed class ProtectedStorageDatabaseServiceTests
     public async Task Validate_RejectsPartialCurrentPair()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
 
         try
         {
@@ -127,7 +127,7 @@ public sealed class ProtectedStorageDatabaseServiceTests
     public async Task Initialize_RejectsArchiveEvidence_WhenCurrentPairIsMissing()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
 
         try
         {

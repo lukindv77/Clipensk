@@ -41,38 +41,21 @@ public sealed partial class JournalWindow
 
         try
         {
+            // Never starts a new storage: the password is checked against the databases present,
+            // Current first, so a missing or damaged Catalog does not stand in the way.
             ProtectedStorageUnlockResult result = await _credentialService.UnlockOrInitializeAsync(
                 _settings.DataRootPath,
-                password);
+                password,
+                allowInitialize: false);
             if (!result.IsSuccess)
             {
-                if (result.Status == ProtectedStorageUnlockStatus.InvalidMetadata)
-                {
-                    _credentialState = ProtectedStorageCredentialState.Invalid;
-                    ShowInvalidCryptoMetadata();
-                }
-                else
-                {
-                    LockInfo.Severity = InfoBarSeverity.Error;
-                    LockInfo.Message = _localization.GetString("Lock.InvalidPassword");
-                    LockInfo.IsOpen = true;
-                }
+                ShowUnlockFailure(result);
                 return;
             }
 
             acquiredKey = result.MasterKey
-                ?? throw new InvalidDataException("Credential service не вернул MasterKey.");
+                ?? throw new InvalidDataException("Credential service не вернул ключ хранилища.");
             _credentialState = ProtectedStorageCredentialState.Ready;
-
-            if (!result.IsStorageInitialized)
-            {
-                LockInfo.Severity = InfoBarSeverity.Informational;
-                LockInfo.Message = StorageCatalogRecoveryText(
-                    "NotInitialized",
-                    "Защищённое хранилище ещё не завершило первоначальную инициализацию. Используйте «Разблокировать»; восстановление Catalog здесь не выполняется.");
-                LockInfo.IsOpen = true;
-                return;
-            }
 
             ProtectedStorageDatabaseResult validation =
                 await _databaseService.InitializeOrValidateAsync(

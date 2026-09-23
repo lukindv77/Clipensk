@@ -301,7 +301,7 @@ public sealed partial class JournalWindow : Window
             await _credentialService.GetStateAsync(validatedPath);
         if (credentialState == ProtectedStorageCredentialState.Invalid)
         {
-            throw new InvalidDataException("Криптографические метаданные выбранного каталога повреждены или не поддерживаются.");
+            throw new InvalidDataException("Хранилище в выбранном каталоге не распознано: заголовки баз повреждены или формат не поддерживается.");
         }
 
         ApplicationSettings updated = _settings with { DataRootPath = validatedPath };
@@ -386,33 +386,43 @@ public sealed partial class JournalWindow : Window
 
         try
         {
+            // A new storage is started only when the screen asked for a new password; the databases
+            // themselves decide otherwise (docs/CRYPTOGRAPHY.md §3, §9).
             ProtectedStorageUnlockResult result = await _credentialService.UnlockOrInitializeAsync(
                 _settings.DataRootPath,
-                password);
+                password,
+                allowInitialize: _credentialState == ProtectedStorageCredentialState.Uninitialized);
 
             if (!result.IsSuccess)
             {
-                if (result.Status == ProtectedStorageUnlockStatus.InvalidMetadata)
-                {
-                    _credentialState = ProtectedStorageCredentialState.Invalid;
-                    ShowInvalidCryptoMetadata();
-                }
-                else
-                {
-                    LockInfo.Severity = InfoBarSeverity.Error;
-                    LockInfo.Message = _localization.GetString("Lock.InvalidPassword");
-                    LockInfo.IsOpen = true;
-                }
-
+                ShowUnlockFailure(result);
                 return;
             }
 
             acquiredKey = result.MasterKey
-                ?? throw new InvalidDataException("Credential service не вернул MasterKey.");
-            _credentialState = ProtectedStorageCredentialState.Ready;
-
-            if (result.WasInitialized)
+                ?? throw new InvalidDataException("Credential service не вернул ключ хранилища.");
+            if (!result.IsNewStorage)
             {
+                _credentialState = ProtectedStorageCredentialState.Ready;
+            }
+
+            ProtectedStorageDatabaseResult storageResult =
+                await _databaseService.InitializeOrValidateAsync(
+                    _settings.DataRootPath,
+                    result.StorageId,
+                    acquiredKey.DangerousGetMemory(),
+                    allowInitialize: result.IsNewStorage);
+
+            if (!storageResult.IsSuccess)
+            {
+                ShowStorageFailure(storageResult.Status);
+                return;
+            }
+
+            if (result.IsNewStorage)
+            {
+                // The storage exists from the moment its databases are published.
+                _credentialState = ProtectedStorageCredentialState.Ready;
                 string hint = PasswordHintEditor.Text.Trim();
                 ApplicationSettings updated = _settings with { PasswordHint = hint };
                 try
@@ -422,28 +432,8 @@ public sealed partial class JournalWindow : Window
                 }
                 catch
                 {
-                    // Ошибка сохранения необязательной подсказки не должна уничтожать уже созданный crypto profile.
+                    // Ошибка сохранения необязательной подсказки не должна мешать разблокировке уже созданного хранилища.
                 }
-            }
-
-            ProtectedStorageDatabaseResult storageResult =
-                await _databaseService.InitializeOrValidateAsync(
-                    _settings.DataRootPath,
-                    result.StorageId,
-                    acquiredKey.DangerousGetMemory(),
-                    allowInitialize: !result.IsStorageInitialized);
-
-            if (!storageResult.IsSuccess)
-            {
-                ShowStorageFailure(storageResult.Status);
-                return;
-            }
-
-            if (!result.IsStorageInitialized)
-            {
-                await _credentialService.MarkStorageInitializedAsync(
-                    _settings.DataRootPath,
-                    result.StorageId);
             }
 
             _lifecycle.CompleteUnlock();
@@ -707,6 +697,25 @@ public sealed partial class JournalWindow : Window
         LockInfo.Severity = InfoBarSeverity.Error;
         LockInfo.Message = _localization.GetString("Lock.InvalidMetadata");
         LockInfo.IsOpen = true;
+    }
+
+    private void ShowUnlockFailure(ProtectedStorageUnlockResult result)
+    {
+        switch (result.Status)
+        {
+            case ProtectedStorageUnlockStatus.InvalidStorage:
+                _credentialState = ProtectedStorageCredentialState.Invalid;
+                ShowInvalidCryptoMetadata();
+                break;
+            case ProtectedStorageUnlockStatus.StorageUnavailable:
+                ShowStorageFailure(result.StorageStatus);
+                break;
+            default:
+                LockInfo.Severity = InfoBarSeverity.Error;
+                LockInfo.Message = _localization.GetString("Lock.InvalidPassword");
+                LockInfo.IsOpen = true;
+                break;
+        }
     }
 
     private void ShowStorageFailure(ProtectedStorageDatabaseStatus status)

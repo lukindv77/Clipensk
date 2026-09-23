@@ -198,7 +198,7 @@ public sealed class SqliteApplicationIdentityRepositoryTests
         {
             RootPath = rootPath;
             StorageId = sessionStorageId;
-            _key = Enumerable.Repeat((byte)0x5A, 32).ToArray();
+            _key = Enumerable.Repeat((byte)0x5A, 48).ToArray();
             _factory = new PlainSqliteConnectionFactory();
 
             Lifecycle = new ProtectedApplicationLifecycle(isDataRootConfigured: true);

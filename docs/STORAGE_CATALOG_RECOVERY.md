@@ -203,13 +203,12 @@ Recovery/replacement fail closed при:
 - cancellation до publication;
 - filesystem publication failure.
 
-Операции не восстанавливают отсутствующий Current и не ремонтируют crypto metadata.
+Операции не восстанавливают отсутствующий Current. Отдельных crypto metadata нет: соль хранилища лежит в заголовке каждой базы (`CRYPTOGRAPHY.md` §3).
 
 ## Explicit non-goals
 
 Эти backend boundaries не реализуют:
 
-- recovery `storage-crypto.json` или MasterKey;
 - восстановление отсутствующего `current.db`;
 - пользовательский recovery UI / confirmation flow;
 - автоматическое решение, когда именно invalid Catalog следует replacement-нуть;

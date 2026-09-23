@@ -199,7 +199,7 @@ Existing-Catalog replacement переиспользует тот же recovery b
 
 Cancellation проверяется до publication; после successful `File.Move`/`File.Replace` durable result не демотируется.
 
-Physical external files не требуются для восстановления address metadata. Missing Current не восстанавливается из Catalog. Recovery `storage-crypto.json`/MasterKey и user-facing recovery UI остаются отдельными задачами.
+Physical external files не требуются для восстановления address metadata. Missing Current не восстанавливается из Catalog. Восстановление ключа не требуется: соль хранилища лежит в заголовке каждой базы (`CRYPTOGRAPHY.md` §3); user-facing recovery UI остаётся отдельной задачей.
 
 Полный contract: `STORAGE_CATALOG_RECOVERY.md`.
 

@@ -261,7 +261,7 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
         {
             RootPath = rootPath;
             StorageId = storageId;
-            _key = Enumerable.Repeat((byte)0x33, 32).ToArray();
+            _key = Enumerable.Repeat((byte)0x33, 48).ToArray();
             _factory = new PlainSqliteConnectionFactory();
 
             Lifecycle = new ProtectedApplicationLifecycle(isDataRootConfigured: true);

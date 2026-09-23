@@ -1,5 +1,5 @@
 using Clipensk.Core.Settings;
-using Clipensk.Infrastructure.Security;
+using Clipensk.Core.Storage;
 
 namespace Clipensk.Infrastructure.Storage;
 
@@ -112,12 +112,13 @@ internal sealed class DataRootManifest
     }
 
     /// <summary>
-    /// Files in the order the source is deleted: the crypto metadata last, so a partly removed
-    /// source keeps saying what it was until nothing else of it is left.
+    /// Files in the order the source is deleted: the storage databases last and <c>current.db</c>
+    /// the very last, so a partly removed source keeps saying what it was — and keeps a header
+    /// with the storage salt — until nothing else of it is left.
     /// </summary>
     public IEnumerable<DataRootManifestFile> FilesInRemovalOrder() =>
         Files
-            .OrderBy(static file => IsCryptoMetadata(file.RelativePath) ? 1 : 0)
+            .OrderBy(static file => RemovalRank(file.RelativePath))
             .ThenBy(static file => file.RelativePath, StringComparer.Ordinal);
 
     public IEnumerable<string> DirectoriesDeepestFirst() => Directories.Reverse();
@@ -146,8 +147,10 @@ internal sealed class DataRootManifest
         return remaining;
     }
 
-    private static bool IsCryptoMetadata(string relativePath) =>
-        DataRootPaths.Comparer.Equals(relativePath, FileProtectedStorageCredentialService.MetadataFileName);
+    private static int RemovalRank(string relativePath) =>
+        DataRootPaths.Comparer.Equals(relativePath, StorageDatabaseFiles.CurrentRelativePath) ? 2
+        : StorageDatabaseFiles.IsStorageDatabase(relativePath) ? 1
+        : 0;
 
     private static int Depth(string relativePath) =>
         relativePath.Count(static character =>

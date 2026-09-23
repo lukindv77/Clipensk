@@ -17,7 +17,7 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
     public async Task Initialize_CreatesLatestCurrentWithHistorySchemaAndCatalogV3()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 
@@ -49,7 +49,7 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
     public async Task Validate_MigratesCurrentV3ThroughHistoryAndPreservesIdentityAndPolicyRows()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         DurableApplicationId applicationId = DurableApplicationId.New();
         var factory = new PlainSqliteConnectionFactory();
@@ -84,7 +84,7 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
     public async Task Validate_InvalidCatalogDoesNotMutateCurrentV3()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 
@@ -114,7 +114,7 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
     public async Task Validate_MalformedCurrentV3DoesNotCreateHistoryTables()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 
@@ -142,7 +142,7 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
     public async Task Validate_CurrentV2RunsThroughPolicyAndHistoryMigrations()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         DurableApplicationId applicationId = DurableApplicationId.New();
         var factory = new PlainSqliteConnectionFactory();
@@ -173,7 +173,7 @@ public sealed class ProtectedStorageCurrentSchemaV4MigrationTests
     public async Task Validate_LegacyCurrentV1RunsThroughAllCurrentMigrations()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 

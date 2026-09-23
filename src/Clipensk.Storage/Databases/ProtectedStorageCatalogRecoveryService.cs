@@ -1,5 +1,6 @@
 using System.Globalization;
 using Clipensk.Core.History;
+using Clipensk.Core.Security;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Clipensk.Storage.Clipboard;
@@ -36,9 +37,9 @@ public sealed class ProtectedStorageCatalogRecoveryService
         {
             throw new ArgumentException("StorageId не может быть пустым.", nameof(storageId));
         }
-        if (masterKey.Length != 32)
+        if (masterKey.Length != StorageKeyMaterial.LengthBytes)
         {
-            throw new ArgumentException("MasterKey должен содержать 32 байта.", nameof(masterKey));
+            throw new ArgumentException("Ключ хранилища должен содержать 48 байт: MasterKey и соль.", nameof(masterKey));
         }
 
         string root = Path.GetFullPath(dataRootPath);

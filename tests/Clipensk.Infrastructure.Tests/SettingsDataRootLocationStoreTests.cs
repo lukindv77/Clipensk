@@ -94,7 +94,6 @@ public sealed class SettingsDataRootLocationStoreTests : IDisposable
     public async Task Relocation_ThroughTheSettingsFile_MovesTheStorageAndRecordsTheNewPath()
     {
         Directory.CreateDirectory(Path.Combine(_source, "Current"));
-        await File.WriteAllTextAsync(Path.Combine(_source, "storage-crypto.json"), "{}");
         await File.WriteAllBytesAsync(Path.Combine(_source, "Current", "current.db"), [1, 2, 3, 4]);
         var settings = new JsonApplicationSettingsStore(_settingsPath);
         await settings.SaveAsync(new ApplicationSettings { DataRootPath = _source, PasswordHint = "hint" });

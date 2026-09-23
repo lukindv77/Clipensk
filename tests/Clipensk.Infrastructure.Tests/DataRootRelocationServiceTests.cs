@@ -10,10 +10,9 @@ public sealed class DataRootRelocationServiceTests : IDisposable
 
     private static readonly string[] SourceFiles =
     [
-        "storage-crypto.json",
         Path.Combine("Current", "current.db"),
         Path.Combine("Current", "storage-catalog.db"),
-        Path.Combine("Archive", "2026-09-01.db"),
+        Path.Combine("Archive", "archive_000001.db"),
         Path.Combine("Archive", ".clipensk-archive-rotation-1", "staged.db"),
         Path.Combine("Files", "2026-09-01", "image.png"),
         Path.Combine("Languages", "en.json"),

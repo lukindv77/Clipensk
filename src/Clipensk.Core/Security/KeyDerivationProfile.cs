@@ -22,7 +22,8 @@ public sealed record KeyDerivationProfile(
 
     public void Validate()
     {
-        if (ProfileVersion <= 0)
+        // The profile number is stored in byte 0 of the storage salt (docs/CRYPTOGRAPHY.md §2).
+        if (ProfileVersion is <= 0 or > byte.MaxValue)
         {
             throw new ArgumentOutOfRangeException(nameof(ProfileVersion));
         }

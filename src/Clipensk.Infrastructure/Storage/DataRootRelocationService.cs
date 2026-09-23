@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using Clipensk.Core.Settings;
-using Clipensk.Infrastructure.Security;
+using Clipensk.Core.Storage;
 
 namespace Clipensk.Infrastructure.Storage;
 
@@ -267,7 +267,7 @@ public sealed class DataRootRelocationService
         {
             throw Refused(DataRootRelocationRefusal.SourceContainsLink, "The current data root is a link.");
         }
-        if (!File.Exists(Path.Combine(source, FileProtectedStorageCredentialService.MetadataFileName)))
+        if (StorageDatabaseFiles.EnumerateExisting(source).Count == 0)
         {
             throw Refused(DataRootRelocationRefusal.SourceNotStorage, "The current data root holds no Clipensk storage.");
         }

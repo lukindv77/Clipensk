@@ -3,6 +3,10 @@ using System.Threading;
 
 namespace Clipensk.Core.Security;
 
+/// <summary>
+/// Owns the storage key (<see cref="StorageKeyMaterial"/>: MasterKey followed by the storage salt)
+/// and zeroes it on dispose.
+/// </summary>
 public sealed class MasterKeyLease : IDisposable
 {
     private byte[]? _key;

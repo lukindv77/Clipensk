@@ -100,7 +100,7 @@ public sealed class ProtectedStorageCatalogSchemaV2MigrationTests
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
 
-            byte[] key = RandomNumberGenerator.GetBytes(32);
+            byte[] key = RandomNumberGenerator.GetBytes(48);
             Guid storageId = Guid.NewGuid();
             var factory = new PlainSqliteConnectionFactory();
             var service = new ProtectedStorageDatabaseService(factory);

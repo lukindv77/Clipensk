@@ -16,7 +16,7 @@ public sealed class ProtectedClipboardCaptureServicesTests
     public async Task Create_ComposesIdentityAndPolicyServicesWithoutEagerDatabaseAccess()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = Enumerable.Repeat((byte)0x55, 32).ToArray();
+        byte[] key = Enumerable.Repeat((byte)0x55, 48).ToArray();
         var lifecycle = CreateUnlockedLifecycle();
         using var session = ProtectedStorageSessionLease.Create(
             lifecycle,
@@ -56,7 +56,7 @@ public sealed class ProtectedClipboardCaptureServicesTests
     public void Create_AfterProtectedAccessRevocationFailsClosed()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = Enumerable.Repeat((byte)0x66, 32).ToArray();
+        byte[] key = Enumerable.Repeat((byte)0x66, 48).ToArray();
         var lifecycle = CreateUnlockedLifecycle();
         using var session = ProtectedStorageSessionLease.Create(
             lifecycle,

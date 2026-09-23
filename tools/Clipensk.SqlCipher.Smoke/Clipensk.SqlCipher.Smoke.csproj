@@ -6,6 +6,7 @@
     <AssemblyName>Clipensk.SqlCipher.Smoke</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Clipensk.Infrastructure\Clipensk.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Clipensk.Storage\Clipensk.Storage.csproj" />
   </ItemGroup>
 </Project>

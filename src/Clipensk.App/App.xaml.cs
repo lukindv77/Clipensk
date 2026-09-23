@@ -88,8 +88,8 @@ public partial class App : Application
         _lifecycle = new ProtectedApplicationLifecycle(
             isDataRootConfigured: !string.IsNullOrWhiteSpace(settings.DataRootPath));
 
-        _credentialService = new FileProtectedStorageCredentialService();
         _databaseService = new ProtectedStorageDatabaseService();
+        _credentialService = new ProtectedStorageCredentialService(_databaseService);
 
         ProtectedStorageCredentialState credentialState = ProtectedStorageCredentialState.Uninitialized;
         if (!string.IsNullOrWhiteSpace(settings.DataRootPath))
@@ -100,7 +100,7 @@ public partial class App : Application
             }
             catch
             {
-                // Любая ошибка чтения криптографических метаданных должна оставлять приложение заблокированным.
+                // Любая ошибка чтения заголовков баз хранилища должна оставлять приложение заблокированным.
                 credentialState = ProtectedStorageCredentialState.Invalid;
             }
         }

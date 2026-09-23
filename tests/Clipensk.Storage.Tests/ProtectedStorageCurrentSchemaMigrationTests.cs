@@ -14,7 +14,7 @@ public sealed class ProtectedStorageCurrentSchemaMigrationTests
     public async Task Initialize_CreatesCurrentV2AndCatalogV1()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 
@@ -54,7 +54,7 @@ public sealed class ProtectedStorageCurrentSchemaMigrationTests
     public async Task Validate_MigratesLegacyCurrentV1AfterPairValidation()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 
@@ -94,7 +94,7 @@ public sealed class ProtectedStorageCurrentSchemaMigrationTests
     public async Task Validate_InvalidCatalogDoesNotMutateLegacyCurrent()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 
@@ -132,7 +132,7 @@ public sealed class ProtectedStorageCurrentSchemaMigrationTests
     public async Task Validate_RejectsCurrentV2WithoutApplicationIdentityTables()
     {
         string root = CreateTemporaryDirectory();
-        byte[] key = RandomNumberGenerator.GetBytes(32);
+        byte[] key = RandomNumberGenerator.GetBytes(48);
         Guid storageId = Guid.NewGuid();
         var factory = new PlainSqliteConnectionFactory();
 

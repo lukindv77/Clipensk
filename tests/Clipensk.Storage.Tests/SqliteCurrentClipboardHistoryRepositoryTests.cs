@@ -356,7 +356,7 @@ public sealed class SqliteCurrentClipboardHistoryRepositoryTests
             string root = Path.Combine(Path.GetTempPath(), "Clipensk.Storage.Tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             var factory = new RecordingConnectionFactory();
-            byte[] key = RandomNumberGenerator.GetBytes(32);
+            byte[] key = RandomNumberGenerator.GetBytes(48);
             Guid storageId = Guid.NewGuid();
             ProtectedStorageDatabaseResult result = await new ProtectedStorageDatabaseService(factory)
                 .InitializeOrValidateAsync(root, storageId, key, allowInitialize: true);
