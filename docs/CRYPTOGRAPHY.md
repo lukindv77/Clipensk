@@ -264,8 +264,9 @@ publish-путь `sqlcipher.dll` для unpackaged-сборки), описаны
 Остаются (варианты и решения — `OPEN_QUESTIONS.md` §4):
 
 - byte-for-byte reproducibility/provenance hardening;
-- смена пароля (§12);
-- действие «Начать текущую базу заново» при потере `current.db`.
+- смена пароля (§12).
+
+Действие «Начать текущую базу заново» при потере `current.db` — `CURRENT_RESTART.md`.
 
 Резервные копии `Current/CatalogQuarantine` удаляются по сроку корзины
 (`STORAGE_CATALOG_RECOVERY.md`, «Срок хранения quarantine»).

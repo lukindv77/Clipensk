@@ -19,7 +19,6 @@ public sealed class BuiltInRussianLocalizationServiceTests
         "Maintenance.CurrentOptimizeCompleted",
         "Maintenance.CurrentVacuumFailed",
         "Maintenance.CurrentOptimizeFailed",
-        "Lock.CatalogRecovery.NotInitialized",
         "Lock.CatalogRecovery.NotNeeded",
         "Lock.CatalogRecovery.Completed",
         "Lock.CatalogRecovery.Failed",
@@ -32,6 +31,15 @@ public sealed class BuiltInRussianLocalizationServiceTests
         "Lock.CatalogRecovery.RecoverBody",
         "Lock.CatalogRecovery.ReplaceAction",
         "Lock.CatalogRecovery.Cancel",
+        "Lock.CurrentMissing",
+        "Lock.CurrentRestart.Action",
+        "Lock.CurrentRestart.Title",
+        "Lock.CurrentRestart.Body",
+        "Lock.CurrentRestart.Confirm",
+        "Lock.CurrentRestart.Running",
+        "Lock.CurrentRestart.Completed",
+        "Lock.CurrentRestart.CatalogFailed",
+        "Lock.CurrentRestart.Failed",
     ];
 
     [Theory]

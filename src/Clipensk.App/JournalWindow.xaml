@@ -72,6 +72,12 @@
                         IsEnabled="{Binding IsEnabled, ElementName=UnlockButton}"
                         Loaded="OnStorageCatalogRecoveryButtonLoaded"
                         Click="OnStorageCatalogRecoveryClicked" />
+                <Button x:Name="CurrentRestartButton"
+                        HorizontalAlignment="Left"
+                        Visibility="Collapsed"
+                        IsEnabled="{Binding IsEnabled, ElementName=UnlockButton}"
+                        Loaded="OnCurrentRestartButtonLoaded"
+                        Click="OnCurrentRestartClicked" />
                 <InfoBar x:Name="LockInfo" IsOpen="False" IsClosable="True" />
             </StackPanel>
 

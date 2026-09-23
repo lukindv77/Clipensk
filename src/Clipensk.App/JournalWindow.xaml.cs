@@ -675,6 +675,9 @@ public sealed partial class JournalWindow : Window
         {
             ShowInvalidCryptoMetadata();
         }
+
+        RefreshStorageCatalogRecoveryButton();
+        RefreshCurrentRestartButton();
     }
 
     private void ShowFirstRunPanel()
@@ -723,6 +726,7 @@ public sealed partial class JournalWindow : Window
         string key = status switch
         {
             ProtectedStorageDatabaseStatus.EncryptionEngineUnavailable => "Lock.EncryptionEngineUnavailable",
+            ProtectedStorageDatabaseStatus.MissingOrPartialStorage when IsCurrentMissing() => "Lock.CurrentMissing",
             ProtectedStorageDatabaseStatus.MissingOrPartialStorage => "Lock.StorageMissingOrPartial",
             ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity => "Lock.StorageIdentityInvalid",
             _ => "Lock.StorageOpenFailed",

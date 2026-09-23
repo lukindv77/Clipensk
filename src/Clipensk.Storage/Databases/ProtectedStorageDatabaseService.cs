@@ -82,6 +82,111 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             cancellationToken);
     }
 
+    /// <summary>
+    /// Creates a new, empty <c>current.db</c> for a storage whose Current was lost, with the same
+    /// <c>StorageId</c> and key as the databases that remain (<c>docs/CURRENT_RESTART.md</c> §3
+    /// step 3). Refuses when <c>current.db</c> exists or no remaining database opens with this key
+    /// and names this storage. The Catalog is not touched.
+    /// </summary>
+    public Task<ProtectedStorageDatabaseResult> StartCurrentAnewAsync(
+        string dataRootPath,
+        Guid storageId,
+        ReadOnlyMemory<byte> storageKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataRootPath);
+        if (storageId == Guid.Empty)
+        {
+            throw new ArgumentException("StorageId не может быть пустым.", nameof(storageId));
+        }
+        if (storageKey.Length != StorageKeyMaterial.LengthBytes)
+        {
+            throw new ArgumentException("Ключ хранилища должен содержать 48 байт: MasterKey и соль.", nameof(storageKey));
+        }
+
+        return Task.Run(
+            () => StartCurrentAnewCore(Path.GetFullPath(dataRootPath), storageId, storageKey, cancellationToken),
+            cancellationToken);
+    }
+
+    private ProtectedStorageDatabaseResult StartCurrentAnewCore(
+        string dataRootPath,
+        Guid storageId,
+        ReadOnlyMemory<byte> storageKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Directory.Exists(dataRootPath))
+        {
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.StorageFailure, WasInitialized: false);
+        }
+
+        string currentDirectory = Path.Combine(dataRootPath, StorageDatabaseFiles.CurrentDirectoryName);
+        string currentDatabasePath = Path.Combine(currentDirectory, StorageDatabaseFiles.CurrentFileName);
+        if (File.Exists(currentDatabasePath))
+        {
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.MissingOrPartialStorage, WasInitialized: false);
+        }
+
+        // Only a storage that still exists gets a new Current, and only with its own key.
+        ProtectedStorageIdentityResult identity = IdentifyCore(dataRootPath, storageKey, cancellationToken);
+        if (!identity.IsIdentified || identity.StorageId != storageId)
+        {
+            return new ProtectedStorageDatabaseResult(
+                identity.Status switch
+                {
+                    ProtectedStorageIdentityStatus.NoDatabases => ProtectedStorageDatabaseStatus.MissingOrPartialStorage,
+                    ProtectedStorageIdentityStatus.Unreadable
+                        when identity.FailureStatus != ProtectedStorageDatabaseStatus.Success => identity.FailureStatus,
+                    _ => ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity,
+                },
+                WasInitialized: false);
+        }
+
+        string stagingPath = Path.Combine(
+            currentDirectory,
+            ".clipensk-current-restart-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            Directory.CreateDirectory(currentDirectory);
+            CreateDatabase(stagingPath, storageId, DatabaseRole.Current, storageKey, cancellationToken);
+            ValidateDatabase(
+                stagingPath,
+                storageId,
+                DatabaseRole.Current,
+                storageKey,
+                cancellationToken,
+                CurrentSchemaVersion);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(stagingPath, currentDatabasePath, overwrite: false);
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.Success, WasInitialized: true);
+        }
+        catch (ProtectedStorageEncryptionUnavailableException)
+        {
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.EncryptionEngineUnavailable, WasInitialized: false);
+        }
+        catch (Exception exception) when (exception is SqliteException or InvalidDataException)
+        {
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity, WasInitialized: false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Includes a current.db that appeared before publication: it is never replaced.
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.StorageFailure, WasInitialized: false);
+        }
+        finally
+        {
+            foreach (string leftover in new[] { stagingPath, stagingPath + "-journal" })
+            {
+                if (File.Exists(leftover))
+                {
+                    File.Delete(leftover);
+                }
+            }
+        }
+    }
+
     private ProtectedStorageIdentityResult IdentifyCore(
         string dataRootPath,
         ReadOnlyMemory<byte> storageKey,

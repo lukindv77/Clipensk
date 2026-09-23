@@ -22,7 +22,11 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
 
     public string Root { get; }
     public Guid StorageId { get; } = Guid.NewGuid();
-    public byte[] Key { get; } = Enumerable.Repeat((byte)0x37, 48).ToArray();
+    // Plain SQLite stands in for SQLCipher, so the storage salt is the plain SQLite header every
+    // test database starts with: the key then matches the databases the way the real one does.
+    public byte[] Key { get; } = StorageKeyMaterial.Compose(
+        Enumerable.Repeat((byte)0x37, StorageKeyMaterial.MasterKeyLengthBytes).ToArray(),
+        "SQLite format 3\0"u8);
     public TestConnectionFactory Factory { get; } = new();
     public ProtectedStorageDatabaseService Service { get; }
     public ProtectedApplicationLifecycle Lifecycle { get; private set; } = null!;
