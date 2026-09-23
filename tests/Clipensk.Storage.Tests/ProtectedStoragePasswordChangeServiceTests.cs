@@ -213,6 +213,23 @@ public sealed class ProtectedStoragePasswordChangeServiceTests
     }
 
     [Fact]
+    public async Task ACopyWhoseDatabaseIsGone_IsNeverDeleted()
+    {
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: false);
+        environment.CopyWithKey(environment.CurrentPath, environment.NewKey);
+        string orphan = Path.Combine(environment.Root, "Archive", "archive_000050.db") + StorageDatabaseFiles.PasswordChangeCopySuffix;
+        Directory.CreateDirectory(Path.GetDirectoryName(orphan)!);
+        File.Copy(environment.CatalogPath, orphan);
+
+        Assert.Equal(
+            PasswordChangeRecoveryOutcome.RolledBack,
+            await environment.Service.ResolvePendingAsync(environment.Root, environment.OldKey));
+
+        Assert.False(File.Exists(environment.CurrentPath + StorageDatabaseFiles.PasswordChangeCopySuffix));
+        Assert.True(File.Exists(orphan));
+    }
+
+    [Fact]
     public async Task InterruptedCopying_TheNewPassword_IsNotYetValid_AndTouchesNothing()
     {
         using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: true);

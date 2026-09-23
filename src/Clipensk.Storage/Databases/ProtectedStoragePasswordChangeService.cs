@@ -222,7 +222,7 @@ public sealed class ProtectedStoragePasswordChangeService
         if (switches.Count == 0 && everyDatabaseReachable)
         {
             // The key opens every database: nothing was switched, or everything was.
-            DeleteCopies(copies);
+            DeleteCopies(CopiesBesideTheirDatabase(copies));
             return PasswordChangeRecoveryOutcome.RolledBack;
         }
 
@@ -234,7 +234,9 @@ public sealed class ProtectedStoragePasswordChangeService
         }
 
         // Copies of databases that already open with this key are stale: never switched in.
-        DeleteCopies(copies.Except(switches.Select(static entry => entry.Copy), StringComparer.OrdinalIgnoreCase).ToList());
+        DeleteCopies(CopiesBesideTheirDatabase(copies)
+            .Except(switches.Select(static entry => entry.Copy), StringComparer.OrdinalIgnoreCase)
+            .ToList());
         Switch(root, switches);
         return PasswordChangeRecoveryOutcome.Completed;
     }
@@ -461,6 +463,15 @@ public sealed class ProtectedStoragePasswordChangeService
 
         return deleted;
     }
+
+    /// <summary>
+    /// Only a copy whose database is still there is a leftover. One whose database is gone — the
+    /// change never removes a database — may be the only one left of it and is not deleted.
+    /// </summary>
+    private static IReadOnlyList<string> CopiesBesideTheirDatabase(IReadOnlyList<string> copies) =>
+        copies
+            .Where(static copy => File.Exists(copy[..^StorageDatabaseFiles.PasswordChangeCopySuffix.Length]))
+            .ToList();
 
     private static void DeleteCopies(IReadOnlyList<string> copies)
     {

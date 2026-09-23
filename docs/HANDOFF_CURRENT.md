@@ -37,7 +37,8 @@ Clipensk — resident Windows clipboard-history manager.
 (Build run `35855767529` — **SUCCESS**, Native run `35855769935` — **SUCCESS**); смена пароля —
 `036eb0e` + исправление `763308a` (на `763308a`: Build run `35857480052` — **SUCCESS**, Native run
 `35857482543` — **SUCCESS**, включая smoke-хост со сменой пароля на production SQLCipher). Поверх —
-коммит handoff; exact-main evidence — прогоны push на `main` для него.
+коммит handoff `771db40`: exact-main Build run `35861014845` и Native run `35861014785` —
+**SUCCESS**.
 
 Модель ключа уже в main: `45b4f7b`, exact-main Build run `35855143519` и Native run `35855143659` —
 **SUCCESS**.

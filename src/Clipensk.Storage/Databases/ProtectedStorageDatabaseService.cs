@@ -207,8 +207,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
 
         // The copies of an interrupted password change come last: they carry the same salt, and
         // only through them can the new password finish the change (PASSWORD_CHANGE_PROTOCOL.md §5).
-        foreach (string databasePath in StorageDatabaseFiles.EnumerateExisting(dataRootPath)
-                     .Concat(StorageDatabaseFiles.EnumeratePasswordChangeCopies(dataRootPath)))
+        IEnumerable<(string Path, bool IsCopy)> candidates = StorageDatabaseFiles.EnumerateExisting(dataRootPath)
+            .Select(static path => (path, false))
+            .Concat(StorageDatabaseFiles.EnumeratePasswordChangeCopies(dataRootPath).Select(static path => (path, true)));
+        foreach ((string databasePath, bool isCopy) in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -218,12 +220,16 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 continue;
             }
 
-            attempted++;
             try
             {
                 if (TryReadStorageId(databasePath, storageKey) is { } storageId)
                 {
                     return new ProtectedStorageIdentityResult(ProtectedStorageIdentityStatus.Identified, storageId);
+                }
+
+                if (!isCopy)
+                {
+                    attempted++;
                 }
             }
             catch (ProtectedStorageEncryptionUnavailableException)
@@ -236,14 +242,23 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             catch (SqliteException exception) when (exception.SqliteErrorCode == SqliteNotADatabase)
             {
                 // SQLCipher checks the first page's HMAC: a wrong key reads as "not a database".
+                attempted++;
                 rejected++;
+            }
+            catch (Exception exception) when (
+                isCopy && exception is SqliteException or IOException or UnauthorizedAccessException)
+            {
+                // A copy cut short by an interrupted password change is simply not a database the
+                // key can open; it says nothing about the storage (PASSWORD_CHANGE_PROTOCOL.md §5).
             }
             catch (SqliteException)
             {
+                attempted++;
             }
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException)
             {
+                attempted++;
                 failure = ProtectedStorageDatabaseStatus.StorageFailure;
             }
         }

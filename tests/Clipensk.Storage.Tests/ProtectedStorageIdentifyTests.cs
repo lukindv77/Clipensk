@@ -141,6 +141,26 @@ public sealed class ProtectedStorageIdentifyTests : IDisposable
     }
 
     [Fact]
+    public async Task ACopyCutShortByAPasswordChange_DoesNotTurnARefusedKeyIntoAnUnreadableStorage()
+    {
+        // Phase 1 of a password change was interrupted and the new password is entered: every
+        // database refuses it, and the one copy there is was cut short. That is a wrong password
+        // for the storage, not damage (docs/PASSWORD_CHANGE_PROTOCOL.md §5).
+        var factory = new KeyCheckingConnectionFactory(_masterKey);
+        await CreateStorageAsync(factory);
+        string copy = Path.Combine(_root, Current) + StorageDatabaseFiles.PasswordChangeCopySuffix;
+        File.Copy(Path.Combine(_root, Current), copy);
+        factory.Rejecting.Add(Path.Combine(_root, Current));
+        factory.Rejecting.Add(Path.Combine(_root, Catalog));
+        factory.Damaged.Add(copy);
+
+        ProtectedStorageIdentityResult result =
+            await new ProtectedStorageDatabaseService(factory).IdentifyAsync(_root, _key);
+
+        Assert.Equal(ProtectedStorageIdentityStatus.KeyRejected, result.Status);
+    }
+
+    [Fact]
     public async Task AKeyWithoutItsSalt_IsRejectedUpFront()
     {
         await Assert.ThrowsAsync<ArgumentException>(() => new ProtectedStorageDatabaseService(
@@ -190,11 +210,15 @@ public sealed class ProtectedStorageIdentifyTests : IDisposable
 
         public HashSet<string> Damaged { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Files that refuse every key, as databases encrypted with another key do.</summary>
+        public HashSet<string> Rejecting { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public SqliteConnection Open(string databasePath, ReadOnlyMemory<byte> masterKey, SqliteOpenMode mode)
         {
             string path = Path.GetFullPath(databasePath);
             Opened.Add(path);
-            if (!StorageKeyMaterial.GetMasterKey(masterKey.Span).SequenceEqual(_masterKey))
+            if (Rejecting.Contains(path) ||
+                !StorageKeyMaterial.GetMasterKey(masterKey.Span).SequenceEqual(_masterKey))
             {
                 throw new SqliteException("file is not a database", SqliteNotADatabase);
             }
