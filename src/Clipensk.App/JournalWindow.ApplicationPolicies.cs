@@ -20,7 +20,8 @@ public sealed partial class JournalWindow
         ApplicationPoliciesTitle.Text = ApplicationPolicyText("Title");
         ApplicationPoliciesBody.Text = ApplicationPolicyText("Body");
         SelectedApplicationDiscoveredFormatsTitle.Text = ApplicationPolicyText("DiscoveredFormats");
-        EditApplicationPolicyButton.Content = ApplicationPolicyText("Edit");
+        ChangeApplicationGroupButton.Content = ApplicationGroupText("ChooseGroup");
+        EditApplicationGroupSettingsButton.Content = ApplicationGroupText("GroupSettings");
         ReloadApplicationPoliciesButton.Content = ApplicationPolicyText("Reload");
 
         ShellNavigation.SelectionChanged -= OnApplicationPoliciesNavigationSelectionChanged;
@@ -85,7 +86,7 @@ public sealed partial class JournalWindow
         ApplicationPoliciesInfo.IsOpen = false;
         ApplicationPoliciesProgress.IsActive = false;
         ApplicationPoliciesProgress.Visibility = Visibility.Collapsed;
-        EditApplicationPolicyButton.IsEnabled = false;
+        SetApplicationGroupButtons(null);
         SelectedApplicationIdentity.Text = string.Empty;
         SelectedApplicationPolicySummary.Text = string.Empty;
         SelectedApplicationDiscoveredFormats.Text = string.Empty;
@@ -104,7 +105,7 @@ public sealed partial class JournalWindow
         ApplicationPoliciesInfo.IsOpen = false;
         ApplicationPoliciesProgress.IsActive = true;
         ApplicationPoliciesProgress.Visibility = Visibility.Visible;
-        EditApplicationPolicyButton.IsEnabled = false;
+        SetApplicationGroupButtons(null);
         SelectedApplicationIdentity.Text = string.Empty;
         SelectedApplicationPolicySummary.Text = string.Empty;
         SelectedApplicationDiscoveredFormats.Text = string.Empty;
@@ -120,9 +121,17 @@ public sealed partial class JournalWindow
 
         try
         {
-            IReadOnlyList<ApplicationIdentitySummary> identities = await Task.Run(
-                async () => await new SqliteApplicationIdentityRepository(session)
-                    .ListAsync(session.CancellationToken),
+            (IReadOnlyList<ApplicationIdentitySummary> identities, ApplicationGroupDirectory groups) = await Task.Run(
+                async () =>
+                {
+                    IReadOnlyList<ApplicationIdentitySummary> listed = await new SqliteApplicationIdentityRepository(session)
+                        .ListAsync(session.CancellationToken)
+                        .ConfigureAwait(false);
+                    ApplicationGroupDirectory directory = await new SqliteApplicationGroupRepository(session)
+                        .ReadAsync(session.CancellationToken)
+                        .ConfigureAwait(false);
+                    return (listed, directory);
+                },
                 session.CancellationToken);
 
             if (!IsCurrentApplicationPolicyOperation(session, generation))
@@ -131,7 +140,10 @@ public sealed partial class JournalWindow
             }
 
             ApplicationPolicyListItem[] items = identities
-                .Select(summary => new ApplicationPolicyListItem(summary, BuildApplicationDisplayName(summary)))
+                .Select(summary => CreateApplicationListItem(summary, groups))
+                .OrderBy(static item => item.Group is null ? 0 : 1)
+                .ThenBy(static item => item.Group?.Name.Key, StringComparer.Ordinal)
+                .ThenBy(static item => item.ApplicationName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             ApplicationPoliciesList.ItemsSource = items;
             if (items.Length == 0)
@@ -165,7 +177,7 @@ public sealed partial class JournalWindow
 
     private async void OnApplicationPolicySelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        EditApplicationPolicyButton.IsEnabled = false;
+        SetApplicationGroupButtons(null);
         SelectedApplicationIdentity.Text = string.Empty;
         SelectedApplicationPolicySummary.Text = string.Empty;
         SelectedApplicationDiscoveredFormats.Text = string.Empty;
@@ -185,9 +197,6 @@ public sealed partial class JournalWindow
 
         try
         {
-            ClipboardCapturePolicy? applicationPolicy = await ReadApplicationPolicyAsync(
-                session,
-                selected.Summary.ApplicationId);
             IReadOnlyList<ApplicationDiscoveredFormat> discoveredFormats =
                 await ReadApplicationDiscoveredFormatsAsync(
                     session,
@@ -199,10 +208,10 @@ public sealed partial class JournalWindow
             }
 
             SelectedApplicationIdentity.Text = BuildApplicationIdentitySummary(selected.Summary);
-            SelectedApplicationPolicySummary.Text = BuildApplicationPolicySummary(applicationPolicy);
+            SelectedApplicationPolicySummary.Text = BuildApplicationMembershipSummary(selected.Group);
             SelectedApplicationDiscoveredFormats.Text = BuildApplicationDiscoveredFormatsSummary(discoveredFormats);
             SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Visible;
-            EditApplicationPolicyButton.IsEnabled = true;
+            SetApplicationGroupButtons(selected);
         }
         catch (OperationCanceledException)
         {
@@ -218,185 +227,17 @@ public sealed partial class JournalWindow
         }
     }
 
-    private async void OnEditApplicationPolicyClicked(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// A user group can always be chosen or changed; the group settings exist only for an
+    /// application in a user group. <see langword="null"/> disables both.
+    /// </summary>
+    private void SetApplicationGroupButtons(ApplicationPolicyListItem? selected)
     {
-        if (_applicationPolicyEditInProgress ||
-            ApplicationPoliciesList.SelectedItem is not ApplicationPolicyListItem selected)
-        {
-            return;
-        }
-
-        ProtectedStorageSessionLease? session = _protectedStorageSession;
-        long generation = Volatile.Read(ref _applicationPoliciesGeneration);
-        if (session is null || !IsCurrentApplicationPolicyOperation(session, generation))
-        {
-            return;
-        }
-
-        _applicationPolicyEditInProgress = true;
-        EditApplicationPolicyButton.IsEnabled = false;
-        try
-        {
-            ClipboardCapturePolicy? currentPolicy = await ReadApplicationPolicyAsync(
-                session,
-                selected.Summary.ApplicationId);
-            if (!IsCurrentApplicationPolicyOperation(session, generation))
-            {
-                return;
-            }
-
-            var rule = new ComboBox
-            {
-                Header = ApplicationPolicyText("BaseRule"),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                DisplayMemberPath = nameof(ApplicationRuleOption.Label),
-                ItemsSource = new[]
-                {
-                    new ApplicationRuleOption(ApplicationPolicyText("Inherit"), ClipboardCapturePolicyRule.Inherit),
-                    new ApplicationRuleOption(PolicyText("Allow"), ClipboardCapturePolicyRule.Allow),
-                    new ApplicationRuleOption(PolicyText("Deny"), ClipboardCapturePolicyRule.Deny),
-                },
-            };
-            rule.SelectedIndex = currentPolicy?.Capture switch
-            {
-                ClipboardCapturePolicyRule.Allow => 1,
-                ClipboardCapturePolicyRule.Deny => 2,
-                _ => 0,
-            };
-
-            var error = new InfoBar
-            {
-                IsOpen = false,
-                IsClosable = false,
-                Severity = InfoBarSeverity.Error,
-            };
-            var content = new StackPanel { Spacing = 12 };
-            content.Children.Add(new TextBlock
-            {
-                Text = ApplicationPolicyText("EditHelp"),
-                TextWrapping = TextWrapping.Wrap,
-            });
-            content.Children.Add(CreatePolicyChangeScopeNotice(isFirstAssignment: currentPolicy is null));
-            content.Children.Add(error);
-            content.Children.Add(rule);
-
-            var dialog = new ContentDialog
-            {
-                Title = selected.DisplayName,
-                PrimaryButtonText = ApplicationPolicyText("Apply"),
-                CloseButtonText = ApplicationPolicyText("Cancel"),
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = ShellNavigation.XamlRoot,
-                Content = content,
-            };
-
-            ClipboardCapturePolicy? appliedPolicy = null;
-            dialog.PrimaryButtonClick += async (_, args) =>
-            {
-                var deferral = args.GetDeferral();
-                try
-                {
-                    if (!IsCurrentApplicationPolicyOperation(session, generation) ||
-                        rule.SelectedItem is not ApplicationRuleOption selectedRule)
-                    {
-                        error.Message = ApplicationPolicyText("SessionChanged");
-                        error.IsOpen = true;
-                        args.Cancel = true;
-                        return;
-                    }
-
-                    var requested = new ClipboardCapturePolicy(
-                        selectedRule.Rule,
-                        currentPolicy?.Formats);
-                    if (Application.Current is not App app ||
-                        !await app.TryApplyApplicationCapturePolicyChangeAsync(
-                            session,
-                            selected.Summary.ApplicationId,
-                            requested,
-                            session.CancellationToken))
-                    {
-                        error.Message = ApplicationPolicyText("ApplyFailed");
-                        error.IsOpen = true;
-                        args.Cancel = true;
-                        return;
-                    }
-
-                    appliedPolicy = requested;
-                }
-                finally
-                {
-                    deferral.Complete();
-                }
-            };
-
-            _applicationPolicyDialog = dialog;
-            ContentDialogResult result;
-            try
-            {
-                result = await dialog.ShowAsync();
-            }
-            finally
-            {
-                if (ReferenceEquals(_applicationPolicyDialog, dialog))
-                {
-                    _applicationPolicyDialog = null;
-                }
-            }
-
-            if (result == ContentDialogResult.Primary &&
-                appliedPolicy is not null &&
-                IsCurrentApplicationPolicyOperation(session, generation))
-            {
-                SelectedApplicationPolicySummary.Text = BuildApplicationPolicySummary(appliedPolicy);
-                ApplicationPoliciesInfo.Severity = InfoBarSeverity.Success;
-                ApplicationPoliciesInfo.Message = ApplicationPolicyText("Saved");
-                ApplicationPoliciesInfo.IsOpen = true;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch
-        {
-            if (IsCurrentApplicationPolicyOperation(session, generation))
-            {
-                ApplicationPoliciesInfo.Severity = InfoBarSeverity.Error;
-                ApplicationPoliciesInfo.Message = ApplicationPolicyText("PrepareFailed");
-                ApplicationPoliciesInfo.IsOpen = true;
-            }
-        }
-        finally
-        {
-            _applicationPolicyEditInProgress = false;
-            if (session is not null &&
-                IsCurrentApplicationPolicyOperation(session, generation) &&
-                ApplicationPoliciesList.SelectedItem is ApplicationPolicyListItem)
-            {
-                EditApplicationPolicyButton.IsEnabled = true;
-            }
-        }
-    }
-
-    private async Task<ClipboardCapturePolicy?> ReadApplicationPolicyAsync(
-        ProtectedStorageSessionLease session,
-        global::Clipensk.Core.Applications.ApplicationId applicationId)
-    {
-        return await Task.Run(
-            async () =>
-            {
-                ClipboardCapturePolicy? global = await new SqliteGlobalClipboardCapturePolicyRepository(session)
-                    .ReadAsync(session.CancellationToken)
-                    .ConfigureAwait(false);
-                if (global is null)
-                {
-                    throw new InvalidDataException("Global capture policy is not configured.");
-                }
-
-                return await new SqliteClipboardCapturePolicyRepository(session, global)
-                    .GetGroupPolicyAsync(applicationId, session.CancellationToken)
-                    .ConfigureAwait(false);
-            },
-            session.CancellationToken);
+        bool enabled = selected is not null && !_applicationPolicyEditInProgress;
+        ChangeApplicationGroupButton.Content = ApplicationGroupText(
+            selected?.Group is null ? "ChooseGroup" : "MoveToOtherGroup");
+        ChangeApplicationGroupButton.IsEnabled = enabled;
+        EditApplicationGroupSettingsButton.IsEnabled = enabled && selected!.Group is not null;
     }
 
     private async Task<IReadOnlyList<ApplicationDiscoveredFormat>> ReadApplicationDiscoveredFormatsAsync(
@@ -418,36 +259,58 @@ public sealed partial class JournalWindow
         session.IsActive &&
         _lifecycle.CanAccessProtectedData;
 
-    /// <summary>
-    /// States what saving will do to saved history: an edit of existing personal rules only affects
-    /// future capture, while a first assignment purges what the new rules disallow.
-    /// </summary>
-    private InfoBar CreatePolicyChangeScopeNotice(bool isFirstAssignment) => new()
-    {
-        IsOpen = true,
-        IsClosable = false,
-        Severity = isFirstAssignment ? InfoBarSeverity.Warning : InfoBarSeverity.Informational,
-        Message = ApplicationPolicyText(isFirstAssignment ? "FirstAssignmentPurge" : "EditFutureOnly"),
-    };
-
     private string ApplicationPolicyText(string key) =>
         _localization.GetString("ApplicationPolicy." + key);
 
-    private static string BuildApplicationDisplayName(ApplicationIdentitySummary summary)
+    private string ApplicationGroupText(string key) =>
+        _localization.GetString("ApplicationGroup." + key);
+
+    /// <summary>Fills <c>{0}</c>, <c>{1}</c>, … without <see cref="string.Format(string, object[])"/>, so a
+    /// translated template with stray braces cannot throw.</summary>
+    private static string FillText(string template, params object[] values)
     {
-        string? executable = summary.ExecutablePaths.FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(executable))
+        string result = template;
+        for (int index = 0; index < values.Length; index++)
         {
-            string name = Path.GetFileName(executable);
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                return name;
-            }
+            result = result.Replace(
+                "{" + index.ToString(CultureInfo.InvariantCulture) + "}",
+                Convert.ToString(values[index], CultureInfo.CurrentCulture),
+                StringComparison.Ordinal);
+        }
+        return result;
+    }
+
+    private ApplicationPolicyListItem CreateApplicationListItem(
+        ApplicationIdentitySummary summary,
+        ApplicationGroupDirectory groups)
+    {
+        string applicationName = ApplicationDisplayName.From(summary);
+        ApplicationGroup? group = groups.GroupOf(summary.ApplicationId);
+        return new ApplicationPolicyListItem(
+            summary,
+            applicationName,
+            group,
+            FillText(
+                ApplicationGroupText("ListItem"),
+                applicationName,
+                group?.Name.Value ?? ApplicationGroupText("DefaultGroup")));
+    }
+
+    private string BuildApplicationMembershipSummary(ApplicationGroup? group)
+    {
+        if (group is null)
+        {
+            return ApplicationGroupText("DefaultMembership");
         }
 
-        string? aumid = summary.ApplicationUserModelIds.FirstOrDefault();
-        return string.IsNullOrWhiteSpace(aumid) ? summary.ApplicationId.ToString() : aumid;
+        return FillText(ApplicationGroupText("Membership"), group.Name.Value, BuildGroupRulesSummary(group.Policy));
     }
+
+    private string BuildGroupRulesSummary(ClipboardCapturePolicy policy) =>
+        FillText(
+            ApplicationGroupText("RulesSummary"),
+            PolicyText(policy.Capture == ClipboardCapturePolicyRule.Allow ? "Allow" : "Deny"),
+            policy.Formats.Count(static pair => pair.Value.Capture == ClipboardCapturePolicyRule.Allow));
 
     private string BuildApplicationIdentitySummary(ApplicationIdentitySummary summary)
     {
@@ -458,28 +321,6 @@ public sealed partial class JournalWindow
             ? "—"
             : string.Join(Environment.NewLine, summary.ExecutablePaths);
         return $"ApplicationId: {summary.ApplicationId}{Environment.NewLine}AUMID: {aumids}{Environment.NewLine}{ApplicationPolicyText("Paths")}: {paths}";
-    }
-
-    private string BuildApplicationPolicySummary(ClipboardCapturePolicy? policy)
-    {
-        if (policy is null)
-        {
-            return ApplicationPolicyText("NoOverride");
-        }
-
-        string rule = policy.Capture switch
-        {
-            ClipboardCapturePolicyRule.Inherit => ApplicationPolicyText("Inherit"),
-            ClipboardCapturePolicyRule.Allow => PolicyText("Allow"),
-            ClipboardCapturePolicyRule.Deny => PolicyText("Deny"),
-            _ => policy.Capture.ToString(),
-        };
-        return ApplicationPolicyText("Summary")
-            .Replace("{0}", rule, StringComparison.Ordinal)
-            .Replace(
-                "{1}",
-                policy.Formats.Count.ToString(CultureInfo.CurrentCulture),
-                StringComparison.Ordinal);
     }
 
     private string BuildApplicationDiscoveredFormatsSummary(
@@ -495,9 +336,7 @@ public sealed partial class JournalWindow
 
     private sealed record ApplicationPolicyListItem(
         ApplicationIdentitySummary Summary,
+        string ApplicationName,
+        ApplicationGroup? Group,
         string DisplayName);
-
-    private sealed record ApplicationRuleOption(
-        string Label,
-        ClipboardCapturePolicyRule Rule);
 }

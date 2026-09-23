@@ -282,13 +282,12 @@
                             <TextBlock x:Name="SelectedApplicationDiscoveredFormats" TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button x:Name="EditApplicationPolicyButton"
+                            <Button x:Name="ChangeApplicationGroupButton"
                                     IsEnabled="False"
-                                    Click="OnEditApplicationPolicyClicked" />
-                            <Button x:Name="EditApplicationFormatsButton"
-                                    IsEnabled="{Binding IsEnabled, ElementName=EditApplicationPolicyButton}"
-                                    Loaded="OnEditApplicationFormatsButtonLoaded"
-                                    Click="OnEditApplicationFormatsClicked" />
+                                    Click="OnChangeApplicationGroupClicked" />
+                            <Button x:Name="EditApplicationGroupSettingsButton"
+                                    IsEnabled="False"
+                                    Click="OnEditApplicationGroupSettingsClicked" />
                             <Button x:Name="ReloadApplicationPoliciesButton" Click="OnReloadApplicationPoliciesClicked" />
                         </StackPanel>
                     </StackPanel>

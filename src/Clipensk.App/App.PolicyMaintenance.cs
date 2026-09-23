@@ -113,44 +113,92 @@ public partial class App
             cancellationToken);
     }
 
-    internal Task<bool> TryApplyApplicationCapturePolicyChangeAsync(
+    /// <summary>
+    /// Publishes an edited user group policy. It applies to future capture of every application in
+    /// the group; saved history is kept (docs/APPLICATION_GROUP_PROTOCOL.md §6).
+    /// </summary>
+    internal Task<bool> TryApplyGroupCapturePolicyChangeAsync(
         ProtectedStorageSessionLease session,
-        global::Clipensk.Core.Applications.ApplicationId applicationId,
+        global::Clipensk.Core.Applications.ApplicationGroupId groupId,
         global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration> customBinaryConfigurations,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(applicationId);
+        ArgumentNullException.ThrowIfNull(groupId);
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(customBinaryConfigurations);
 
-        return TryApplyApplicationCapturePolicyCoreAsync(
+        return TryRunPolicyChangeWithQuiescedRuntimeAsync(
             session,
-            applicationId,
-            policy,
-            customBinaryConfigurations: null,
+            token => new ProtectedCapturePolicyPublishService(session)
+                .PublishGroupPolicyAsync(groupId, policy, customBinaryConfigurations, token),
             cancellationToken);
     }
 
     /// <summary>
-    /// Settings now belong to application groups (docs/APPLICATION_GROUP_PROTOCOL.md v2): an
-    /// application in a user group is edited through its group, and one in the default group is
-    /// moved into a group with a confirmed history purge. Until the group screens replace the
-    /// per-application editor, this path refuses every change instead of writing settings capture no
-    /// longer reads.
+    /// Moves an application into a user group as the user confirmed it from
+    /// <paramref name="confirmedPreview"/>, purging the history the target group disallows
+    /// (docs/APPLICATION_GROUP_PROTOCOL.md §5). Capture stays quiesced for the whole operation; if a
+    /// later phase fails, the durable marker keeps it suspended until recovery finishes the purge.
     /// </summary>
-    private static Task<bool> TryApplyApplicationCapturePolicyCoreAsync(
+    internal async Task<ApplicationGroupMoveOutcome> TryMoveApplicationToGroupAsync(
         ProtectedStorageSessionLease session,
-        global::Clipensk.Core.Applications.ApplicationId applicationId,
-        global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
-        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations,
-        CancellationToken cancellationToken)
+        ApplicationGroupMoveRequest request,
+        ApplicationGroupMovePreview confirmedPreview,
+        CancellationToken cancellationToken = default)
     {
-        _ = session;
-        _ = applicationId;
-        _ = policy;
-        _ = customBinaryConfigurations;
-        _ = cancellationToken;
-        return Task.FromResult(false);
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(confirmedPreview);
+
+        ApplicationHistoryPurgeResult? result = null;
+        ApplicationHistoryPurgeIncompleteException? incomplete = null;
+        ApplicationGroupMoveOutcomeKind? refusal = null;
+        await TryRunPolicyChangeWithQuiescedRuntimeAsync(
+            session,
+            async token =>
+            {
+                try
+                {
+                    result = await new ProtectedApplicationHistoryPurgeCoordinator(session)
+                        .RunConfirmedMoveAsync(
+                            request,
+                            confirmedPreview,
+                            DateOnly.FromDateTime(DateTime.Now),
+                            token)
+                        .ConfigureAwait(false);
+                }
+                catch (ApplicationHistoryPurgePreviewOutdatedException)
+                {
+                    refusal = ApplicationGroupMoveOutcomeKind.PreviewOutdated;
+                    throw;
+                }
+                catch (ApplicationGroupNameTakenException)
+                {
+                    refusal = ApplicationGroupMoveOutcomeKind.NameTaken;
+                    throw;
+                }
+                catch (ApplicationHistoryPurgeIncompleteException exception)
+                {
+                    incomplete = exception;
+                    throw;
+                }
+            },
+            cancellationToken);
+
+        if (result is not null)
+        {
+            return new ApplicationGroupMoveOutcome(ApplicationGroupMoveOutcomeKind.Completed, result);
+        }
+        if (incomplete is not null)
+        {
+            return new ApplicationGroupMoveOutcome(
+                ApplicationGroupMoveOutcomeKind.Incomplete,
+                IncompleteGroupId: incomplete.GroupId,
+                IncompleteCurrentSummary: incomplete.CurrentSummary);
+        }
+        return new ApplicationGroupMoveOutcome(refusal ?? ApplicationGroupMoveOutcomeKind.Failed);
     }
 
     /// <summary>
@@ -259,3 +307,19 @@ public partial class App
         }
     }
 }
+
+internal enum ApplicationGroupMoveOutcomeKind
+{
+    Completed,
+    Incomplete,
+    PreviewOutdated,
+    NameTaken,
+    Failed,
+}
+
+/// <summary>How a confirmed move ended, for the confirmation dialog.</summary>
+internal sealed record ApplicationGroupMoveOutcome(
+    ApplicationGroupMoveOutcomeKind Kind,
+    ApplicationHistoryPurgeResult? Result = null,
+    global::Clipensk.Core.Applications.ApplicationGroupId? IncompleteGroupId = null,
+    global::Clipensk.Storage.History.ClipboardHistoryPurgeSummary? IncompleteCurrentSummary = null);

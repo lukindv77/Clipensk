@@ -82,7 +82,7 @@ public sealed partial class JournalWindow
                 ApplicationIdentitySummary? invocationSummary = identities
                     .FirstOrDefault(summary => summary.ApplicationId.Value == invocationId);
                 string invocationName = invocationSummary is not null
-                    ? BuildApplicationDisplayName(invocationSummary)
+                    ? ApplicationDisplayName.From(invocationSummary)
                     : invocationId.ToString();
                 items.Add(new JournalApplicationFilterItem(
                     invocationId,
@@ -93,7 +93,7 @@ public sealed partial class JournalWindow
                 .Where(summary => summary.ApplicationId.Value != invocationApplicationId)
                 .Select(summary => new JournalApplicationFilterItem(
                     summary.ApplicationId.Value,
-                    BuildApplicationDisplayName(summary))));
+                    ApplicationDisplayName.From(summary))));
 
             // Reopening the journal must not silently keep a stale selection from a previous
             // protected session, so this always resets to "all applications".
