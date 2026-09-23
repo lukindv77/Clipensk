@@ -192,6 +192,85 @@ public sealed class ProtectedApplicationHistoryPurgePreviewTests
         Assert.Throws<ArgumentException>(() => preview.RecordsLosing("Text"));
     }
 
+    [Fact]
+    public async Task Coordinator_RunsTheConfirmedPreviewToCompletion()
+    {
+        using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        await environment.Repository.InitializeAsync(Global);
+        DurableApplicationId root = InsertIdentity(environment);
+        ArchiveFileName archive = await CreateArchiveAsync(environment);
+        InsertArchiveIdentity(environment, archive, root);
+        Guid currentHtml = InsertEvent(environment, null, root, ("HTML Format", "Text"));
+        (Guid archivedImage, string imagePath, string trashPath) =
+            InsertArchivedImage(environment, archive, root, DeletionDate);
+
+        ApplicationHistoryPurgePreview preview = await Preview(environment)
+            .PreviewFirstAssignmentAsync(root, DenyHtmlAndPng);
+        ApplicationHistoryPurgeResult result = await Coordinator(environment)
+            .RunConfirmedFirstAssignmentAsync(preview, DenyHtmlAndPng, null, DeletionDate);
+
+        AssertSameSummary(preview.CurrentSummary, result.CurrentSummary);
+        AssertSameSummary(preview.ArchiveSummary, result.ArchiveSummary);
+        Assert.Equal(1, result.ArchiveDatabaseCount);
+        Assert.Equal(0, EventCount(environment, null, currentHtml));
+        Assert.Equal(0, EventCount(environment, archive, archivedImage));
+        Assert.False(File.Exists(imagePath));
+        Assert.True(File.Exists(trashPath));
+        Assert.Equal(1, environment.Scalar($"SELECT COUNT(*) FROM ApplicationCapturePolicy WHERE ApplicationId = '{root}';"));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM PendingPolicyMaintenance;"));
+    }
+
+    [Fact]
+    public async Task ConfirmedStart_RefusesWithoutWritingWhenTheGlobalPolicyChangedTheRule()
+    {
+        using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        await environment.Repository.InitializeAsync(Global);
+        DurableApplicationId root = InsertIdentity(environment);
+        Guid mixed = InsertEvent(environment, null, root, ("Text", "Text"), ("HTML Format", "Text"));
+        ApplicationHistoryPurgePreview preview = await Preview(environment)
+            .PreviewFirstAssignmentAsync(root, DenyHtmlAndPng);
+
+        await new ProtectedCapturePolicyPublishService(environment.Session, environment.Factory)
+            .PublishGlobalPolicyAsync(Policy(
+                ClipboardCapturePolicyRule.Allow,
+                ("Text", ClipboardCapturePolicyRule.Deny),
+                ("HTML Format", ClipboardCapturePolicyRule.Allow),
+                ("PNG", ClipboardCapturePolicyRule.Allow)));
+
+        await Assert.ThrowsAsync<ApplicationHistoryPurgePreviewOutdatedException>(() =>
+            Coordinator(environment).RunConfirmedFirstAssignmentAsync(preview, DenyHtmlAndPng, null, DeletionDate));
+
+        Assert.Equal(2, PayloadCount(environment, null, mixed));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ApplicationCapturePolicy;"));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM PendingPolicyMaintenance;"));
+    }
+
+    [Fact]
+    public async Task ConfirmedStart_RefusesWithoutWritingWhenTheGroupChanged()
+    {
+        using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        await environment.Repository.InitializeAsync(Global);
+        DurableApplicationId root = InsertIdentity(environment);
+        DurableApplicationId joined = InsertIdentity(environment);
+        Guid joinedHtml = InsertEvent(environment, null, joined, ("HTML Format", "Text"));
+        ApplicationHistoryPurgePreview preview = await Preview(environment)
+            .PreviewFirstAssignmentAsync(root, DenyHtmlAndPng);
+        Assert.True(preview.IsEmpty);
+
+        AddMember(environment, joined, root);
+
+        await Assert.ThrowsAsync<ApplicationHistoryPurgePreviewOutdatedException>(() =>
+            new ProtectedApplicationHistoryPurgeService(environment.Session, environment.Factory)
+                .StartConfirmedFirstAssignmentAsync(preview, DenyHtmlAndPng));
+
+        Assert.Equal(1, PayloadCount(environment, null, joinedHtml));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ApplicationCapturePolicy;"));
+        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM PendingPolicyMaintenance;"));
+    }
+
+    private static ProtectedApplicationHistoryPurgeCoordinator Coordinator(GlobalPolicyTestEnvironment environment) =>
+        new(environment.Session, environment.Factory);
+
     private static ProtectedApplicationHistoryPurgePreviewService Preview(GlobalPolicyTestEnvironment environment) =>
         new(environment.Session, environment.Factory);
 

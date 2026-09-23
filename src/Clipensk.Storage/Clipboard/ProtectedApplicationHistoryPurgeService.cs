@@ -11,6 +11,18 @@ public sealed record ApplicationHistoryPurgeStartResult(
     Guid OperationId,
     ClipboardHistoryPurgeSummary CurrentSummary);
 
+/// <summary>
+/// The rule or scope a purge would use no longer matches the preview the user confirmed — the
+/// global policy or the group changed in between. Nothing was written; preview again.
+/// </summary>
+public sealed class ApplicationHistoryPurgePreviewOutdatedException : InvalidOperationException
+{
+    public ApplicationHistoryPurgePreviewOutdatedException()
+        : base("The confirmed history purge preview is outdated; preview again before purging.")
+    {
+    }
+}
+
 internal enum ApplicationHistoryPurgeStartCheckpoint
 {
     BeforeCommit,
@@ -52,13 +64,49 @@ public sealed class ProtectedApplicationHistoryPurgeService
     /// Gives an unconfigured group root its first personal policy and purges, across the root's
     /// whole group, the saved representations that policy disallows.
     /// </summary>
-    public async Task<ApplicationHistoryPurgeStartResult> StartFirstAssignmentAsync(
+    public Task<ApplicationHistoryPurgeStartResult> StartFirstAssignmentAsync(
         ApplicationId rootApplicationId,
         ClipboardCapturePolicy policy,
         IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(rootApplicationId);
+        return StartFirstAssignmentCoreAsync(
+            rootApplicationId,
+            policy,
+            customBinaryConfigurations,
+            confirmedPreview: null,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Starts the first assignment the user confirmed from <paramref name="confirmedPreview"/>. The
+    /// purge proceeds only while its rule and source scope still equal the preview's; otherwise it
+    /// throws <see cref="ApplicationHistoryPurgePreviewOutdatedException"/> without writing.
+    /// Records captured after the preview fall under the same confirmed rule.
+    /// </summary>
+    public Task<ApplicationHistoryPurgeStartResult> StartConfirmedFirstAssignmentAsync(
+        ApplicationHistoryPurgePreview confirmedPreview,
+        ClipboardCapturePolicy policy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(confirmedPreview);
+        return StartFirstAssignmentCoreAsync(
+            confirmedPreview.RootApplicationId,
+            policy,
+            customBinaryConfigurations,
+            confirmedPreview,
+            cancellationToken);
+    }
+
+    private async Task<ApplicationHistoryPurgeStartResult> StartFirstAssignmentCoreAsync(
+        ApplicationId rootApplicationId,
+        ClipboardCapturePolicy policy,
+        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations,
+        ApplicationHistoryPurgePreview? confirmedPreview,
+        CancellationToken cancellationToken)
+    {
         CapturePolicySql.ValidateApplicationPolicy(policy);
         Dictionary<string, string> requestedMappings = CapturePolicySql.NormalizeCustomBinaryConfigurations(
             policy,
@@ -74,6 +122,10 @@ public sealed class ProtectedApplicationHistoryPurgeService
                             rootApplicationId,
                             policy,
                             token);
+                    if (confirmedPreview is not null && !scope.Matches(confirmedPreview))
+                    {
+                        throw new ApplicationHistoryPurgePreviewOutdatedException();
+                    }
 
                     CapturePolicySql.InsertMissingCustomBinaryConfigurationsInTransaction(
                         connection,

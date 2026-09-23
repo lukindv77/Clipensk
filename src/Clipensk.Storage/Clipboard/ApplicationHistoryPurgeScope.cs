@@ -58,6 +58,15 @@ internal sealed record ApplicationHistoryPurgeScope(
                 new ClipboardCapturePolicyEvaluator().Merge(global, policy)));
     }
 
+    /// <summary>Whether a purge of this scope deletes exactly what <paramref name="preview"/> described.</summary>
+    public bool Matches(ApplicationHistoryPurgePreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        return RootApplicationId == preview.RootApplicationId &&
+            SourceApplicationIds.SequenceEqual(preview.SourceApplicationIds) &&
+            Rule.Equals(preview.Rule);
+    }
+
     private static void RequireIdentity(
         SqliteConnection connection,
         SqliteTransaction transaction,

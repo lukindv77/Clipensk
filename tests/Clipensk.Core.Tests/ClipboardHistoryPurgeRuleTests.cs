@@ -43,6 +43,20 @@ public sealed class ClipboardHistoryPurgeRuleTests
     }
 
     [Fact]
+    public void Equality_ComparesTheCaptureRuleAndTheExactAllowedFormatSet()
+    {
+        var rule = new ClipboardHistoryPurgeRule(ClipboardCapturePolicyRule.Allow, ["Text", "HTML Format"]);
+
+        Assert.Equal(rule, new ClipboardHistoryPurgeRule(ClipboardCapturePolicyRule.Allow, ["HTML Format", "Text"]));
+        Assert.Equal(
+            rule.GetHashCode(),
+            new ClipboardHistoryPurgeRule(ClipboardCapturePolicyRule.Allow, ["HTML Format", "Text"]).GetHashCode());
+        Assert.NotEqual(rule, new ClipboardHistoryPurgeRule(ClipboardCapturePolicyRule.Allow, ["Text"]));
+        Assert.NotEqual(rule, new ClipboardHistoryPurgeRule(ClipboardCapturePolicyRule.Allow, ["text", "HTML Format"]));
+        Assert.NotEqual(rule, new ClipboardHistoryPurgeRule(ClipboardCapturePolicyRule.Deny, ["Text", "HTML Format"]));
+    }
+
+    [Fact]
     public void Constructor_RejectsAnUnresolvedRuleAndDuplicateFormats()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
