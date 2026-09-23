@@ -5,8 +5,9 @@
 `IKeyedSqliteConnectionFactory.Rekey` → `sqlite3_rekey`), разбор прерванной смены встроен в
 `ProtectedStorageCredentialService.UnlockOrInitializeAsync`, «Настройки» → «Сменить пароль…»
 (`JournalWindow.PasswordChange.cs`). Путь смены на production SQLCipher 4.17.0 проверяет smoke-хост:
-Native run `35857482543` на `763308a` — SUCCESS (Build run `35857480052` — SUCCESS). Ручной smoke на
-Windows — `UNVERIFIED`.
+Native run `35857482543` на `763308a` — SUCCESS (Build run `35857480052` — SUCCESS). Ревизия §5
+(недописанные копии, копии потерянной базы): `6718a03`, `7bcc6d0` — Build run `35869608153` и Native
+run `35869612180` на `7bcc6d0` — SUCCESS. Ручной smoke на Windows — `UNVERIFIED`.
 
 ## 1. Что меняется
 
@@ -126,4 +127,5 @@ Windows — `UNVERIFIED`.
 - Staging ротации или разделения архивов, чей marker пропал вместе с Current (после «Начать текущую
   базу заново», `CURRENT_RESTART.md` §4), некому довести, а удалять его автоматически нельзя — он
   может держать единственную копию части истории. Смена пароля на нём отказывает, пока его не
-  разберут вручную.
+  разберут вручную. То же — с копией `*.clipensk-rekey` потерянной базы, которую не вернул на место
+  ни один пароль (§5).
