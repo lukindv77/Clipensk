@@ -4,6 +4,11 @@ using Clipensk.Core.Storage;
 
 namespace Clipensk.Infrastructure.Storage;
 
+/// <summary>
+/// Why an operation on the data root as a whole — relocation, backup
+/// (<see cref="DataRootBackupService"/>) or opening another one (<see cref="DataRootOpenService"/>) —
+/// refused before writing anything.
+/// </summary>
 public enum DataRootRelocationRefusal
 {
     RelocationPending,
@@ -19,9 +24,18 @@ public enum DataRootRelocationRefusal
     TargetNotEmpty,
     InsufficientSpace,
     SourceBusy,
+
+    /// <summary>The chosen folder does not exist.</summary>
+    TargetMissing,
+
+    /// <summary>The chosen folder is an unfinished backup (<see cref="DataRootBackupService.IncompleteSuffix"/>).</summary>
+    TargetIncompleteBackup,
+
+    /// <summary>The chosen folder holds no Clipensk storage database.</summary>
+    TargetNotStorage,
 }
 
-/// <summary>A relocation refused before anything was written anywhere.</summary>
+/// <summary>An operation on the data root refused before anything was written anywhere.</summary>
 public sealed class DataRootRelocationRefusedException : InvalidOperationException
 {
     public DataRootRelocationRefusedException(
@@ -92,9 +106,7 @@ public sealed record DataRootRelocationRecoveryResult(
 /// </summary>
 public sealed class DataRootRelocationService
 {
-    internal const string TemporarySuffix = ".clipensk-relocating";
-    private const int BufferSize = 1 << 20;
-    private const long MinimumSpareBytes = 64L * 1024 * 1024;
+    internal const string TemporarySuffix = DataRootTreeCopy.TemporarySuffix;
 
     private readonly IDataRootLocationStore _store;
     private readonly Func<string, long?> _availableFreeSpace;
@@ -106,7 +118,7 @@ public sealed class DataRootRelocationService
         TimeProvider? time = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _availableFreeSpace = availableFreeSpace ?? GetAvailableFreeSpace;
+        _availableFreeSpace = availableFreeSpace ?? DataRootTreeCopy.GetAvailableFreeSpace;
         _time = time ?? TimeProvider.System;
     }
 
@@ -157,8 +169,8 @@ public sealed class DataRootRelocationService
         {
             protectTarget?.Invoke(target);
             Directory.CreateDirectory(target);
-            hashes = CopyTree(lease, manifest, target, progress, cancellationToken);
-            VerifyTree(manifest, target, hashes, cancellationToken);
+            hashes = DataRootTreeCopy.CopyTree(lease, manifest, target, progress, cancellationToken);
+            DataRootTreeCopy.VerifyTree(manifest, target, hashes, cancellationToken);
 
             // Last cancellation boundary: once the new path is written the relocation completes.
             cancellationToken.ThrowIfCancellationRequested();
@@ -303,8 +315,7 @@ public sealed class DataRootRelocationService
 
     private DataRootRelocationPreview RequireSpace(string source, string target, DataRootManifest manifest)
     {
-        long spare = Math.Max(manifest.ByteCount / 20, MinimumSpareBytes);
-        long required = manifest.ByteCount + spare;
+        long required = DataRootTreeCopy.RequiredBytes(manifest);
         long? available = _availableFreeSpace(target);
         if (available is long bytes && bytes < required)
         {
@@ -320,109 +331,6 @@ public sealed class DataRootRelocationService
             manifest.ByteCount,
             required,
             available);
-    }
-
-    private static Dictionary<string, byte[]> CopyTree(
-        DataRootSourceLease lease,
-        DataRootManifest manifest,
-        string target,
-        IProgress<DataRootRelocationProgress>? progress,
-        CancellationToken cancellationToken)
-    {
-        foreach (string directory in manifest.Directories)
-        {
-            Directory.CreateDirectory(Path.Combine(target, directory));
-        }
-
-        var hashes = new Dictionary<string, byte[]>(DataRootPaths.Comparer);
-        byte[] buffer = new byte[BufferSize];
-        long bytesCopied = 0;
-        int filesCopied = 0;
-        progress?.Report(new DataRootRelocationProgress(0, manifest.Files.Count, 0, manifest.ByteCount));
-        foreach (DataRootManifestFile file in manifest.Files)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            string finalPath = Path.Combine(target, file.RelativePath);
-            string temporaryPath = finalPath + TemporarySuffix;
-            if (File.Exists(finalPath) || Directory.Exists(finalPath) ||
-                File.Exists(temporaryPath) || Directory.Exists(temporaryPath))
-            {
-                throw new IOException($"The target already holds '{file.RelativePath}'.");
-            }
-
-            FileStream source = lease.Get(file.RelativePath);
-            source.Position = 0;
-            using (IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
-            {
-                using (var destination = new FileStream(
-                           temporaryPath,
-                           FileMode.CreateNew,
-                           FileAccess.Write,
-                           FileShare.None,
-                           BufferSize,
-                           FileOptions.SequentialScan))
-                {
-                    long copied = 0;
-                    int read;
-                    while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        hash.AppendData(buffer, 0, read);
-                        destination.Write(buffer, 0, read);
-                        copied += read;
-                        bytesCopied += read;
-                    }
-
-                    if (copied != file.Length)
-                    {
-                        throw new IOException($"'{file.RelativePath}' changed size while it was copied.");
-                    }
-
-                    destination.Flush(flushToDisk: true);
-                }
-
-                hashes.Add(file.RelativePath, hash.GetHashAndReset());
-            }
-
-            File.Move(temporaryPath, finalPath, overwrite: false);
-            filesCopied++;
-            progress?.Report(new DataRootRelocationProgress(
-                filesCopied,
-                manifest.Files.Count,
-                bytesCopied,
-                manifest.ByteCount));
-        }
-
-        return hashes;
-    }
-
-    /// <summary>
-    /// Rereads every copied file from the target and compares it with the source digest, then
-    /// requires the target tree to hold exactly the manifest: no extra entry, no link, no temporary
-    /// file.
-    /// </summary>
-    private static void VerifyTree(
-        DataRootManifest manifest,
-        string target,
-        IReadOnlyDictionary<string, byte[]> hashes,
-        CancellationToken cancellationToken)
-    {
-        foreach (DataRootManifestFile file in manifest.Files)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            string path = Path.Combine(target, file.RelativePath);
-            (long length, byte[] digest) = HashFile(path, cancellationToken);
-            if (length != file.Length || !CryptographicOperations.FixedTimeEquals(digest, hashes[file.RelativePath]))
-            {
-                throw new InvalidDataException($"The copy of '{file.RelativePath}' does not match the source.");
-            }
-        }
-
-        DataRootManifest copied = DataRootManifest.Build(target, cancellationToken);
-        if (!copied.HasSameEntriesAs(manifest))
-        {
-            throw new InvalidDataException("The new location does not hold exactly the copied data root.");
-        }
     }
 
     /// <summary>
@@ -481,10 +389,10 @@ public sealed class DataRootRelocationService
 
         foreach (string directory in manifest.DirectoriesDeepestFirst())
         {
-            TryDeleteEmptyDirectory(Path.Combine(source, directory));
+            DataRootTreeCopy.TryDeleteEmptyDirectory(Path.Combine(source, directory));
         }
 
-        TryDeleteEmptyDirectory(source);
+        DataRootTreeCopy.TryDeleteEmptyDirectory(source);
         if (Directory.Exists(source))
         {
             foreach (string remaining in DataRootManifest.ListRemainingEntries(source))
@@ -520,7 +428,7 @@ public sealed class DataRootRelocationService
                     return false;
                 }
 
-                (long targetLength, byte[] targetDigest) = HashFile(targetPath, CancellationToken.None);
+                (long targetLength, byte[] targetDigest) = DataRootTreeCopy.HashFile(targetPath, CancellationToken.None);
                 if (targetLength != file.Length)
                 {
                     return false;
@@ -529,7 +437,7 @@ public sealed class DataRootRelocationService
                 expected = targetDigest;
             }
 
-            (long length, byte[] digest) = HashFile(sourcePath, CancellationToken.None);
+            (long length, byte[] digest) = DataRootTreeCopy.HashFile(sourcePath, CancellationToken.None);
             return length == file.Length && CryptographicOperations.FixedTimeEquals(digest, expected);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -556,21 +464,10 @@ public sealed class DataRootRelocationService
         }
 
         DataRootManifest sourceManifest = DataRootManifest.Build(marker.SourcePath, cancellationToken);
-        foreach (DataRootManifestFile file in sourceManifest.Files)
-        {
-            string finalPath = Path.Combine(marker.TargetPath, file.RelativePath);
-            DeleteRegularFile(finalPath);
-            DeleteRegularFile(finalPath + TemporarySuffix);
-        }
-
-        foreach (string directory in sourceManifest.DirectoriesDeepestFirst())
-        {
-            TryDeleteEmptyDirectory(Path.Combine(marker.TargetPath, directory));
-        }
-
+        DataRootTreeCopy.RemoveCopy(marker.TargetPath, sourceManifest);
         if (!marker.TargetExisted)
         {
-            TryDeleteEmptyDirectory(marker.TargetPath);
+            DataRootTreeCopy.TryDeleteEmptyDirectory(marker.TargetPath);
         }
 
         return Directory.Exists(marker.TargetPath)
@@ -608,75 +505,6 @@ public sealed class DataRootRelocationService
         {
             throw new InvalidDataException(
                 "The configured data root does not match the pending relocation; nothing was changed.");
-        }
-    }
-
-    private static void DeleteRegularFile(string path)
-    {
-        var file = new FileInfo(path);
-        if (file.Exists && !file.Attributes.HasFlag(FileAttributes.ReparsePoint))
-        {
-            file.Delete();
-        }
-    }
-
-    private static void TryDeleteEmptyDirectory(string path)
-    {
-        var directory = new DirectoryInfo(path);
-        if (!directory.Exists ||
-            directory.Attributes.HasFlag(FileAttributes.ReparsePoint) ||
-            directory.EnumerateFileSystemInfos().Any())
-        {
-            return;
-        }
-
-        try
-        {
-            directory.Delete(recursive: false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
-
-    private static (long Length, byte[] Digest) HashFile(string path, CancellationToken cancellationToken)
-    {
-        using var stream = new FileStream(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            BufferSize,
-            FileOptions.SequentialScan);
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] buffer = new byte[BufferSize];
-        long length = 0;
-        int read;
-        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            hash.AppendData(buffer, 0, read);
-            length += read;
-        }
-
-        return (length, hash.GetHashAndReset());
-    }
-
-    private static long? GetAvailableFreeSpace(string target)
-    {
-        try
-        {
-            string? existing = target;
-            while (existing is not null && !Directory.Exists(existing))
-            {
-                existing = Path.GetDirectoryName(existing);
-            }
-
-            return existing is null ? null : new DriveInfo(existing).AvailableFreeSpace;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            return null;
         }
     }
 
