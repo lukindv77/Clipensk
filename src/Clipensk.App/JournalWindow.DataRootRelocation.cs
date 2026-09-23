@@ -90,12 +90,22 @@ public sealed partial class JournalWindow
             RefreshLifecycleUi();
             (string message, InfoBarSeverity severity) = await RunRelocationAsync(service, preview, sourcePath);
             await ReloadSettingsAfterRelocationAsync();
+            if (_credentialState == ProtectedStorageCredentialState.Invalid)
+            {
+                // Reloading found the storage unusable; that must not be hidden behind the result.
+                message += Environment.NewLine + _localization.GetString("Lock.InvalidMetadata");
+                severity = InfoBarSeverity.Error;
+            }
+
             ShowRelocationMessage(LockInfo, message, severity);
         }
         catch
         {
             await ReloadSettingsAfterRelocationAsync();
-            ShowRelocationMessage(DataRootRelocationInfo, RelocationText("Failed"), InfoBarSeverity.Error);
+
+            // Once Clipensk has locked itself the lock screen is shown, not Settings.
+            InfoBar bar = SettingsPanel.Visibility == Visibility.Visible ? DataRootRelocationInfo : LockInfo;
+            ShowRelocationMessage(bar, await DescribeUnfinishedRelocationAsync("Failed"), InfoBarSeverity.Error);
         }
         finally
         {
