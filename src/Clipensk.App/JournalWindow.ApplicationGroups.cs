@@ -38,17 +38,48 @@ public sealed partial class JournalWindow
             return;
         }
 
-        ApplicationId applicationId = selected.Summary.ApplicationId;
         _applicationPolicyEditInProgress = true;
         SetApplicationGroupButtons(null);
+        GroupChangeResult? result = null;
+        try
+        {
+            result = await RunApplicationGroupMoveDialogAsync(
+                session,
+                selected.Summary.ApplicationId,
+                selected.ApplicationName,
+                () => IsCurrentApplicationPolicyOperation(session, generation));
+        }
+        finally
+        {
+            _applicationPolicyEditInProgress = false;
+            await FinishApplicationGroupChangeAsync(
+                session,
+                generation,
+                result?.Message,
+                result?.Severity ?? InfoBarSeverity.Success);
+        }
+    }
+
+    /// <summary>
+    /// Shows the choose/move dialog for one application: a new group or an existing one, then the
+    /// preview of what the target group's rules would delete, then the confirmed move. Returns what
+    /// to report, or <see langword="null"/> when the user cancelled. <paramref name="isCurrent"/>
+    /// tells whether the protected session the dialog was opened for is still the active one.
+    /// </summary>
+    private async Task<GroupChangeResult?> RunApplicationGroupMoveDialogAsync(
+        ProtectedStorageSessionLease session,
+        ApplicationId applicationId,
+        string applicationName,
+        Func<bool> isCurrent)
+    {
         string? resultMessage = null;
         InfoBarSeverity resultSeverity = InfoBarSeverity.Success;
         try
         {
             GroupDialogData data = await ReadGroupDialogDataAsync(session, _ => [applicationId]);
-            if (!IsCurrentApplicationPolicyOperation(session, generation))
+            if (!isCurrent())
             {
-                return;
+                return null;
             }
 
             ApplicationGroup? sourceGroup = data.Groups.GroupOf(applicationId);
@@ -73,7 +104,7 @@ public sealed partial class JournalWindow
             var useApplicationName = new Button { Content = ApplicationGroupText("UseApplicationName") };
             useApplicationName.Click += (_, _) =>
             {
-                name.Text = selected.ApplicationName;
+                name.Text = applicationName;
                 name.Focus(FocusState.Programmatic);
             };
             GroupPolicyEditor editor = BuildGroupPolicyEditor(data.Global, data.DiscoveredFormats, data.Mappings);
@@ -142,7 +173,7 @@ public sealed partial class JournalWindow
             };
             var dialog = new ContentDialog
             {
-                Title = FillText(ApplicationGroupText("MoveTitle"), selected.ApplicationName),
+                Title = FillText(ApplicationGroupText("MoveTitle"), applicationName),
                 PrimaryButtonText = ApplicationGroupText("Next"),
                 CloseButtonText = ApplicationGroupText("Cancel"),
                 DefaultButton = ContentDialogButton.Primary,
@@ -159,7 +190,7 @@ public sealed partial class JournalWindow
                 InfoBar currentError = confirmation?.Error ?? chooseError;
                 try
                 {
-                    if (!IsCurrentApplicationPolicyOperation(session, generation))
+                    if (!isCurrent())
                     {
                         ShowGroupError(currentError, ApplicationGroupText("SessionChanged"));
                         args.Cancel = true;
@@ -180,7 +211,7 @@ public sealed partial class JournalWindow
                             ? null
                             : await TryPreviewMoveAsync(session, built, chooseError);
                         if (built is not null && computed is not null &&
-                            IsCurrentApplicationPolicyOperation(session, generation))
+                            isCurrent())
                         {
                             request = built;
                             preview = computed;
@@ -237,7 +268,7 @@ public sealed partial class JournalWindow
                             return;
                         case ApplicationGroupMoveOutcomeKind.PreviewOutdated:
                             ApplicationGroupMovePreview? refreshed = await TryPreviewMoveAsync(session, request, currentError);
-                            if (refreshed is not null && IsCurrentApplicationPolicyOperation(session, generation))
+                            if (refreshed is not null && isCurrent())
                             {
                                 preview = refreshed;
                                 confirmation = ShowMoveConfirmation(
@@ -285,11 +316,8 @@ public sealed partial class JournalWindow
             resultMessage = ApplicationGroupText("PrepareFailed");
             resultSeverity = InfoBarSeverity.Error;
         }
-        finally
-        {
-            _applicationPolicyEditInProgress = false;
-            await FinishApplicationGroupChangeAsync(session, generation, resultMessage, resultSeverity);
-        }
+
+        return resultMessage is null ? null : new GroupChangeResult(resultMessage, resultSeverity);
     }
 
     private async void OnEditApplicationGroupSettingsClicked(object sender, RoutedEventArgs e)
@@ -435,12 +463,12 @@ public sealed partial class JournalWindow
         }
     }
 
-    private async Task ShowApplicationGroupDialogAsync(ContentDialog dialog)
+    private async Task<ContentDialogResult> ShowApplicationGroupDialogAsync(ContentDialog dialog)
     {
         _applicationPolicyDialog = dialog;
         try
         {
-            await dialog.ShowAsync();
+            return await dialog.ShowAsync();
         }
         finally
         {
@@ -908,6 +936,8 @@ public sealed partial class JournalWindow
         Text = text,
         TextWrapping = TextWrapping.Wrap,
     };
+
+    private sealed record GroupChangeResult(string Message, InfoBarSeverity Severity);
 
     private sealed record GroupOption(string Label, ApplicationGroup Group);
 

@@ -110,6 +110,27 @@
                                 VerticalAlignment="Bottom"
                                 Click="OnJournalLoadClicked" />
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ComboBox x:Name="JournalGroupFilter"
+                                  Width="260"
+                                  VerticalAlignment="Bottom"
+                                  DisplayMemberPath="DisplayName"
+                                  SelectionChanged="OnJournalGroupFilterChanged" />
+                        <DropDownButton x:Name="JournalGroupMembersButton"
+                                        VerticalAlignment="Bottom"
+                                        Visibility="Collapsed">
+                            <DropDownButton.Flyout>
+                                <Flyout Placement="Bottom" Opening="OnJournalGroupMembersFlyoutOpening">
+                                    <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
+                                        <StackPanel x:Name="JournalGroupMembersPanel" Spacing="4" MinWidth="260" MaxWidth="420" />
+                                    </ScrollViewer>
+                                </Flyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                        <Button x:Name="JournalUnassignedButton"
+                                VerticalAlignment="Bottom"
+                                Click="OnJournalUnassignedApplicationsClicked" />
+                    </StackPanel>
                     <InfoBar x:Name="JournalInfo"
                              IsOpen="False"
                              IsClosable="True" />

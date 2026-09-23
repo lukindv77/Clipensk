@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Text;
+using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
+using Clipensk.Storage.Applications;
 using Clipensk.Storage.History;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -20,7 +22,7 @@ public sealed partial class JournalWindow
     private bool _journalInitializingPeriod;
     private JournalDateRange? _journalPeriod;
     private string? _journalSearchTerm;
-    private Guid? _journalSourceApplicationId;
+    private ClipboardHistoryFilter? _journalFilter;
     private ClipboardHistoryCursor? _journalCursor;
 
     private void OnJournalContentPanelLoaded(object sender, RoutedEventArgs e)
@@ -33,6 +35,8 @@ public sealed partial class JournalWindow
         JournalLoadMoreButton.Content = JournalText("LoadMore");
         JournalCopyButton.Content = JournalText("Copy.Action");
         JournalCopyPlainTextButton.Content = JournalText("Copy.PlainTextAction");
+        JournalUnassignedButton.Content = JournalText("Unassigned.Open");
+        UpdateJournalGroupMembersButton();
 
         ShellNavigation.SelectionChanged -= OnJournalNavigationSelectionChanged;
         ShellNavigation.SelectionChanged += OnJournalNavigationSelectionChanged;
@@ -43,6 +47,7 @@ public sealed partial class JournalWindow
 
         EnsureJournalInitialPeriod();
         _ = EnsureJournalApplicationFilterLoadedAsync();
+        _ = RefreshJournalGroupFilterAsync();
         if (ReferenceEquals(ShellNavigation.SelectedItem, JournalItem) &&
             _lifecycle.CanAccessProtectedData)
         {
@@ -72,6 +77,7 @@ public sealed partial class JournalWindow
         ShowJournalContent();
         EnsureJournalInitialPeriod();
         _ = EnsureJournalApplicationFilterLoadedAsync();
+        await RefreshJournalGroupFilterAsync();
         await LoadJournalAsync(reset: true);
     }
 
@@ -98,6 +104,7 @@ public sealed partial class JournalWindow
                 ShowJournalContent();
                 EnsureJournalInitialPeriod();
                 _ = EnsureJournalApplicationFilterLoadedAsync();
+                _ = RefreshJournalGroupFilterAsync();
                 _ = LoadJournalAsync(reset: true);
             }
         }
@@ -160,7 +167,10 @@ public sealed partial class JournalWindow
     /// </summary>
     private void ResetJournalForPendingQueryChange(string messageKey)
     {
+        // The change also abandons a read still in flight, whose completion no longer clears the
+        // busy state once the generation moved on.
         Interlocked.Increment(ref _journalGeneration);
+        SetJournalBusy(false);
         _journalItems.Clear();
         _journalPeriod = null;
         _journalCursor = null;
@@ -223,6 +233,8 @@ public sealed partial class JournalWindow
 
         string? searchTerm = ClipboardHistorySearchMatcher.Normalize(JournalSearchBox.Text);
         Guid? sourceApplicationId = CurrentJournalApplicationFilter();
+        JournalGroupFilterItem? groupFilter = CurrentJournalGroupFilter();
+        Guid[] excludedMembers = _journalExcludedGroupMembers.ToArray();
 
         ProtectedStorageSessionLease? session = _protectedStorageSession;
         if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
@@ -231,18 +243,22 @@ public sealed partial class JournalWindow
             return;
         }
 
+        // Every change of the source filter goes through ResetJournalForPendingQueryChange, which
+        // clears the committed period, so "load more" always continues with the filter the first
+        // page resolved; group membership is resolved once per query, in Current, before reading.
         ClipboardHistoryCursor? before = null;
+        ClipboardHistoryFilter? committedFilter = null;
         if (!reset)
         {
             if (_journalPeriod is not JournalDateRange currentPeriod ||
                 currentPeriod != period ||
                 _journalSearchTerm != searchTerm ||
-                _journalSourceApplicationId != sourceApplicationId ||
                 _journalCursor is null)
             {
                 return;
             }
             before = _journalCursor;
+            committedFilter = _journalFilter;
         }
 
         long generation = Interlocked.Increment(ref _journalGeneration);
@@ -251,7 +267,7 @@ public sealed partial class JournalWindow
             _journalItems.Clear();
             _journalPeriod = period;
             _journalSearchTerm = searchTerm;
-            _journalSourceApplicationId = sourceApplicationId;
+            _journalFilter = null;
             _journalCursor = null;
             JournalEntriesList.ItemsSource = null;
         }
@@ -260,42 +276,71 @@ public sealed partial class JournalWindow
         SetJournalBusy(true);
         try
         {
-            IReadOnlyList<UnifiedClipboardHistoryEntry> entries = await Task.Run(
+            JournalPage page = await Task.Run(
                 async () =>
                 {
+                    CancellationToken token = session.CancellationToken;
+                    bool resolveGroup = reset && groupFilter is { Kind: not JournalGroupFilterKind.All };
+                    ApplicationGroupDirectory? groups = await ReadJournalGroupsAsync(
+                        session,
+                        required: resolveGroup,
+                        token).ConfigureAwait(false);
+                    IReadOnlyList<ApplicationIdentitySummary>? identities =
+                        resolveGroup && groupFilter!.Kind == JournalGroupFilterKind.Default
+                            ? await new SqliteApplicationIdentityRepository(session)
+                                .ListAsync(token)
+                                .ConfigureAwait(false)
+                            : null;
+                    JournalSourceFilter source = reset
+                        ? ResolveJournalSourceFilter(sourceApplicationId, groupFilter, excludedMembers, groups, identities)
+                        : new JournalSourceFilter(committedFilter, GroupMissing: false);
+                    if (source.GroupMissing)
+                    {
+                        return new JournalPage([], groups, source);
+                    }
+
                     var repository = new ProtectedUnifiedClipboardHistoryRepository(session);
-                    ClipboardHistoryFilter? filter = sourceApplicationId is Guid sourceId
-                        ? ClipboardHistoryFilter.ForSource(sourceId)
-                        : null;
-                    return before is null
+                    IReadOnlyList<UnifiedClipboardHistoryEntry> read = before is null
                         ? await repository.ReadAsync(
                             period,
                             JournalPageSize,
                             searchTerm,
-                            filter,
-                            session.CancellationToken)
+                            source.Filter,
+                            token)
                         : await repository.ReadBeforeAsync(
                             period,
                             JournalPageSize,
                             before,
                             searchTerm,
-                            filter,
-                            session.CancellationToken);
+                            source.Filter,
+                            token);
+                    return new JournalPage(read, groups, source);
                 },
                 session.CancellationToken);
 
             if (!IsCurrentJournalOperation(session, generation) ||
                 _journalPeriod != period ||
                 _journalSearchTerm != searchTerm ||
-                _journalSourceApplicationId != sourceApplicationId ||
                 (!reset && !Equals(_journalCursor, before)))
             {
                 return;
             }
 
+            if (page.Source.GroupMissing)
+            {
+                ResetJournalGroupFilterAfterGroupRemoved();
+                return;
+            }
+
+            IReadOnlyList<UnifiedClipboardHistoryEntry> entries = page.Entries;
+            if (reset)
+            {
+                _journalFilter = page.Source.Filter;
+            }
+
             foreach (UnifiedClipboardHistoryEntry entry in entries)
             {
-                _journalItems.Add(BuildJournalListItem(entry));
+                _journalItems.Add(BuildJournalListItem(entry, page.Groups));
             }
 
             if (entries.Count > 0)
@@ -388,7 +433,7 @@ public sealed partial class JournalWindow
         _journalItems.Clear();
         _journalPeriod = null;
         _journalSearchTerm = null;
-        _journalSourceApplicationId = null;
+        _journalFilter = null;
         _journalCursor = null;
         JournalEntriesList.ItemsSource = null;
         UpdateJournalCopyAvailability();
@@ -397,12 +442,14 @@ public sealed partial class JournalWindow
         SetJournalBusy(false);
     }
 
-    private JournalListItem BuildJournalListItem(UnifiedClipboardHistoryEntry unified)
+    private JournalListItem BuildJournalListItem(
+        UnifiedClipboardHistoryEntry unified,
+        ApplicationGroupDirectory? groups)
     {
         ClipboardHistoryEntry entry = unified.Entry;
         return new JournalListItem(
             entry.EventTime.Timestamp.ToString("dd.MM.yyyy HH:mm:ss zzz", CultureInfo.CurrentCulture),
-            BuildJournalSource(entry),
+            BuildJournalSourceWithGroup(entry, groups),
             BuildJournalPreview(entry),
             BuildJournalDetails(unified),
             entry);

@@ -129,6 +129,7 @@ public sealed partial class JournalWindow
             return;
         }
 
+        ClearJournalGroupFilterForApplicationFilter();
         ResetJournalForPendingQueryChange("FilterChanged");
     }
 
