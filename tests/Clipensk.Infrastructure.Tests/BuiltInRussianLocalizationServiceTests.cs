@@ -67,6 +67,7 @@ public sealed class BuiltInRussianLocalizationServiceTests
         "PasswordChange.Refused.Space",
         "PasswordChange.Refused.Busy",
         "PasswordChange.Refused.Database",
+        "Startup.UnsupportedWindows",
     ];
 
     [Theory]

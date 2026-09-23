@@ -1,6 +1,7 @@
 using Clipensk.Core.Application;
 using Clipensk.Core.Input;
 using Clipensk.Core.Localization;
+using Clipensk.Core.Platform;
 using Clipensk.Core.Security;
 using Clipensk.Core.Settings;
 using Clipensk.Core.Storage;
@@ -72,6 +73,17 @@ public partial class App : Application
         {
             Exit();
             return;
+        }
+
+        // Only Windows 11 is supported (docs/OPEN_QUESTIONS.md §2); on an older Windows Clipensk
+        // warns once per start and runs on, per the user's decision of 2026-09-23.
+        Version windowsVersion = Environment.OSVersion.Version;
+        if (!SupportedWindowsVersion.IsSupported(windowsVersion))
+        {
+            WindowsStartupMessage.ShowWarning(
+                localization.GetString("Startup.UnsupportedWindows")
+                    .Replace("{0}", windowsVersion.ToString(), StringComparison.Ordinal),
+                localization.GetString("App.Title"));
         }
 
         (ApplicationSettings? recoveredSettings, StartupNotice? startupNotice) =
