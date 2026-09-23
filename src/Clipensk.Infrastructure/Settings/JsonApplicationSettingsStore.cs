@@ -72,6 +72,11 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
                     cancellationToken);
 
                 await stream.FlushAsync(cancellationToken);
+
+                // The replace below is the commit point of a data root relocation, after which the
+                // old data root is deleted: the new settings must be on disk before they replace the
+                // old ones, or a power loss could leave an empty settings file naming no storage.
+                stream.Flush(flushToDisk: true);
             }
 
             File.Move(temporaryPath, _settingsPath, overwrite: true);
@@ -87,6 +92,15 @@ public sealed class JsonApplicationSettingsStore : IApplicationSettingsStore
 
     private static ApplicationSettings Validate(ApplicationSettings settings)
     {
+        if (settings.PendingDataRootRelocation is { } relocation)
+        {
+            relocation.Validate();
+            if (string.IsNullOrWhiteSpace(settings.DataRootPath))
+            {
+                throw new InvalidDataException("A pending data root relocation needs a configured data root.");
+            }
+        }
+
         settings.ArchiveRotation?.Validate();
         if (settings.DefaultJournalPeriodDays is int days)
         {

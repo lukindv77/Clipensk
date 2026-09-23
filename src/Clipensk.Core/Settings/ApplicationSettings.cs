@@ -10,6 +10,13 @@ public sealed record ApplicationSettings
 
     public string? DataRootPath { get; init; }
 
+    /// <summary>
+    /// An unfinished data root relocation, per <c>docs/DATA_ROOT_RELOCATION_PROTOCOL.md</c> §5. It is
+    /// written only together with <see cref="DataRootPath"/>, in the same atomic settings write, and
+    /// startup recovery finishes or undoes it before anything opens the data root.
+    /// </summary>
+    public DataRootRelocationMarker? PendingDataRootRelocation { get; init; }
+
     public HotKeyGesture? JournalHotKey { get; init; }
 
     public bool AutoLockEnabled { get; init; } = false;

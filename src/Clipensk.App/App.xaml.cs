@@ -10,6 +10,7 @@ using Clipensk.Infrastructure.Security;
 using Clipensk.Infrastructure.Settings;
 using Clipensk.Storage.Databases;
 using Clipensk.Windows;
+using Clipensk.Windows.Interop;
 using Microsoft.UI.Xaml;
 
 namespace Clipensk.App;
@@ -32,6 +33,20 @@ public partial class App : Application
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var localization = new ExternalOverlayLocalizationService(new BuiltInRussianLocalizationService());
+
+        // settings.json lives beside Clipensk.exe (docs/OPEN_QUESTIONS.md §12); a program folder that
+        // does not accept new files could never keep the user's settings, so Clipensk does not start.
+        string programDirectory = SettingsPathProvider.GetProgramDirectory();
+        if (!SettingsPathProvider.CanCreateFilesIn(programDirectory))
+        {
+            WindowsStartupMessage.ShowError(
+                localization.GetString("Startup.ProgramFolderNotWritable")
+                    .Replace("{0}", programDirectory, StringComparison.Ordinal),
+                localization.GetString("App.Title"));
+            Exit();
+            return;
+        }
+
         var settingsStore = new JsonApplicationSettingsStore(SettingsPathProvider.GetDefaultSettingsPath());
         ApplicationSettings settings = await settingsStore.LoadAsync();
         await TryApplyActiveLocalizationAsync(localization, settings);

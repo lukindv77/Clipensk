@@ -6,36 +6,53 @@ namespace Clipensk.Infrastructure.Tests;
 public sealed class SettingsPathProviderTests
 {
     [Fact]
-    public void AllPaths_StayInsideTheCurrentUsersOwnApplicationDirectory()
+    public void Settings_LiveBesideTheProgram()
+    {
+        // Each Windows user runs their own unpacked copy of Clipensk, so the settings in its folder
+        // are that user's (docs/OPEN_QUESTIONS.md §12, 2026-09-23).
+        string programDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(AppContext.BaseDirectory));
+
+        Assert.Equal(programDirectory, SettingsPathProvider.GetProgramDirectory());
+        Assert.Equal(Path.Combine(programDirectory, "settings.json"), SettingsPathProvider.GetDefaultSettingsPath());
+    }
+
+    [Fact]
+    public void DefaultDataRootAndInstanceLock_StayInTheCurrentUsersOwnApplicationDirectory()
     {
         string userRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Clipensk");
 
-        // The product decision is that every Windows user gets their own settings and storage,
-        // placed by default only where that user already has private access — so none of these may
-        // resolve to a shared location.
-        Assert.Equal(Path.Combine(userRoot, "settings.json"), SettingsPathProvider.GetDefaultSettingsPath());
+        // The default storage is placed only where the user already has private access, and the
+        // single-instance lock is per Windows user whichever copy of the program runs.
         Assert.Equal(Path.Combine(userRoot, "Data"), SettingsPathProvider.GetDefaultDataRootPath());
         Assert.Equal(Path.Combine(userRoot, "instance.lock"), SettingsPathProvider.GetInstanceLockPath());
     }
 
     [Fact]
-    public void DefaultDataRoot_IsNotTheSettingsFileOrTheInstanceLock()
+    public void InstanceLock_IsNeitherBesideTheSettingsNorInsideTheDataRoot()
     {
-        string dataRoot = SettingsPathProvider.GetDefaultDataRootPath();
+        string lockDirectory = Path.GetDirectoryName(SettingsPathProvider.GetInstanceLockPath())!;
 
-        Assert.NotEqual(SettingsPathProvider.GetDefaultSettingsPath(), dataRoot);
-        Assert.NotEqual(SettingsPathProvider.GetInstanceLockPath(), dataRoot);
+        Assert.NotEqual(SettingsPathProvider.GetProgramDirectory(), lockDirectory);
+        Assert.NotEqual(SettingsPathProvider.GetDefaultDataRootPath(), lockDirectory);
     }
 
     [Fact]
-    public void InstanceLock_SitsBesideSettingsRatherThanInsideTheDataRoot()
+    public void CanCreateFilesIn_ProbesWithoutLeavingAnything()
     {
-        // The guard must work before any data root exists, and must not move when the user later
-        // relocates their storage.
-        Assert.Equal(
-            Path.GetDirectoryName(SettingsPathProvider.GetDefaultSettingsPath()),
-            Path.GetDirectoryName(SettingsPathProvider.GetInstanceLockPath()));
+        string directory = Path.Combine(Path.GetTempPath(), "clipensk-probe-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Assert.True(SettingsPathProvider.CanCreateFilesIn(directory));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(directory));
+
+            Assert.False(SettingsPathProvider.CanCreateFilesIn(Path.Combine(directory, "missing")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 }
