@@ -92,8 +92,9 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     /// <summary>
     /// Creates a new, empty <c>current.db</c> for a storage whose Current was lost, with the same
     /// <c>StorageId</c> and key as the databases that remain (<c>docs/CURRENT_RESTART.md</c> §3
-    /// step 3). Refuses when <c>current.db</c> exists or no remaining database opens with this key
-    /// and names this storage. The Catalog is not touched.
+    /// step 3). Refuses when <c>current.db</c> exists, when a copy of it from an interrupted password
+    /// change is still there, or when no remaining database opens with this key and names this
+    /// storage. The Catalog is not touched.
     /// </summary>
     public Task<ProtectedStorageDatabaseResult> StartCurrentAnewAsync(
         string dataRootPath,
@@ -131,6 +132,14 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         string currentDirectory = Path.Combine(dataRootPath, StorageDatabaseFiles.CurrentDirectoryName);
         string currentDatabasePath = Path.Combine(currentDirectory, StorageDatabaseFiles.CurrentFileName);
         if (File.Exists(currentDatabasePath))
+        {
+            return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.MissingOrPartialStorage, WasInitialized: false);
+        }
+
+        // A copy of the lost Current from an interrupted password change that this key did not put
+        // back may be all that is left of it; beside a new current.db it would read as a leftover
+        // and be deleted (PASSWORD_CHANGE_PROTOCOL.md §5). Only the user removes it.
+        if (File.Exists(currentDatabasePath + StorageDatabaseFiles.PasswordChangeCopySuffix))
         {
             return new ProtectedStorageDatabaseResult(ProtectedStorageDatabaseStatus.MissingOrPartialStorage, WasInitialized: false);
         }

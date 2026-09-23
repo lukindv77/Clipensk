@@ -219,10 +219,41 @@ public sealed class ProtectedStoragePasswordChangeService
             }
         }
 
+        // The change never removes a database, so one that is gone was lost some other way. Its
+        // copy, if it is a whole database under this key, is put back where the database was;
+        // any other copy of a lost database may be all that is left of it and stays as it is.
+        var restores = new List<(string Database, string Copy)>();
+        foreach (string copy in copies)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string database = copy[..^StorageDatabaseFiles.PasswordChangeCopySuffix.Length];
+            if (!File.Exists(database) && OpensCopy(copy, RoleOf(root, database), key))
+            {
+                restores.Add((database, copy));
+            }
+        }
+
         if (switches.Count == 0 && everyDatabaseReachable)
         {
-            // The key opens every database: nothing was switched, or everything was.
-            DeleteCopies(CopiesBesideTheirDatabase(copies));
+            // The key opens every database: nothing was switched, or everything was. A lost Current
+            // whose copy this key does not open is the exception: the copy may be under the other
+            // password, and only with the other copies can that one finish the change and put
+            // Current back. They all stay; without Current no session starts to outdate them.
+            string currentPath = Path.Combine(root, StorageDatabaseFiles.CurrentRelativePath);
+            bool lostCurrentCopyKept =
+                !File.Exists(currentPath) &&
+                File.Exists(currentPath + StorageDatabaseFiles.PasswordChangeCopySuffix) &&
+                !restores.Any(entry => string.Equals(entry.Database, currentPath, StringComparison.OrdinalIgnoreCase));
+            if (!lostCurrentCopyKept)
+            {
+                DeleteCopies(CopiesBesideTheirDatabase(copies));
+            }
+
+            foreach ((string database, string copy) in restores)
+            {
+                File.Move(copy, database, overwrite: false);
+            }
+
             return PasswordChangeRecoveryOutcome.RolledBack;
         }
 
@@ -237,7 +268,7 @@ public sealed class ProtectedStoragePasswordChangeService
         DeleteCopies(CopiesBesideTheirDatabase(copies)
             .Except(switches.Select(static entry => entry.Copy), StringComparer.OrdinalIgnoreCase)
             .ToList());
-        Switch(root, switches);
+        Switch(root, switches.Concat(restores).ToList());
         return PasswordChangeRecoveryOutcome.Completed;
     }
 

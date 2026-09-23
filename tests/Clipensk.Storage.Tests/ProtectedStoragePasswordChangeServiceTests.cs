@@ -230,6 +230,73 @@ public sealed class ProtectedStoragePasswordChangeServiceTests
     }
 
     [Fact]
+    public async Task ALostDatabase_WhoseCopyOpensWithTheKey_IsPutBack()
+    {
+        // Phase 1 stopped right after Current was copied, before its re-encryption; then
+        // current.db was lost. The copy is the lost database, byte for byte.
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: true);
+        File.Copy(environment.CurrentPath, environment.CurrentPath + StorageDatabaseFiles.PasswordChangeCopySuffix);
+        byte[] lost = File.ReadAllBytes(environment.CurrentPath);
+        File.Delete(environment.CurrentPath);
+
+        Assert.Equal(
+            PasswordChangeRecoveryOutcome.RolledBack,
+            await environment.Service.ResolvePendingAsync(environment.Root, environment.OldKey));
+
+        Assert.Equal(lost, File.ReadAllBytes(environment.CurrentPath));
+        Assert.Empty(StorageDatabaseFiles.EnumeratePasswordChangeCopies(environment.Root));
+        Assert.All(environment.Databases, database => Assert.True(environment.Opens(database, environment.OldKey)));
+    }
+
+    [Fact]
+    public async Task ALostCurrent_UnderTheNewPassword_KeepsEveryCopy_UntilTheNewPasswordPutsItBack()
+    {
+        // Every copy was ready when current.db was lost. The old password must not throw away the
+        // copies the new one needs to finish the change and bring Current back.
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: true);
+        foreach (string database in environment.Databases)
+        {
+            environment.CopyWithKey(database, environment.NewKey);
+        }
+
+        File.Delete(environment.CurrentPath);
+
+        Assert.Equal(
+            PasswordChangeRecoveryOutcome.RolledBack,
+            await environment.Service.ResolvePendingAsync(environment.Root, environment.OldKey));
+        Assert.Equal(3, StorageDatabaseFiles.EnumeratePasswordChangeCopies(environment.Root).Count);
+        Assert.False(File.Exists(environment.CurrentPath));
+
+        Assert.Equal(
+            PasswordChangeRecoveryOutcome.Completed,
+            await environment.Service.ResolvePendingAsync(environment.Root, environment.NewKey));
+        Assert.Empty(StorageDatabaseFiles.EnumeratePasswordChangeCopies(environment.Root));
+        Assert.True(File.Exists(environment.CurrentPath));
+        Assert.Equal(3, environment.Databases.Count);
+        Assert.All(environment.Databases, database => Assert.True(environment.Opens(database, environment.NewKey)));
+    }
+
+    [Fact]
+    public async Task ALostArchive_UnderTheNewPassword_IsPutBack_WhenTheChangeIsFinished()
+    {
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: true);
+        foreach (string database in environment.Databases)
+        {
+            environment.CopyWithKey(database, environment.NewKey);
+        }
+
+        string archive = environment.Databases.Single(static path => path.Contains("Archive", StringComparison.Ordinal));
+        File.Delete(archive);
+
+        Assert.Equal(
+            PasswordChangeRecoveryOutcome.Completed,
+            await environment.Service.ResolvePendingAsync(environment.Root, environment.NewKey));
+        Assert.Empty(StorageDatabaseFiles.EnumeratePasswordChangeCopies(environment.Root));
+        Assert.True(environment.Opens(archive, environment.NewKey));
+        Assert.All(environment.Databases, database => Assert.True(environment.Opens(database, environment.NewKey)));
+    }
+
+    [Fact]
     public async Task InterruptedCopying_TheNewPassword_IsNotYetValid_AndTouchesNothing()
     {
         using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: true);

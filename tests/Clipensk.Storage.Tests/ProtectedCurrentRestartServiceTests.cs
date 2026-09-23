@@ -78,6 +78,26 @@ public sealed class ProtectedCurrentRestartServiceTests
     }
 
     [Fact]
+    public async Task ACopyOfTheLostCurrent_FromAnInterruptedPasswordChange_IsNeverOverlaid()
+    {
+        // The unlock did not put the copy back (another key, or cut short): it may be all that is
+        // left of Current, and a new current.db beside it would make it a leftover to delete.
+        using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.Session.Dispose();
+        string copy = environment.CurrentPath + StorageDatabaseFiles.PasswordChangeCopySuffix;
+        File.Move(environment.CurrentPath, copy);
+        byte[] before = SHA256.HashData(File.ReadAllBytes(copy));
+
+        ProtectedCurrentRestartResult result = await Service(environment)
+            .RestartAsync(environment.Root, environment.StorageId, environment.Key, Today);
+
+        Assert.Equal(ProtectedStorageDatabaseStatus.MissingOrPartialStorage, result.Status);
+        Assert.False(result.CurrentCreated);
+        Assert.False(File.Exists(environment.CurrentPath));
+        Assert.Equal(before, SHA256.HashData(File.ReadAllBytes(copy)));
+    }
+
+    [Fact]
     public async Task AnEmptyDataRoot_IsNotAStorageToRestart()
     {
         using GlobalPolicyTestEnvironment environment = await GlobalPolicyTestEnvironment.CreateAsync();

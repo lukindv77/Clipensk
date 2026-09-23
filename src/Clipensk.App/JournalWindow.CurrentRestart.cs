@@ -136,7 +136,8 @@ public sealed partial class JournalWindow
     {
         CurrentRestartButton.Content = _localization.GetString("Lock.CurrentRestart.Action");
         CurrentRestartButton.Visibility =
-            _credentialState == ProtectedStorageCredentialState.Ready && IsCurrentMissing()
+            _credentialState == ProtectedStorageCredentialState.Ready && IsCurrentMissing() &&
+            !HasCurrentPasswordChangeCopy()
                 ? Visibility.Visible
                 : Visibility.Collapsed;
     }
@@ -154,6 +155,32 @@ public sealed partial class JournalWindow
             string root = Path.GetFullPath(_settings.DataRootPath);
             return !File.Exists(Path.Combine(root, StorageDatabaseFiles.CurrentRelativePath)) &&
                    StorageDatabaseFiles.EnumerateExisting(root).Count > 0;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether a copy of <c>current.db</c> from an interrupted password change is still there. The
+    /// unlock puts back one that opens with its key; any other may be all that is left of the lost
+    /// Current, so the restart is not offered until the user removes it
+    /// (<c>docs/PASSWORD_CHANGE_PROTOCOL.md</c> §5).
+    /// </summary>
+    private bool HasCurrentPasswordChangeCopy()
+    {
+        if (string.IsNullOrWhiteSpace(_settings.DataRootPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            string root = Path.GetFullPath(_settings.DataRootPath);
+            return File.Exists(
+                Path.Combine(root, StorageDatabaseFiles.CurrentRelativePath) + StorageDatabaseFiles.PasswordChangeCopySuffix);
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)

@@ -66,7 +66,11 @@ public enum PasswordChangeRecoveryOutcome
 {
     NothingPending = 0,
 
-    /// <summary>The key opens every database: the change never switched anything; its copies are gone.</summary>
+    /// <summary>
+    /// The key opens every database — a lost one through its copy, which is put back: the change
+    /// never switched anything, or switched everything. The leftover copies are gone, unless a
+    /// lost <c>current.db</c> has a copy this key does not open: then they all stay.
+    /// </summary>
     RolledBack = 1,
 
     /// <summary>Every database opens with the key itself or through its copy: the change was finished.</summary>

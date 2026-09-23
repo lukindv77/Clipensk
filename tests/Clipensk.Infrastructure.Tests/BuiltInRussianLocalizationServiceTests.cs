@@ -32,6 +32,7 @@ public sealed class BuiltInRussianLocalizationServiceTests
         "Lock.CatalogRecovery.ReplaceAction",
         "Lock.CatalogRecovery.Cancel",
         "Lock.CurrentMissing",
+        "Lock.CurrentMissing.PasswordChangeCopy",
         "Lock.CurrentRestart.Action",
         "Lock.CurrentRestart.Title",
         "Lock.CurrentRestart.Body",
