@@ -302,4 +302,18 @@ identity** R.
 
 ### Accepted
 
-Пока нет.
+Все этапы ниже промотированы в `main` fast-forward (`b431d82..f88d524`, 2026-09-22); evidence —
+dispatch-прогоны на feature-ветках на тех же exact SHA, до промоушена.
+
+| Этап | Commit | Build | Native SQLCipher |
+|---|---|---|---|
+| 1. Протокол | `b431d82` | `35758391270` — SUCCESS (push, docs-only) | не требовался |
+| 2. Current v11 + repository групп | `d57523e` | `35759180102` — SUCCESS | `35759183138` — SUCCESS |
+| 3. Эффективная policy через корень | `922cdd8` | `35760096683` — SUCCESS | `35760100602` — SUCCESS |
+| 4. Правка policy без очистки | `94f2459` | `35760103390` — SUCCESS | `35760106905` — SUCCESS |
+| 5. Движок `ApplicationHistoryPurge` | `f88d524` | `35761173067` — SUCCESS | `35761176193` — SUCCESS |
+
+Этап 5 намеренно не подключён к App: первое назначение персональной policy в App пока идёт прежним
+путём `ProtectedCurrentApplicationPolicyMaintenanceService` (очистка без подтверждения, Archive —
+только ссылки на файлы). Переключение на движок — в этапе 7 вместе с предпросмотром и
+подтверждением.
