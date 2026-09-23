@@ -4,8 +4,9 @@
 `CRYPTOGRAPHY.md` §12): `ProtectedStoragePasswordChangeService` (§4, §5; перешифровка —
 `IKeyedSqliteConnectionFactory.Rekey` → `sqlite3_rekey`), разбор прерванной смены встроен в
 `ProtectedStorageCredentialService.UnlockOrInitializeAsync`, «Настройки» → «Сменить пароль…»
-(`JournalWindow.PasswordChange.cs`). Путь смены на production SQLCipher проверяет smoke-хост;
-ручной smoke на Windows — `UNVERIFIED`.
+(`JournalWindow.PasswordChange.cs`). Путь смены на production SQLCipher 4.17.0 проверяет smoke-хост:
+Native run `35857482543` на `763308a` — SUCCESS (Build run `35857480052` — SUCCESS). Ручной smoke на
+Windows — `UNVERIFIED`.
 
 ## 1. Что меняется
 

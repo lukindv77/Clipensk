@@ -3,7 +3,8 @@
 Статус: **реализовано** (решение пользователя 2026-09-23, `OPEN_QUESTIONS.md` §4 п.3):
 `ProtectedStorageDatabaseService.StartCurrentAnewAsync` (шаги 2–3), `ProtectedCurrentRestartService`
 (шаги 3–5), кнопка «Начать текущую базу заново…» на экране разблокировки
-(`JournalWindow.CurrentRestart.cs`). Ручной smoke на Windows — `UNVERIFIED`.
+(`JournalWindow.CurrentRestart.cs`). CI на `c480494`: Build run `35855767529`, Native run
+`35855769935` — SUCCESS. Ручной smoke на Windows — `UNVERIFIED`.
 
 ## 1. Когда применяется
 

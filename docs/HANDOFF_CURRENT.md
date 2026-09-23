@@ -32,6 +32,16 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
+Решённые крипто-пункты §I.12 (§E пункты 36–38): срок карантина Catalog — `ffc02b9` (Build run
+`35855163250`, Native run `35855165589` — **SUCCESS**); «Начать текущую базу заново» — `c480494`
+(Build run `35855767529` — **SUCCESS**, Native run `35855769935` — **SUCCESS**); смена пароля —
+`036eb0e` + исправление `763308a` (на `763308a`: Build run `35857480052` — **SUCCESS**, Native run
+`35857482543` — **SUCCESS**, включая smoke-хост со сменой пароля на production SQLCipher). Поверх —
+коммит handoff; exact-main evidence — прогоны push на `main` для него.
+
+Модель ключа уже в main: `45b4f7b`, exact-main Build run `35855143519` и Native run `35855143659` —
+**SUCCESS**.
+
 Ключ хранилища без `storage-crypto.json` (§E пункт 35, решение 2026-09-23): код — `68ec635`
 (поверх спецификации `4a04320` и документов `cf16dbc`), exact-SHA evidence на `68ec635`: Build run
 `35851774613` — **SUCCESS**; Native run `35851776903` — **SUCCESS** (smoke-хост с солью в
@@ -445,7 +455,7 @@ Windows 11, комментарий/экспорт шаблона локализ�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит handoff поверх `68ec635` (ключ хранилища без `storage-crypto.json`, §E пункт 35). §I.9 (перенос хранилища), §I.11 (группы приложений) и модель ключа завершены; решённые крипто-пункты §I.12 реализованы (§E пункты 36–38) и ручной smoke на Windows (§I.10) — его может выполнить только пользователь.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит handoff поверх `763308a` (смена пароля, §E пункт 38; под ним `c480494`, `ffc02b9`, `45b4f7b`). §I.9 (перенос хранилища), §I.11 (группы приложений) и модель ключа завершены; решённые крипто-пункты §I.12 реализованы (§E пункты 36–38) и ручной smoke на Windows (§I.10) — его может выполнить только пользователь.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
 5. Не переделывать заново принятые слайсы ротации (включая дефолты порогов и валидацию), Archive Split, возврата в clipboard (включая режим «вставить как обычный текст»), Trash retention, журнала (период/поиск/фильтр/дефолт 30 дней), блокировки (ручная + автоблокировка по простою), внешней локализации (включая экспорт шаблона с русским комментарием), оболочки (tray/автозапуск/«О программе»), single-instance/защиты каталога данных, таргета только Windows 11, focus restoration (minimize-to-tray, Escape, авто-скрытие по клику мимо), дефолтов/KB-редактирования числовых лимитов форматов (`OPEN_QUESTIONS.md` §6) групп приложений с ретроактивной очисткой (`APPLICATION_GROUP_PROTOCOL.md` этапы 1–15) и переноса хранилища с `settings.json` рядом с программой (`DATA_ROOT_RELOCATION_PROTOCOL.md` этапы 1–4).
