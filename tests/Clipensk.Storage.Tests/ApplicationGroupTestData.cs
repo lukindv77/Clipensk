@@ -1,8 +1,11 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Clipensk.Core.Applications;
+using Clipensk.Core.Clipboard;
 using Clipensk.Core.History;
 using Clipensk.Core.Storage;
+using Clipensk.Storage.Applications;
 using Clipensk.Storage.Databases;
 using Microsoft.Data.Sqlite;
 using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
@@ -30,14 +33,75 @@ internal static class ApplicationGroupTestData
         return applicationId;
     }
 
-    public static void AddMember(
+    public static readonly DateTimeOffset GroupCreatedAtUtc = new(2026, 9, 23, 10, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Creates a user group with <paramref name="policy"/>; optionally adds members.</summary>
+    public static ApplicationGroupId InsertGroup(
         GlobalPolicyTestEnvironment environment,
-        DurableApplicationId member,
-        DurableApplicationId root) =>
-        environment.Execute($"""
-            INSERT INTO ApplicationGroupMember VALUES (
-                '{member}', '{root}', NULL, '2026-09-22T10:00:00.0000000+00:00');
-            """);
+        string name,
+        ClipboardCapturePolicy policy,
+        params DurableApplicationId[] members)
+    {
+        var group = new ApplicationGroup(
+            ApplicationGroupId.New(),
+            ApplicationGroupName.Create(name),
+            policy,
+            GroupCreatedAtUtc);
+        WithCurrentTransaction(environment, (connection, transaction) =>
+        {
+            ApplicationGroupSql.InsertGroupInTransaction(connection, transaction, group, CancellationToken.None);
+            foreach (DurableApplicationId member in members)
+            {
+                ApplicationGroupSql.SetMembershipInTransaction(
+                    connection,
+                    transaction,
+                    member,
+                    group.GroupId,
+                    GroupCreatedAtUtc);
+            }
+        });
+        return group.GroupId;
+    }
+
+    public static void Join(
+        GlobalPolicyTestEnvironment environment,
+        DurableApplicationId application,
+        ApplicationGroupId groupId) =>
+        WithCurrentTransaction(environment, (connection, transaction) =>
+            ApplicationGroupSql.SetMembershipInTransaction(
+                connection,
+                transaction,
+                application,
+                groupId,
+                GroupCreatedAtUtc));
+
+    public static ApplicationGroupDirectory ReadGroups(GlobalPolicyTestEnvironment environment)
+    {
+        using SqliteConnection connection = environment.Factory.Open(
+            environment.CurrentPath,
+            environment.Key,
+            SqliteOpenMode.ReadOnly);
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+        return ApplicationGroupSql.ReadDirectoryInTransaction(connection, transaction, CancellationToken.None);
+    }
+
+    private static void WithCurrentTransaction(
+        GlobalPolicyTestEnvironment environment,
+        Action<SqliteConnection, SqliteTransaction> write)
+    {
+        using SqliteConnection connection = environment.Factory.Open(
+            environment.CurrentPath,
+            environment.Key,
+            SqliteOpenMode.ReadWrite);
+        using (SqliteCommand foreignKeys = connection.CreateCommand())
+        {
+            foreignKeys.CommandText = "PRAGMA foreign_keys = ON;";
+            foreignKeys.ExecuteNonQuery();
+        }
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        write(connection, transaction);
+        transaction.Commit();
+    }
 
     public static async Task<ArchiveFileName> CreateArchiveAsync(
         GlobalPolicyTestEnvironment environment,

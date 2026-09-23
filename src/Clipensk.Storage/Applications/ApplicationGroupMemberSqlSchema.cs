@@ -3,13 +3,12 @@ using Microsoft.Data.Sqlite;
 namespace Clipensk.Storage.Applications;
 
 /// <summary>
-/// Current v11 group membership, per <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §2.1. It is a
-/// separate table rather than a column of <c>ApplicationIdentity</c> because that schema is shared
-/// with Archive v1, which would otherwise need a migration.
+/// Current v11 root-based group membership of protocol version 1. It exists only in v11 databases:
+/// the v10→v11 step creates it and the v11→v12 step converts and drops it
+/// (<c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §2.2).
 /// </summary>
 internal static class ApplicationGroupMemberSqlSchema
 {
-    public const int MinimumCurrentSchemaVersion = 11;
     public const string IndexName = "IX_ApplicationGroupMember_ParentApplicationId";
 
     public static void CreateTable(

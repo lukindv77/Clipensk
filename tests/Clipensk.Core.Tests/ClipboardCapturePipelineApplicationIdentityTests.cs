@@ -103,7 +103,7 @@ public sealed class ClipboardCapturePipelineApplicationIdentityTests
             LastContext = captureContext;
             return ValueTask.FromResult(new ClipboardCapturePolicySet(
                 new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny),
-                applicationPolicy: null));
+                groupPolicy: null));
         }
     }
 

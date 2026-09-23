@@ -4,35 +4,31 @@ using Clipensk.Core.Clipboard;
 
 namespace Clipensk.Storage.Clipboard;
 
-internal enum ApplicationHistoryPurgeReason
-{
-    FirstAssignment,
-    Merge,
-}
-
 /// <summary>
-/// Durable state of one <c>ApplicationHistoryPurge</c> operation, per
-/// <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §5.1. The purge rule and the source scope are fixed
-/// here at start, so later phases never re-derive them from state that could have moved.
+/// Durable state of one <c>ApplicationHistoryPurge</c> operation — moving an application into a
+/// user group — per <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §5.1 (state version 2). The purge
+/// rule is fixed here at start, so later phases never re-derive it from state that could have moved.
 /// </summary>
 internal sealed record ApplicationHistoryPurgeState(
-    ApplicationHistoryPurgeReason Reason,
-    string RootApplicationId,
-    string? ChildApplicationId,
-    IReadOnlyList<string> SourceApplicationIds,
+    string ApplicationId,
+    string GroupId,
+    bool CreatedGroup,
     ClipboardCapturePolicyRule EffectiveCapture,
     IReadOnlyList<string> AllowedFormats,
-    string? RootPolicyFingerprint,
+    string GroupPolicyFingerprint,
     string Archive,
     string Catalog,
     string Trash)
 {
     public const string OperationKind = "ApplicationHistoryPurge";
-    public const int Version = 1;
+    public const int Version = 2;
     public const string Pending = "pending";
     public const string Completed = "completed";
 
     public ClipboardHistoryPurgeRule Rule => new(EffectiveCapture, AllowedFormats);
+
+    /// <summary>The purge covers only the moved application's history.</summary>
+    public IReadOnlyList<string> SourceApplicationIds => [ApplicationId];
 
     public bool IsFullyCompleted =>
         Archive == Completed && Catalog == Completed && Trash == Completed;
@@ -43,35 +39,31 @@ internal static class ApplicationHistoryPurgeStateCodec
     private static readonly string[] ExpectedNames =
     [
         "version",
-        "reason",
-        "rootApplicationId",
-        "childApplicationId",
-        "sourceApplicationIds",
+        "applicationId",
+        "groupId",
+        "createdGroup",
         "effectivePolicy",
-        "rootPolicyFingerprint",
+        "groupPolicyFingerprint",
         "archive",
         "catalog",
         "trash",
     ];
 
     public static ApplicationHistoryPurgeState CreateStarted(
-        ApplicationHistoryPurgeReason reason,
-        string rootApplicationId,
-        string? childApplicationId,
-        IEnumerable<string> sourceApplicationIds,
+        string applicationId,
+        string groupId,
+        bool createdGroup,
         ClipboardHistoryPurgeRule rule,
-        string? rootPolicyFingerprint)
+        string groupPolicyFingerprint)
     {
-        ArgumentNullException.ThrowIfNull(sourceApplicationIds);
         ArgumentNullException.ThrowIfNull(rule);
         var state = new ApplicationHistoryPurgeState(
-            reason,
-            rootApplicationId,
-            childApplicationId,
-            sourceApplicationIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray(),
+            applicationId,
+            groupId,
+            createdGroup,
             rule.Capture,
             rule.AllowedFormats,
-            rootPolicyFingerprint,
+            groupPolicyFingerprint,
             ApplicationHistoryPurgeState.Pending,
             ApplicationHistoryPurgeState.Pending,
             ApplicationHistoryPurgeState.Pending);
@@ -89,24 +81,9 @@ internal static class ApplicationHistoryPurgeStateCodec
         {
             writer.WriteStartObject();
             writer.WriteNumber("version", ApplicationHistoryPurgeState.Version);
-            writer.WriteString("reason", state.Reason.ToString());
-            writer.WriteString("rootApplicationId", state.RootApplicationId);
-            if (state.ChildApplicationId is null)
-            {
-                writer.WriteNull("childApplicationId");
-            }
-            else
-            {
-                writer.WriteString("childApplicationId", state.ChildApplicationId);
-            }
-
-            writer.WriteStartArray("sourceApplicationIds");
-            foreach (string sourceApplicationId in state.SourceApplicationIds)
-            {
-                writer.WriteStringValue(sourceApplicationId);
-            }
-            writer.WriteEndArray();
-
+            writer.WriteString("applicationId", state.ApplicationId);
+            writer.WriteString("groupId", state.GroupId);
+            writer.WriteBoolean("createdGroup", state.CreatedGroup);
             writer.WriteStartObject("effectivePolicy");
             writer.WriteString("capture", state.EffectiveCapture.ToString());
             writer.WriteStartArray("allowedFormats");
@@ -116,16 +93,7 @@ internal static class ApplicationHistoryPurgeStateCodec
             }
             writer.WriteEndArray();
             writer.WriteEndObject();
-
-            if (state.RootPolicyFingerprint is null)
-            {
-                writer.WriteNull("rootPolicyFingerprint");
-            }
-            else
-            {
-                writer.WriteString("rootPolicyFingerprint", state.RootPolicyFingerprint);
-            }
-
+            writer.WriteString("groupPolicyFingerprint", state.GroupPolicyFingerprint);
             writer.WriteString("archive", state.Archive);
             writer.WriteString("catalog", state.Catalog);
             writer.WriteString("trash", state.Trash);
@@ -159,15 +127,15 @@ internal static class ApplicationHistoryPurgeStateCodec
                     throw new InvalidDataException("Application history purge state contains duplicate properties.");
                 }
             }
-            if (names.Count != ExpectedNames.Length || !ExpectedNames.All(names.Contains))
-            {
-                throw new InvalidDataException("Application history purge state has an unexpected shape.");
-            }
-
-            if (!root.GetProperty("version").TryGetInt32(out int version) ||
+            if (!root.TryGetProperty("version", out JsonElement versionElement) ||
+                !versionElement.TryGetInt32(out int version) ||
                 version != ApplicationHistoryPurgeState.Version)
             {
                 throw new InvalidDataException("Application history purge state version is unsupported.");
+            }
+            if (names.Count != ExpectedNames.Length || !ExpectedNames.All(names.Contains))
+            {
+                throw new InvalidDataException("Application history purge state has an unexpected shape.");
             }
 
             JsonElement effectivePolicy = root.GetProperty("effectivePolicy");
@@ -177,14 +145,19 @@ internal static class ApplicationHistoryPurgeStateCodec
                 throw new InvalidDataException("Application history purge effective policy has an unexpected shape.");
             }
 
+            JsonElement createdGroup = root.GetProperty("createdGroup");
+            if (createdGroup.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                throw new InvalidDataException("Application history purge state 'createdGroup' is invalid.");
+            }
+
             var state = new ApplicationHistoryPurgeState(
-                ParseEnum<ApplicationHistoryPurgeReason>(ReadString(root, "reason")),
-                ReadString(root, "rootApplicationId"),
-                ReadNullableString(root, "childApplicationId"),
-                ReadStringArray(root, "sourceApplicationIds"),
+                ReadString(root, "applicationId"),
+                ReadString(root, "groupId"),
+                createdGroup.GetBoolean(),
                 ParseEnum<ClipboardCapturePolicyRule>(ReadString(effectivePolicy, "capture")),
                 ReadStringArray(effectivePolicy, "allowedFormats"),
-                ReadNullableString(root, "rootPolicyFingerprint"),
+                ReadString(root, "groupPolicyFingerprint"),
                 ReadString(root, "archive"),
                 ReadString(root, "catalog"),
                 ReadString(root, "trash"));
@@ -203,41 +176,8 @@ internal static class ApplicationHistoryPurgeStateCodec
 
     private static void Validate(ApplicationHistoryPurgeState state)
     {
-        if (!Enum.IsDefined(state.Reason))
-        {
-            throw new InvalidDataException("Application history purge reason is unsupported.");
-        }
-
-        ValidateCanonicalGuid(state.RootApplicationId);
-        if (state.Reason == ApplicationHistoryPurgeReason.Merge)
-        {
-            ValidateCanonicalGuid(state.ChildApplicationId);
-            if (string.Equals(state.ChildApplicationId, state.RootApplicationId, StringComparison.Ordinal) ||
-                !state.SourceApplicationIds.Contains(state.ChildApplicationId!, StringComparer.Ordinal))
-            {
-                throw new InvalidDataException("A merge purge must include the child in its scope and differ from the root.");
-            }
-        }
-        else if (state.ChildApplicationId is not null ||
-                 !state.SourceApplicationIds.Contains(state.RootApplicationId, StringComparer.Ordinal))
-        {
-            throw new InvalidDataException("A first-assignment purge covers the root's group and has no child.");
-        }
-
-        if (state.SourceApplicationIds.Count == 0)
-        {
-            throw new InvalidDataException("Application history purge scope cannot be empty.");
-        }
-        for (int index = 0; index < state.SourceApplicationIds.Count; index++)
-        {
-            ValidateCanonicalGuid(state.SourceApplicationIds[index]);
-            if (index > 0 &&
-                string.CompareOrdinal(state.SourceApplicationIds[index - 1], state.SourceApplicationIds[index]) >= 0)
-            {
-                throw new InvalidDataException("Application history purge scope must be unique and ordered.");
-            }
-        }
-
+        ValidateCanonicalGuid(state.ApplicationId);
+        ValidateCanonicalGuid(state.GroupId);
         if (state.EffectiveCapture is not (ClipboardCapturePolicyRule.Allow or ClipboardCapturePolicyRule.Deny))
         {
             throw new InvalidDataException("Application history purge effective capture rule must be explicit.");
@@ -252,15 +192,11 @@ internal static class ApplicationHistoryPurgeStateCodec
             }
         }
 
-        if (state.RootPolicyFingerprint is not null &&
-            (state.RootPolicyFingerprint.Length != 64 ||
-             !state.RootPolicyFingerprint.All(static character => character is >= '0' and <= '9' or >= 'A' and <= 'F')))
+        if (state.GroupPolicyFingerprint is null ||
+            state.GroupPolicyFingerprint.Length != 64 ||
+            !state.GroupPolicyFingerprint.All(static character => character is >= '0' and <= '9' or >= 'A' and <= 'F'))
         {
-            throw new InvalidDataException("Application history purge root policy fingerprint is invalid.");
-        }
-        if (state.Reason == ApplicationHistoryPurgeReason.FirstAssignment && state.RootPolicyFingerprint is null)
-        {
-            throw new InvalidDataException("A first-assignment purge always records the assigned root policy.");
+            throw new InvalidDataException("Application history purge group policy fingerprint is invalid.");
         }
 
         ValidatePhase(state.Archive);
@@ -288,7 +224,7 @@ internal static class ApplicationHistoryPurgeStateCodec
             parsed == Guid.Empty ||
             !string.Equals(value, parsed.ToString("D"), StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Application history purge state contains a non-canonical ApplicationId.");
+            throw new InvalidDataException("Application history purge state contains a non-canonical identifier.");
         }
     }
 
@@ -312,12 +248,6 @@ internal static class ApplicationHistoryPurgeStateCodec
             throw new InvalidDataException($"Application history purge state '{name}' is invalid.");
         }
         return value.GetString()!;
-    }
-
-    private static string? ReadNullableString(JsonElement element, string name)
-    {
-        JsonElement value = element.GetProperty(name);
-        return value.ValueKind == JsonValueKind.Null ? null : ReadString(element, name);
     }
 
     private static string[] ReadStringArray(JsonElement element, string name)

@@ -56,7 +56,7 @@ public sealed class ProtectedClipboardDeliveryServicesTests
         ClipboardCapturePolicySet policies = await factory.PolicyProvider!.GetPoliciesAsync(Context());
         Assert.Equal(rule, policies.GlobalPolicy.Capture);
         Assert.Equal(4096, policies.GlobalPolicy.Formats["Text"].MaxBytes);
-        Assert.Null(policies.ApplicationPolicy);
+        Assert.Null(policies.GroupPolicy);
         Assert.Equal(2, environment.Factory.Modes.Count);
     }
 
@@ -72,12 +72,15 @@ public sealed class ProtectedClipboardDeliveryServicesTests
         ApplicationIdentityResolution? identity = await factory.IdentityRegistry!.ResolveOrCreateAsync(
             new ApplicationIdentityObservation(null, @"C:\Apps\Example.exe"));
         Assert.NotNull(identity);
-        await services.CaptureServices.PolicyRepository.SetApplicationPolicyAsync(identity.ApplicationId,
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        ApplicationGroupTestData.InsertGroup(
+            environment,
+            "Examples",
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow),
+            identity.ApplicationId);
         ClipboardCapturePolicySet policies = await factory.PolicyProvider!.GetPoliciesAsync(
             Context() with { SourceApplicationId = identity.ApplicationId });
         Assert.Equal(ClipboardCapturePolicyRule.Deny, policies.GlobalPolicy.Capture);
-        Assert.Equal(ClipboardCapturePolicyRule.Allow, policies.ApplicationPolicy!.Capture);
+        Assert.Equal(ClipboardCapturePolicyRule.Allow, policies.GroupPolicy!.Capture);
 
         var observedAtUtc = new DateTimeOffset(2026, 9, 11, 0, 30, 0, TimeSpan.Zero);
         await factory.DiscoveredFormatObserver!.ObserveAsync(

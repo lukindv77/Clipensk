@@ -1,3 +1,4 @@
+using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Databases;
 using Xunit;
@@ -9,20 +10,10 @@ public sealed class ProtectedStorageCurrentSchemaV11MigrationTests
     private const string ApplicationId = "44444444-4444-4444-4444-444444444444";
 
     [Fact]
-    public async Task NewStorage_IsCreatedAsV11WithAnEmptyGroupTable()
+    public async Task V10Migration_PassesThroughV11AndPreservesExistingState()
     {
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
-
-        Assert.Equal(11, ProtectedStorageDatabaseService.CurrentSchemaVersion);
-        Assert.Equal(11, environment.Scalar("PRAGMA user_version;"));
-        Assert.Equal(11, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
-        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ApplicationGroupMember;"));
-    }
-
-    [Fact]
-    public async Task V10Migration_PreservesExistingStateAndCreatesAnEmptyGroupTable()
-    {
-        using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        await environment.Repository.InitializeAsync(new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
         environment.DowngradeToV10();
         environment.Execute($"""
             INSERT INTO ApplicationIdentity (ApplicationId, CreatedAtUtc)
@@ -32,13 +23,14 @@ public sealed class ProtectedStorageCurrentSchemaV11MigrationTests
             """);
 
         Assert.True((await environment.ValidateAsync()).IsSuccess);
-        Assert.Equal(11, environment.Scalar("PRAGMA user_version;"));
-        Assert.Equal(11, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
+        Assert.Equal(12, environment.Scalar("PRAGMA user_version;"));
+        Assert.Equal(12, environment.Scalar("SELECT SchemaVersion FROM DatabaseIdentity;"));
         Assert.Equal(1, environment.Scalar(
             $"SELECT COUNT(*) FROM ApplicationCapturePolicy WHERE ApplicationId = '{ApplicationId}';"));
-        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ApplicationGroupMember;"));
         Assert.Equal(1, environment.Scalar(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'IX_ApplicationGroupMember_ParentApplicationId';"));
+            $"SELECT COUNT(*) FROM ApplicationGroupMembership WHERE ApplicationId = '{ApplicationId}';"));
+        Assert.Equal(0, environment.Scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'ApplicationGroupMember';"));
     }
 
     [Fact]
@@ -75,7 +67,9 @@ public sealed class ProtectedStorageCurrentSchemaV11MigrationTests
 
         environment.Execute("DROP TABLE ApplicationGroupMember;");
         Assert.True((await environment.ValidateAsync()).IsSuccess);
-        Assert.Equal(0, environment.Scalar("SELECT COUNT(*) FROM ApplicationGroupMember;"));
+        Assert.Equal(12, environment.Scalar("PRAGMA user_version;"));
+        Assert.Equal(0, environment.Scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'ApplicationGroupMember';"));
     }
 
     [Fact]
@@ -126,14 +120,16 @@ public sealed class ProtectedStorageCurrentSchemaV11MigrationTests
             FOREIGN KEY (ParentApplicationId) REFERENCES ApplicationIdentity(ApplicationId));
         CREATE INDEX IX_ApplicationGroupMember_ParentApplicationId ON ApplicationGroupMember(ParentApplicationId);
         """)]
-    public async Task TamperedGroupTableContract_FailsValidation(string tamper)
+    public async Task TamperedV11GroupTableContract_FailsValidationBeforeMigrating(string tamper)
     {
         using var environment = await GlobalPolicyTestEnvironment.CreateAsync();
+        environment.DowngradeToV11();
         environment.Execute(tamper);
 
         Assert.Equal(
             ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity,
             (await environment.ValidateAsync()).Status);
+        Assert.Equal(11, environment.Scalar("PRAGMA user_version;"));
     }
 
     private static void AssertUnmigrated(

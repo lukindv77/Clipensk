@@ -16,15 +16,15 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepository : IClipboardCaptu
         return ValueTask.FromResult(_globalPolicy);
     }
 
-    public ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
+    public ValueTask<ClipboardCapturePolicy?> GetGroupPolicyAsync(
         Clipensk.Core.Applications.ApplicationId applicationId,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(applicationId);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // This repository intentionally exposes no per-application overrides even when
-        // the caller has already resolved a durable Clipensk ApplicationId.
+        // This repository intentionally exposes no group policies even when the caller has
+        // already resolved a durable Clipensk ApplicationId: every application uses the global one.
         return ValueTask.FromResult<ClipboardCapturePolicy?>(null);
     }
 }

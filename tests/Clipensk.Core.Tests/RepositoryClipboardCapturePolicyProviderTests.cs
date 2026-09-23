@@ -25,7 +25,7 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
             cancellationSource.Token);
 
         Assert.Same(global, result.GlobalPolicy);
-        Assert.Same(application, result.ApplicationPolicy);
+        Assert.Same(application, result.GroupPolicy);
         Assert.Equal(1, repository.GlobalCallCount);
         Assert.Equal(1, repository.ApplicationCallCount);
         Assert.Equal(applicationId, repository.LastApplicationId);
@@ -48,7 +48,7 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
         ClipboardCapturePolicySet result = await provider.GetPoliciesAsync(captureContext);
 
         Assert.Same(global, result.GlobalPolicy);
-        Assert.Null(result.ApplicationPolicy);
+        Assert.Null(result.GroupPolicy);
         Assert.Equal(1, repository.GlobalCallCount);
         Assert.Equal(0, repository.ApplicationCallCount);
     }
@@ -68,7 +68,7 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
         ClipboardCapturePolicySet result = await provider.GetPoliciesAsync(captureContext);
 
         Assert.Same(global, result.GlobalPolicy);
-        Assert.Null(result.ApplicationPolicy);
+        Assert.Null(result.GroupPolicy);
         Assert.Equal(1, repository.GlobalCallCount);
         Assert.Equal(0, repository.ApplicationCallCount);
     }
@@ -116,7 +116,7 @@ public sealed class RepositoryClipboardCapturePolicyProviderTests
             return ValueTask.FromResult(_globalPolicy);
         }
 
-        public ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
+        public ValueTask<ClipboardCapturePolicy?> GetGroupPolicyAsync(
             DurableApplicationId applicationId,
             CancellationToken cancellationToken = default)
         {

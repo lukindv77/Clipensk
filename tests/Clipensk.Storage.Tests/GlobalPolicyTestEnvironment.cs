@@ -75,7 +75,9 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
     }
 
     public void DowngradeToV4() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -90,7 +92,9 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV5() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -103,7 +107,9 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV6() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -115,7 +121,9 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV7() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -126,7 +134,9 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV8() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         DROP TABLE PendingArchiveSplitSegment;
@@ -136,7 +146,9 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV9() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         DROP TABLE PendingArchiveRotationTarget;
         DROP TABLE PendingArchiveRotation;
         UPDATE DatabaseIdentity SET SchemaVersion = 9;
@@ -144,9 +156,39 @@ internal sealed class GlobalPolicyTestEnvironment : IDisposable
         """);
 
     public void DowngradeToV10() => Execute("""
-        DROP TABLE ApplicationGroupMember;
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
         UPDATE DatabaseIdentity SET SchemaVersion = 10;
         PRAGMA user_version = 10;
+        """);
+
+    /// <summary>
+    /// Turns a fresh v12 database back into v11: no group entities, the protocol-v1 membership
+    /// table present and empty.
+    /// </summary>
+    public void DowngradeToV11() => Execute("""
+        DROP TABLE ApplicationGroupMembership;
+        DROP TABLE ApplicationGroupFormatCapturePolicy;
+        DROP TABLE ApplicationGroup;
+        CREATE TABLE ApplicationGroupMember (
+            ApplicationId TEXT NOT NULL PRIMARY KEY,
+            ParentApplicationId TEXT NOT NULL,
+            RetainedFromApplicationId TEXT NULL,
+            JoinedAtUtc TEXT NOT NULL,
+            CHECK (ApplicationId <> ParentApplicationId),
+            CHECK (RetainedFromApplicationId IS NULL OR RetainedFromApplicationId <> ApplicationId),
+            FOREIGN KEY (ApplicationId)
+                REFERENCES ApplicationIdentity(ApplicationId),
+            FOREIGN KEY (ParentApplicationId)
+                REFERENCES ApplicationIdentity(ApplicationId),
+            FOREIGN KEY (RetainedFromApplicationId)
+                REFERENCES ApplicationIdentity(ApplicationId)
+        );
+        CREATE INDEX IX_ApplicationGroupMember_ParentApplicationId
+            ON ApplicationGroupMember(ParentApplicationId);
+        UPDATE DatabaseIdentity SET SchemaVersion = 11;
+        PRAGMA user_version = 11;
         """);
 
     public Task<ProtectedStorageDatabaseResult> ValidateAsync(CancellationToken token = default) =>

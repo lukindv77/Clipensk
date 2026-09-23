@@ -21,10 +21,11 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
     private const int ApplicationDiscoveredFormatCurrentSchemaVersion = 8;
     private const int PendingArchiveSplitCurrentSchemaVersion = 9;
     private const int PendingArchiveRotationCurrentSchemaVersion = 10;
+    private const int ApplicationGroupMemberCurrentSchemaVersion = 11;
     private const int LegacyCatalogSchemaVersion = 1;
     private const int ExternalPayloadCatalogSchemaVersion = 2;
 
-    public const int CurrentSchemaVersion = 11;
+    public const int CurrentSchemaVersion = 12;
     public const int CatalogSchemaVersion = 3;
     public const int CurrentEncryptionVersion = 1;
 
@@ -112,6 +113,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                     ApplicationDiscoveredFormatCurrentSchemaVersion,
                     PendingArchiveSplitCurrentSchemaVersion,
                     PendingArchiveRotationCurrentSchemaVersion,
+                    ApplicationGroupMemberCurrentSchemaVersion,
                     CurrentSchemaVersion);
 
                 // Critical rule: validate the whole protected pair before mutating either database.
@@ -218,6 +220,16 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
                 if (currentSchemaVersion == PendingArchiveRotationCurrentSchemaVersion)
                 {
                     MigrateCurrentFromV10ToV11(
+                        currentDatabasePath,
+                        storageId,
+                        masterKey,
+                        cancellationToken);
+                    currentSchemaVersion = ApplicationGroupMemberCurrentSchemaVersion;
+                }
+
+                if (currentSchemaVersion == ApplicationGroupMemberCurrentSchemaVersion)
+                {
+                    MigrateCurrentFromV11ToV12(
                         currentDatabasePath,
                         storageId,
                         masterKey,
@@ -462,7 +474,7 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             ApplicationDiscoveredFormatSqlSchema.CreateTable(connection, transaction);
             PendingArchiveSplitSqlSchema.CreateTables(connection, transaction);
             PendingArchiveRotationSqlSchema.CreateTables(connection, transaction);
-            ApplicationGroupMemberSqlSchema.CreateTable(connection, transaction);
+            ApplicationGroupSqlSchema.CreateTables(connection, transaction);
         }
         else if (role == DatabaseRole.StorageCatalog)
         {
@@ -754,7 +766,46 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         ApplicationGroupMemberSqlSchema.CreateTable(connection, transaction);
         UpdateCurrentSchemaVersion(
             connection, transaction, expectedStorageId,
-            PendingArchiveRotationCurrentSchemaVersion, CurrentSchemaVersion);
+            PendingArchiveRotationCurrentSchemaVersion, ApplicationGroupMemberCurrentSchemaVersion);
+        SetUserVersion(connection, transaction, ApplicationGroupMemberCurrentSchemaVersion);
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+    }
+
+    /// <summary>
+    /// Replaces v11 root-based groups with group entities and turns every legacy personal policy
+    /// into a group of its own, per <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §2.2.
+    /// </summary>
+    private void MigrateCurrentFromV11ToV12(
+        string databasePath,
+        Guid expectedStorageId,
+        ReadOnlyMemory<byte> masterKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using SqliteConnection connection = _connectionFactory.Open(
+            databasePath, masterKey, SqliteOpenMode.ReadWrite);
+        EnableForeignKeys(connection);
+        ApplicationIdentitySqlSchema.ValidateTables(connection);
+        ApplicationCapturePolicySqlSchema.ValidateTables(connection);
+        ClipboardHistorySqlSchema.ValidateTables(connection);
+        GlobalCapturePolicySqlSchema.ValidateTables(connection);
+        CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
+        PendingPolicyMaintenanceSqlSchema.ValidateTable(connection);
+        ApplicationDiscoveredFormatSqlSchema.ValidateTable(connection);
+        PendingArchiveSplitSqlSchema.ValidateTables(connection);
+        PendingArchiveRotationSqlSchema.ValidateTables(connection);
+        ApplicationGroupMemberSqlSchema.ValidateTable(connection);
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        ApplicationGroupV12Migration.MigrateInTransaction(
+            connection,
+            transaction,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+        UpdateCurrentSchemaVersion(
+            connection, transaction, expectedStorageId,
+            ApplicationGroupMemberCurrentSchemaVersion, CurrentSchemaVersion);
         SetUserVersion(connection, transaction, CurrentSchemaVersion);
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
@@ -1041,9 +1092,15 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         }
 
         if (expectedRole == DatabaseRole.Current &&
-            schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion)
+            schemaVersion == ApplicationGroupMemberCurrentSchemaVersion)
         {
             ApplicationGroupMemberSqlSchema.ValidateTable(connection);
+        }
+
+        if (expectedRole == DatabaseRole.Current &&
+            schemaVersion >= ApplicationGroupSqlSchema.MinimumCurrentSchemaVersion)
+        {
+            ApplicationGroupSqlSchema.ValidateTables(connection);
         }
 
         if (expectedRole == DatabaseRole.StorageCatalog &&

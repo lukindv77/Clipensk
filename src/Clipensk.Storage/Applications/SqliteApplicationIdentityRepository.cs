@@ -271,12 +271,14 @@ public sealed class SqliteApplicationIdentityRepository :
         command.ExecuteNonQuery();
     }
 
-    private static IReadOnlyList<ApplicationIdentitySummary> List(
+    internal static IReadOnlyList<ApplicationIdentitySummary> List(
         SqliteConnection connection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT i.ApplicationId, i.CreatedAtUtc, a.AliasType, a.AliasValue
             FROM ApplicationIdentity AS i

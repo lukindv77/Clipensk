@@ -1,6 +1,7 @@
 using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
+using Clipensk.Storage.Applications;
 using Clipensk.Storage.History;
 using Clipensk.Storage.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -9,7 +10,21 @@ namespace Clipensk.Storage.Clipboard;
 
 public sealed record ApplicationHistoryPurgeStartResult(
     Guid OperationId,
+    ApplicationGroupId GroupId,
     ClipboardHistoryPurgeSummary CurrentSummary);
+
+/// <summary>
+/// The move no longer does what the preview the user confirmed described — the target group's
+/// policy, the groups or the application's membership changed in between. Nothing was written;
+/// preview again.
+/// </summary>
+public sealed class ApplicationHistoryPurgePreviewOutdatedException : InvalidOperationException
+{
+    public ApplicationHistoryPurgePreviewOutdatedException()
+        : base("The confirmed history purge preview is outdated; preview again before purging.")
+    {
+    }
+}
 
 internal enum ApplicationHistoryPurgeStartCheckpoint
 {
@@ -18,10 +33,11 @@ internal enum ApplicationHistoryPurgeStartCheckpoint
 }
 
 /// <summary>
-/// Starts an <c>ApplicationHistoryPurge</c> operation, per
-/// <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §5: one Current transaction publishes the root's policy,
-/// purges Current by the fixed rule and records the durable marker. The Archive, Catalog and Trash
-/// phases continue in <see cref="ProtectedApplicationHistoryPurgeContinuation"/>.
+/// Starts an <c>ApplicationHistoryPurge</c> operation — moving an application into a user group —
+/// per <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §5: one Current transaction creates the target
+/// group when it is new, moves the application, optionally deletes its emptied source group, purges
+/// the application's Current history by the target group's rule and records the durable marker. The
+/// Archive, Catalog and Trash phases continue in <see cref="ProtectedApplicationHistoryPurgeContinuation"/>.
 /// </summary>
 public sealed class ProtectedApplicationHistoryPurgeService
 {
@@ -48,60 +64,101 @@ public sealed class ProtectedApplicationHistoryPurgeService
         _checkpoint = checkpoint;
     }
 
+    /// <summary>Moves the application and purges what the target group's rules disallow.</summary>
+    public Task<ApplicationHistoryPurgeStartResult> StartMoveAsync(
+        ApplicationGroupMoveRequest request,
+        CancellationToken cancellationToken = default) =>
+        StartMoveCoreAsync(request, confirmedPreview: null, cancellationToken);
+
     /// <summary>
-    /// Gives an unconfigured group root its first personal policy and purges, across the root's
-    /// whole group, the saved representations that policy disallows.
+    /// Starts the move the user confirmed from <paramref name="confirmedPreview"/>. It proceeds only
+    /// while the move still does exactly what the preview described; otherwise it throws
+    /// <see cref="ApplicationHistoryPurgePreviewOutdatedException"/> without writing. Records
+    /// captured after the preview fall under the same confirmed rule.
     /// </summary>
-    public async Task<ApplicationHistoryPurgeStartResult> StartFirstAssignmentAsync(
-        ApplicationId rootApplicationId,
-        ClipboardCapturePolicy policy,
-        IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations = null,
+    public Task<ApplicationHistoryPurgeStartResult> StartConfirmedMoveAsync(
+        ApplicationGroupMoveRequest request,
+        ApplicationGroupMovePreview confirmedPreview,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(rootApplicationId);
-        CapturePolicySql.ValidateApplicationPolicy(policy);
-        Dictionary<string, string> requestedMappings = CapturePolicySql.NormalizeCustomBinaryConfigurations(
-            policy,
-            customBinaryConfigurations ?? []);
+        ArgumentNullException.ThrowIfNull(confirmedPreview);
+        return StartMoveCoreAsync(request, confirmedPreview, cancellationToken);
+    }
 
-        return await RunAsync(
-                (connection, transaction, token) =>
+    private Task<ApplicationHistoryPurgeStartResult> StartMoveCoreAsync(
+        ApplicationGroupMoveRequest request,
+        ApplicationGroupMovePreview? confirmedPreview,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Dictionary<string, string> requestedMappings = request.Target is NewApplicationGroupTarget created
+            ? CapturePolicySql.NormalizeCustomBinaryConfigurations(
+                created.Policy,
+                created.CustomBinaryConfigurations ?? [])
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+
+        return RunAsync(
+            (connection, transaction, token) =>
+            {
+                ApplicationHistoryPurgeScope scope = ApplicationHistoryPurgeScope.ResolveMoveInTransaction(
+                    connection,
+                    transaction,
+                    request,
+                    token);
+                if (confirmedPreview is not null && !scope.Matches(confirmedPreview))
                 {
-                    ApplicationHistoryPurgeScope scope =
-                        ApplicationHistoryPurgeScope.ResolveFirstAssignmentInTransaction(
-                            connection,
-                            transaction,
-                            rootApplicationId,
-                            policy,
-                            token);
+                    throw new ApplicationHistoryPurgePreviewOutdatedException();
+                }
 
+                DateTimeOffset now = DateTimeOffset.UtcNow;
+                ApplicationGroupId groupId;
+                if (scope.TargetGroupId is null)
+                {
                     CapturePolicySql.InsertMissingCustomBinaryConfigurationsInTransaction(
                         connection,
                         transaction,
                         requestedMappings,
                         token);
-                    CapturePolicySql.WriteApplicationPolicyInTransaction(
-                        connection,
-                        transaction,
-                        rootApplicationId,
-                        policy,
-                        replaceExisting: false,
-                        token);
+                    var group = new ApplicationGroup(
+                        ApplicationGroupId.New(),
+                        scope.TargetGroupName,
+                        scope.TargetPolicy,
+                        now);
+                    ApplicationGroupSql.InsertGroupInTransaction(connection, transaction, group, token);
+                    groupId = group.GroupId;
+                }
+                else
+                {
+                    groupId = scope.TargetGroupId;
+                }
 
-                    return ApplicationHistoryPurgeStateCodec.CreateStarted(
-                        ApplicationHistoryPurgeReason.FirstAssignment,
-                        rootApplicationId.ToString(),
-                        childApplicationId: null,
-                        scope.SourceApplicationIds.Select(static id => id.ToString()),
-                        scope.Rule,
-                        ApplicationPolicyMaintenanceStateCodec.ComputePolicyFingerprint(policy));
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
+                ApplicationGroupSql.SetMembershipInTransaction(
+                    connection,
+                    transaction,
+                    scope.ApplicationId,
+                    groupId,
+                    now);
+                if (request.DeleteEmptiedSourceGroup)
+                {
+                    ApplicationGroupSql.DeleteEmptyGroupInTransaction(connection, transaction, scope.SourceGroupId!);
+                }
+
+                // The fingerprint is taken from the policy as stored, exactly as every later phase
+                // reads it back to verify the group did not change.
+                ApplicationGroup stored = ApplicationGroupSql.ReadGroupInTransaction(connection, transaction, groupId, token)
+                    ?? throw new InvalidOperationException("The target application group disappeared.");
+                return (groupId, ApplicationHistoryPurgeStateCodec.CreateStarted(
+                    scope.ApplicationId.ToString(),
+                    groupId.ToString(),
+                    createdGroup: scope.TargetGroupId is null,
+                    scope.Rule,
+                    ApplicationPolicyMaintenanceStateCodec.ComputePolicyFingerprint(stored.Policy)));
+            },
+            cancellationToken);
     }
 
     private async Task<ApplicationHistoryPurgeStartResult> RunAsync(
-        Func<SqliteConnection, SqliteTransaction, CancellationToken, ApplicationHistoryPurgeState> prepare,
+        Func<SqliteConnection, SqliteTransaction, CancellationToken, (ApplicationGroupId GroupId, ApplicationHistoryPurgeState State)> prepare,
         CancellationToken cancellationToken)
     {
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
@@ -131,7 +188,8 @@ public sealed class ProtectedApplicationHistoryPurgeService
                         throw new PendingPolicyMaintenanceException();
                     }
 
-                    ApplicationHistoryPurgeState state = prepare(connection, transaction, token);
+                    (ApplicationGroupId groupId, ApplicationHistoryPurgeState state) =
+                        prepare(connection, transaction, token);
                     ClipboardHistoryPurgePlan plan = ClipboardHistoryPurge.PlanInTransaction(
                         connection,
                         transaction,
@@ -156,7 +214,7 @@ public sealed class ProtectedApplicationHistoryPurgeService
                     token.ThrowIfCancellationRequested();
                     transaction.Commit();
                     _checkpoint?.Invoke(ApplicationHistoryPurgeStartCheckpoint.AfterCommit);
-                    return new ApplicationHistoryPurgeStartResult(operation.OperationId, plan.Summary);
+                    return new ApplicationHistoryPurgeStartResult(operation.OperationId, groupId, plan.Summary);
                 },
                 CancellationToken.None)
             .ConfigureAwait(false);

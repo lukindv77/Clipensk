@@ -132,60 +132,25 @@ public partial class App
     }
 
     /// <summary>
-    /// An already configured group root is edited in place without touching saved history. A root
-    /// without a personal policy receives its first one, which purges the history it disallows.
+    /// Settings now belong to application groups (docs/APPLICATION_GROUP_PROTOCOL.md v2): an
+    /// application in a user group is edited through its group, and one in the default group is
+    /// moved into a group with a confirmed history purge. Until the group screens replace the
+    /// per-application editor, this path refuses every change instead of writing settings capture no
+    /// longer reads.
     /// </summary>
-    private Task<bool> TryApplyApplicationCapturePolicyCoreAsync(
+    private static Task<bool> TryApplyApplicationCapturePolicyCoreAsync(
         ProtectedStorageSessionLease session,
         global::Clipensk.Core.Applications.ApplicationId applicationId,
         global::Clipensk.Core.Clipboard.ClipboardCapturePolicy policy,
         IReadOnlyList<ApplicationCustomBinaryFormatConfiguration>? customBinaryConfigurations,
         CancellationToken cancellationToken)
     {
-        return TryRunPolicyChangeWithQuiescedRuntimeAsync(
-            session,
-            async token =>
-            {
-                global::Clipensk.Core.Applications.ApplicationGroupSnapshot groups =
-                    await new global::Clipensk.Storage.Applications.SqliteApplicationGroupRepository(session)
-                        .ReadAsync(token)
-                        .ConfigureAwait(false);
-                if (groups.IsMember(applicationId))
-                {
-                    throw new InvalidOperationException(
-                        "A group member has no policy of its own; edit the group root instead.");
-                }
-
-                if (groups.IsPersonallyConfigured(applicationId))
-                {
-                    await new ProtectedCapturePolicyPublishService(session)
-                        .PublishApplicationPolicyAsync(
-                            applicationId,
-                            policy,
-                            customBinaryConfigurations,
-                            token)
-                        .ConfigureAwait(false);
-                    return;
-                }
-
-                DateOnly deletionDate = DateOnly.FromDateTime(DateTime.Now);
-                var maintenance = new ProtectedCurrentApplicationPolicyMaintenanceService(session);
-                if (customBinaryConfigurations is null)
-                {
-                    await maintenance.ApplyAsync(applicationId, policy, token).ConfigureAwait(false);
-                }
-                else
-                {
-                    await maintenance
-                        .ApplyAsync(applicationId, policy, customBinaryConfigurations, token)
-                        .ConfigureAwait(false);
-                }
-
-                await new ProtectedApplicationPolicyMaintenanceResumeCoordinator(session)
-                    .ResumeAsync(deletionDate, token)
-                    .ConfigureAwait(false);
-            },
-            cancellationToken);
+        _ = session;
+        _ = applicationId;
+        _ = policy;
+        _ = customBinaryConfigurations;
+        _ = cancellationToken;
+        return Task.FromResult(false);
     }
 
     /// <summary>

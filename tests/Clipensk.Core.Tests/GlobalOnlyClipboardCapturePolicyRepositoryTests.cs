@@ -19,12 +19,12 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task GetApplicationPolicyAsync_ReturnsNoOverrideForDurableApplicationId()
+    public async Task GetGroupPolicyAsync_ReturnsNoOverrideForDurableApplicationId()
     {
         var globalPolicy = new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow);
         var repository = new GlobalOnlyClipboardCapturePolicyRepository(globalPolicy);
 
-        ClipboardCapturePolicy? result = await repository.GetApplicationPolicyAsync(
+        ClipboardCapturePolicy? result = await repository.GetGroupPolicyAsync(
             DurableApplicationId.New());
 
         Assert.Null(result);
@@ -45,7 +45,7 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
         });
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
         {
-            await repository.GetApplicationPolicyAsync(applicationId, cancellation.Token);
+            await repository.GetGroupPolicyAsync(applicationId, cancellation.Token);
         });
     }
 
@@ -65,6 +65,6 @@ public sealed class GlobalOnlyClipboardCapturePolicyRepositoryTests
         ClipboardCapturePolicySet policies = await provider.GetPoliciesAsync(captureContext);
 
         Assert.Same(globalPolicy, policies.GlobalPolicy);
-        Assert.Null(policies.ApplicationPolicy);
+        Assert.Null(policies.GroupPolicy);
     }
 }

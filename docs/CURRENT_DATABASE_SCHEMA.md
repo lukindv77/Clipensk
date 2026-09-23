@@ -6,7 +6,7 @@ Schema versions принадлежат конкретной роли БД, а н
 
 Текущее production состояние:
 
-- `current.db`: schema version **11**;
+- `current.db`: schema version **12**;
 - `storage-catalog.db`: schema version **3**;
 - Archive DB: schema version **1**.
 
@@ -176,11 +176,34 @@ Current v11 добавила `ApplicationGroupMember` из `APPLICATION_GROUP_PR
 `SqliteApplicationGroupRepository` при чтении и через `ApplicationGroupSnapshot` в Core;
 нарушение — fail-closed.
 
+## Current v12 — application groups as entities
+
+Current v12 заменяет корневые группы v11 отдельной сущностью «группа» из
+`APPLICATION_GROUP_PROTOCOL.md` §2 (версия 2):
+
+- `ApplicationGroup` — `GroupId` (канонический GUID, PK), `Name`, `NameKey` (UNIQUE, ключ имени
+  без учёта регистра), `CaptureRule` (`Allow`/`Deny`), `CreatedAtUtc`;
+- `ApplicationGroupFormatCapturePolicy` — правила форматов группы: `GroupId`, `FormatName`,
+  `CaptureRule` (`Allow`/`Deny`), `MaxBytes NULL`, PK `(GroupId, FormatName)`, FK на группу;
+- `ApplicationGroupMembership` — `ApplicationId` (PK, FK на `ApplicationIdentity`), `GroupId` (FK на
+  группу), `JoinedAtUtc`, индекс `IX_ApplicationGroupMembership_GroupId`. Приложение без строки
+  членства состоит в группе по умолчанию — это глобальная policy;
+- все FK без ON DELETE action: группы и членство удаляются только явными операциями.
+
+Policy группы самостоятельна: только `Allow`/`Deny`, с глобальной не смешивается. Инварианты данных
+(каноничность GUID, UTC-время, нормализованное имя и совпадение `NameKey`, существование группы у
+членства и правил) проверяют `ApplicationGroupSql`/`SqliteApplicationGroupRepository` при чтении и
+`ApplicationGroupDirectory` в Core; нарушение — fail-closed.
+
+`ApplicationCapturePolicy`/`ApplicationFormatCapturePolicy` остаются в v12 как **legacy**: их читает
+только продолжение незавершённого legacy-marker `ApplicationPolicyMaintenance`. Захват, настройки и
+новые операции их не используют. Таблица v11 `ApplicationGroupMember` в v12 отсутствует.
+
 ## New storage initialization
 
 Новая storage pair создаётся staging-операцией:
 
-1. `current.db` создаётся сразу как v11 со всеми Current v2-v11 contracts, включая пустые `PendingPolicyMaintenance`, `ApplicationDiscoveredFormat`, `PendingArchiveSplit`, `PendingArchiveSplitSegment`, `PendingArchiveRotation`, `PendingArchiveRotationTarget` и `ApplicationGroupMember`;
+1. `current.db` создаётся сразу как v12 со всеми Current v2-v12 contracts, включая пустые `PendingPolicyMaintenance`, `ApplicationDiscoveredFormat`, `PendingArchiveSplit`, `PendingArchiveSplitSegment`, `PendingArchiveRotation`, `PendingArchiveRotationTarget`, legacy `ApplicationCapturePolicy`/`ApplicationFormatCapturePolicy` и таблицы групп v12 (без v11 `ApplicationGroupMember`);
 2. `storage-catalog.db` создаётся сразу как v3 с `ExternalPayloadAddressIndex` и пустой `ArchiveSegmentIndex`;
 3. обе БД полностью валидируются;
 4. только затем staging `Current` перемещается на final path.
@@ -265,6 +288,21 @@ Existing identity/application policy, history, global policy, custom-binary mapp
 3. version `10 → 11` и `user_version = 11`;
 4. cancellation check и COMMIT.
 
+### Current v11 → v12
+
+1. валидировать все Current v11 contracts, включая `ApplicationGroupMember`;
+2. создать таблицы групп v12;
+3. для каждого приложения с legacy-строкой `ApplicationCapturePolicy` создать группу: имя —
+   `ApplicationDisplayName` (имя exe, иначе AUMID, иначе `ApplicationId`) с суффиксом ` (2)`,
+   ` (3)`, … при совпадении ключа; policy — `Merge(global, personal)` с превращением всего, что не
+   `Allow`, в `Deny`, чтобы захват не изменился. Если глобальной policy ещё нет (хранилище из эпохи
+   до v5), база — пустая `Deny`: сохраняются только явные правила приложения, всё унаследованное
+   становится `Deny`, и группа никогда не собирает больше, чем пользователь явно разрешил;
+4. строки v11 `ApplicationGroupMember`: член корня, получившего группу, становится членом той же
+   группы, иначе остаётся в группе по умолчанию; член с собственной policy — fail-closed;
+5. удалить индекс и таблицу `ApplicationGroupMember`; legacy-таблицы policy приложения не трогать;
+6. version `11 → 12` и `user_version = 12`, cancellation check и COMMIT.
+
 ### Catalog v1 → v2 → v3
 
 Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SCHEMA.md`:
@@ -276,7 +314,7 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 
 Ошибка/отмена до COMMIT оставляет полноценную предыдущую schema version, поэтому следующий unlock может повторить конкретный step.
 
-Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7→8→9→10→11`, Catalog — `1→2→3`; durable boundaries не схлопываются.
+Для legacy pair v1/v1 Current выполняет `1→2→3→4→5→6→7→8→9→10→11→12`, Catalog — `1→2→3`; durable boundaries не схлопываются.
 
 ## Fail-closed validation
 
@@ -291,7 +329,8 @@ Catalog мигрирует отдельно согласно `STORAGE_CATALOG_SC
 - Current v8+ application-discovered-format contract.
 - Current v9+ pending archive-split operation/segment contracts.
 - Current v10+ pending archive-rotation operation/target contracts.
-- Current v11+ application-group membership contract.
+- Current v11 (ровно) protocol-v1 `ApplicationGroupMember` contract.
+- Current v12+ application-group contract (группы, правила, членство).
 - Catalog v2+ обязан иметь external-payload address contract.
 - Catalog v3+ дополнительно обязан иметь archive-segment projection table/index contract.
 - `DatabaseIdentity.SchemaVersion` и `PRAGMA user_version` должны совпадать.
@@ -302,7 +341,8 @@ Repositories schema не создают и не мигрируют. Это пр�
 Совместимость repository boundaries:
 
 - `SqliteApplicationIdentityRepository`: Current v2+;
-- `SqliteClipboardCapturePolicyRepository`: Current v3+;
+- `SqliteClipboardCapturePolicyRepository` (группа приложения при захвате): Current v12+;
+- `LegacyApplicationCapturePolicyRepository` (только legacy-продолжение): Current v3+;
 - history repository/sink: Current v4+;
 - `SqliteGlobalClipboardCapturePolicyRepository`: Current v5+;
 - `SqliteCustomBinaryFormatConfigurationRepository`: Current v6+;
@@ -310,7 +350,7 @@ Repositories schema не создают и не мигрируют. Это пр�
 - `SqliteApplicationDiscoveredFormatRepository`: Current v8+;
 - `SqlitePendingArchiveSplitRepository`: Current v9+;
 - `SqlitePendingArchiveRotationRepository`: Current v10+;
-- `SqliteApplicationGroupRepository`: Current v11+;
+- `SqliteApplicationGroupRepository`: Current v12+;
 - `SqliteExternalPayloadAddressIndex`: Catalog v2+;
 - `ProtectedArchiveSegmentCatalog`: Catalog v3 + active Current history schema.
 

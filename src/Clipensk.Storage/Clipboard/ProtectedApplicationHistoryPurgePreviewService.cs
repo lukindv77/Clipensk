@@ -10,13 +10,17 @@ using Microsoft.Data.Sqlite;
 namespace Clipensk.Storage.Clipboard;
 
 /// <summary>
-/// What an <c>ApplicationHistoryPurge</c> would delete if started now, per
-/// <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §4. Each logical record is counted once even while it
-/// temporarily exists in both Current and an Archive; it is then counted under Current.
+/// What moving an application into a user group would do if started now, per
+/// <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §4: the target and source groups and the history the
+/// target group's rules would delete. Each logical record is counted once even while it temporarily
+/// exists in both Current and an Archive; it is then counted under Current.
 /// </summary>
-public sealed record ApplicationHistoryPurgePreview(
-    ApplicationId RootApplicationId,
-    IReadOnlyList<ApplicationId> SourceApplicationIds,
+public sealed record ApplicationGroupMovePreview(
+    ApplicationId ApplicationId,
+    ApplicationGroupId? TargetGroupId,
+    ApplicationGroupName TargetGroupName,
+    ApplicationGroupId? SourceGroupId,
+    bool SourceGroupBecomesEmpty,
     ClipboardHistoryPurgeRule Rule,
     ClipboardHistoryPurgeSummary CurrentSummary,
     ClipboardHistoryPurgeSummary ArchiveSummary,
@@ -27,7 +31,7 @@ public sealed record ApplicationHistoryPurgePreview(
     public bool IsEmpty => CurrentSummary.IsEmpty && ArchiveSummary.IsEmpty;
 
     /// <summary>
-    /// The journal filter listing the records in scope that hold a representation of
+    /// The journal filter listing the application's records that hold a representation of
     /// <paramref name="formatName"/>, i.e. the records that lose it — the optional detailed view of
     /// the confirmation.
     /// </summary>
@@ -37,16 +41,16 @@ public sealed record ApplicationHistoryPurgePreview(
         if (Rule.Retains(formatName))
         {
             throw new ArgumentException(
-                "The purge keeps this format; no record loses a representation of it.",
+                "The target group keeps this format; no record loses a representation of it.",
                 nameof(formatName));
         }
 
-        return new ClipboardHistoryFilter(SourceApplicationIds.Select(static id => id.Value), formatName);
+        return new ClipboardHistoryFilter([ApplicationId.Value], formatName);
     }
 }
 
 /// <summary>
-/// Computes an <see cref="ApplicationHistoryPurgePreview"/> read-only. Like the unified journal
+/// Computes an <see cref="ApplicationGroupMovePreview"/> read-only. Like the unified journal
 /// read, it takes no mutation lease — the preview must not stall capture while the user decides —
 /// and reads Current before Archives, so a record moving from Current to an Archive meanwhile is
 /// still seen. A change of the Archive file set during the read fails it; the caller retries.
@@ -65,28 +69,21 @@ public sealed class ProtectedApplicationHistoryPurgePreviewService
     }
 
     /// <summary>
-    /// Previews giving an unconfigured group root its first personal policy, with the same
-    /// preconditions and scope as
-    /// <see cref="ProtectedApplicationHistoryPurgeService.StartFirstAssignmentAsync"/>.
+    /// Previews <paramref name="request"/> with the same preconditions and scope as
+    /// <see cref="ProtectedApplicationHistoryPurgeService.StartMoveAsync"/>.
     /// </summary>
-    public Task<ApplicationHistoryPurgePreview> PreviewFirstAssignmentAsync(
-        ApplicationId rootApplicationId,
-        ClipboardCapturePolicy policy,
+    public Task<ApplicationGroupMovePreview> PreviewMoveAsync(
+        ApplicationGroupMoveRequest request,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(rootApplicationId);
-        CapturePolicySql.ValidateApplicationPolicy(policy);
+        ArgumentNullException.ThrowIfNull(request);
         return PreviewAsync(
-            (connection, transaction, token) => ApplicationHistoryPurgeScope.ResolveFirstAssignmentInTransaction(
-                connection,
-                transaction,
-                rootApplicationId,
-                policy,
-                token),
+            (connection, transaction, token) =>
+                ApplicationHistoryPurgeScope.ResolveMoveInTransaction(connection, transaction, request, token),
             cancellationToken);
     }
 
-    private async Task<ApplicationHistoryPurgePreview> PreviewAsync(
+    private async Task<ApplicationGroupMovePreview> PreviewAsync(
         Func<SqliteConnection, SqliteTransaction, CancellationToken, ApplicationHistoryPurgeScope> resolve,
         CancellationToken cancellationToken)
     {
@@ -172,15 +169,17 @@ public sealed class ProtectedApplicationHistoryPurgePreviewService
         }
 
         token.ThrowIfCancellationRequested();
-        return new ApplicationHistoryPurgePreview(
-            scope.RootApplicationId,
-            scope.SourceApplicationIds,
+        return new ApplicationGroupMovePreview(
+            scope.ApplicationId,
+            scope.TargetGroupId,
+            scope.TargetGroupName,
+            scope.SourceGroupId,
+            scope.SourceGroupBecomesEmpty,
             scope.Rule,
             currentSummary,
             archiveSummary,
             namesBefore.Count);
     }
 
-    private static string[] SourceIds(ApplicationHistoryPurgeScope scope) =>
-        scope.SourceApplicationIds.Select(static id => id.ToString()).ToArray();
+    private static string[] SourceIds(ApplicationHistoryPurgeScope scope) => [scope.ApplicationId.ToString()];
 }

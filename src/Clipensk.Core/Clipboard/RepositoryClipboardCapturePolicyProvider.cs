@@ -17,14 +17,14 @@ public sealed class RepositoryClipboardCapturePolicyProvider : IClipboardCapture
             .GetGlobalPolicyAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        ClipboardCapturePolicy? applicationPolicy = null;
+        ClipboardCapturePolicy? groupPolicy = null;
         if (captureContext.SourceApplicationId is { } sourceApplicationId)
         {
-            applicationPolicy = await _repository
-                .GetApplicationPolicyAsync(sourceApplicationId, cancellationToken)
+            groupPolicy = await _repository
+                .GetGroupPolicyAsync(sourceApplicationId, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return new ClipboardCapturePolicySet(globalPolicy, applicationPolicy);
+        return new ClipboardCapturePolicySet(globalPolicy, groupPolicy);
     }
 }

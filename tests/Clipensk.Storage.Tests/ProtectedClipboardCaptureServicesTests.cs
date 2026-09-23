@@ -46,7 +46,7 @@ public sealed class ProtectedClipboardCaptureServicesTests
                 SourceApplication: null));
 
         Assert.Same(globalPolicy, policies.GlobalPolicy);
-        Assert.Null(policies.ApplicationPolicy);
+        Assert.Null(policies.GroupPolicy);
         Assert.Equal(0, factory.OpenCallCount);
 
         Directory.Delete(root, recursive: true);

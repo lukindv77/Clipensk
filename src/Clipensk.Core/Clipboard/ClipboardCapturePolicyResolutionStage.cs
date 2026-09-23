@@ -21,9 +21,11 @@ public sealed class ClipboardCapturePolicyResolutionStage
             .GetPoliciesAsync(captureContext, cancellationToken)
             .ConfigureAwait(false);
 
+        // A group policy replaces the global one instead of refining it; merging it with no
+        // override only normalizes it the same way the global policy is normalized.
         ClipboardCapturePolicy effectivePolicy = _evaluator.Merge(
-            policies.GlobalPolicy,
-            policies.ApplicationPolicy);
+            policies.GroupPolicy ?? policies.GlobalPolicy,
+            applicationPolicy: null);
 
         return new ClipboardCapturePolicyContext(captureContext, effectivePolicy);
     }

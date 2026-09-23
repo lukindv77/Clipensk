@@ -194,9 +194,9 @@ public sealed class ProtectedCurrentApplicationPolicyCustomBinaryMaintenanceTest
         ClipboardCapturePolicy globalPolicy,
         ApplicationId applicationId)
     {
-        var repository = new SqliteClipboardCapturePolicyRepository(
+        _ = globalPolicy;
+        var repository = new LegacyApplicationCapturePolicyRepository(
             environment.Session,
-            globalPolicy,
             environment.Factory);
         return await repository.GetApplicationPolicyAsync(applicationId);
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Clipensk.Core.Application;
+using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Security;
 using Clipensk.Core.Storage;
@@ -28,13 +29,12 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task SetAndGetApplicationPolicy_RoundTripsRulesFormatsAndLimits()
+    public async Task Legacy_SetAndGetApplicationPolicy_RoundTripsRulesFormatsAndLimits()
     {
         using TestDatabase database = TestDatabase.Create();
         DurableApplicationId applicationId = DurableApplicationId.New();
         database.SeedApplication(applicationId);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny));
+        var repository = database.CreateLegacyRepository();
         var policy = new ClipboardCapturePolicy(
             ClipboardCapturePolicyRule.Allow,
             new Dictionary<string, ClipboardFormatCapturePolicy>
@@ -58,13 +58,12 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task GetApplicationPolicyAsync_NoOverrideReturnsNull()
+    public async Task Legacy_GetApplicationPolicyAsync_NoOverrideReturnsNull()
     {
         using TestDatabase database = TestDatabase.Create();
         DurableApplicationId applicationId = DurableApplicationId.New();
         database.SeedApplication(applicationId);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        var repository = database.CreateLegacyRepository();
 
         ClipboardCapturePolicy? stored = await repository.GetApplicationPolicyAsync(applicationId);
 
@@ -72,13 +71,12 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task SetApplicationPolicyAsync_ReplacesPriorFormatRowsInOnePolicySnapshot()
+    public async Task Legacy_SetApplicationPolicyAsync_ReplacesPriorFormatRowsInOnePolicySnapshot()
     {
         using TestDatabase database = TestDatabase.Create();
         DurableApplicationId applicationId = DurableApplicationId.New();
         database.SeedApplication(applicationId);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        var repository = database.CreateLegacyRepository();
 
         await repository.SetApplicationPolicyAsync(
             applicationId,
@@ -110,13 +108,12 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task DeleteApplicationPolicyAsync_RemovesPolicyAndCascadesFormats()
+    public async Task Legacy_DeleteApplicationPolicyAsync_RemovesPolicyAndCascadesFormats()
     {
         using TestDatabase database = TestDatabase.Create();
         DurableApplicationId applicationId = DurableApplicationId.New();
         database.SeedApplication(applicationId);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        var repository = database.CreateLegacyRepository();
         await repository.SetApplicationPolicyAsync(
             applicationId,
             new ClipboardCapturePolicy(
@@ -134,11 +131,10 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task SetApplicationPolicyAsync_UnknownApplicationIdCannotCreateOrphanPolicy()
+    public async Task Legacy_SetApplicationPolicyAsync_UnknownApplicationIdCannotCreateOrphanPolicy()
     {
         using TestDatabase database = TestDatabase.Create();
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
+        var repository = database.CreateLegacyRepository();
 
         await Assert.ThrowsAsync<SqliteException>(async () =>
         {
@@ -151,22 +147,23 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
     }
 
     [Fact]
-    public async Task Repository_RejectsCurrentSchemaVersionTwoWithoutPolicyTables()
+    public async Task Repositories_RejectSchemasWithoutTheirTables()
     {
-        using TestDatabase database = TestDatabase.Create(schemaVersion: 2);
+        using TestDatabase v2 = TestDatabase.Create(schemaVersion: 2);
         DurableApplicationId applicationId = DurableApplicationId.New();
-        database.SeedApplication(applicationId);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
-
+        v2.SeedApplication(applicationId);
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
-        {
-            await repository.GetApplicationPolicyAsync(applicationId);
-        });
+            await v2.CreateLegacyRepository().GetApplicationPolicyAsync(applicationId));
+
+        using TestDatabase v11 = TestDatabase.Create(schemaVersion: 11);
+        v11.SeedApplication(applicationId);
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await v11.CreateRepository(new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow))
+                .GetGroupPolicyAsync(applicationId));
     }
 
     [Fact]
-    public async Task Repository_AfterProtectedAccessRevocationCancelsBeforeDatabaseAccess()
+    public async Task Repositories_AfterProtectedAccessRevocationCancelBeforeDatabaseAccess()
     {
         using TestDatabase database = TestDatabase.Create();
         DurableApplicationId applicationId = DurableApplicationId.New();
@@ -176,102 +173,82 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
         Assert.True(database.Lifecycle.TryBeginLock());
 
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-        {
-            await repository.GetApplicationPolicyAsync(applicationId);
-        });
+            await repository.GetGroupPolicyAsync(applicationId));
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-        {
-            await repository.SetApplicationPolicyAsync(
+            await database.CreateLegacyRepository().SetApplicationPolicyAsync(
                 applicationId,
-                new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny));
-        });
+                new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny)));
     }
 
     [Fact]
-    public async Task GetApplicationPolicyAsync_GroupMemberResolvesToItsRootPolicy()
+    public async Task GetGroupPolicyAsync_DefaultGroupApplicationHasNoGroupPolicy()
     {
         using TestDatabase database = TestDatabase.Create();
-        DurableApplicationId root = DurableApplicationId.New();
-        DurableApplicationId member = DurableApplicationId.New();
-        database.SeedApplication(root);
-        database.SeedApplication(member);
+        DurableApplicationId applicationId = DurableApplicationId.New();
+        database.SeedApplication(applicationId);
+        await database.CreateLegacyRepository().SetApplicationPolicyAsync(
+            applicationId,
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny));
         var repository = database.CreateRepository(
             new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
-        var rootPolicy = new ClipboardCapturePolicy(
+
+        Assert.Null(await repository.GetGroupPolicyAsync(applicationId));
+    }
+
+    [Fact]
+    public async Task GetGroupPolicyAsync_MemberGetsItsGroupsStandalonePolicy()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        DurableApplicationId member = DurableApplicationId.New();
+        DurableApplicationId other = DurableApplicationId.New();
+        database.SeedApplication(member);
+        database.SeedApplication(other);
+        var groupPolicy = new ClipboardCapturePolicy(
             ClipboardCapturePolicyRule.Allow,
             new Dictionary<string, ClipboardFormatCapturePolicy>
             {
+                ["Text"] = new(ClipboardCapturePolicyRule.Allow, 2048),
                 ["HTML Format"] = new(ClipboardCapturePolicyRule.Deny),
             });
-        await repository.SetApplicationPolicyAsync(root, rootPolicy);
-        database.AddGroupMember(member, root);
+        database.InsertGroup("Editors", groupPolicy, member);
+        var repository = database.CreateRepository(
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny));
 
-        ClipboardCapturePolicy? governing = await repository.GetApplicationPolicyAsync(member);
+        ClipboardCapturePolicy? stored = await repository.GetGroupPolicyAsync(member);
 
-        Assert.NotNull(governing);
-        Assert.Equal(ClipboardCapturePolicyRule.Allow, governing.Capture);
-        Assert.Equal(
-            new ClipboardFormatCapturePolicy(ClipboardCapturePolicyRule.Deny),
-            governing.Formats["HTML Format"]);
+        Assert.NotNull(stored);
+        Assert.Equal(ClipboardCapturePolicyRule.Allow, stored.Capture);
+        Assert.Equal(new ClipboardFormatCapturePolicy(ClipboardCapturePolicyRule.Allow, 2048), stored.Formats["Text"]);
+        Assert.Equal(new ClipboardFormatCapturePolicy(ClipboardCapturePolicyRule.Deny), stored.Formats["HTML Format"]);
+        Assert.Null(await repository.GetGroupPolicyAsync(other));
     }
 
     [Fact]
-    public async Task GetApplicationPolicyAsync_GroupMemberOfAnUnconfiguredRootHasNoPersonalPolicy()
+    public async Task GetGroupPolicyAsync_FailsClosedOnBrokenGroupData()
     {
         using TestDatabase database = TestDatabase.Create();
-        DurableApplicationId root = DurableApplicationId.New();
-        DurableApplicationId member = DurableApplicationId.New();
-        database.SeedApplication(root);
-        database.SeedApplication(member);
-        database.AddGroupMember(member, root);
+        DurableApplicationId orphan = DurableApplicationId.New();
+        DurableApplicationId renamed = DurableApplicationId.New();
+        database.SeedApplication(orphan);
+        database.SeedApplication(renamed);
         var repository = database.CreateRepository(
             new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
 
-        Assert.Null(await repository.GetApplicationPolicyAsync(member));
-    }
-
-    [Fact]
-    public async Task SetApplicationPolicyAsync_RejectsAGroupMemberWithoutWriting()
-    {
-        using TestDatabase database = TestDatabase.Create();
-        DurableApplicationId root = DurableApplicationId.New();
-        DurableApplicationId member = DurableApplicationId.New();
-        database.SeedApplication(root);
-        database.SeedApplication(member);
-        database.AddGroupMember(member, root);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await repository.SetApplicationPolicyAsync(
-                member,
-                new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Deny)));
-
-        Assert.Equal(0, database.CountRows("ApplicationCapturePolicy"));
-    }
-
-    [Fact]
-    public async Task GetApplicationPolicyAsync_RejectsGroupDataThatBreaksTheInvariants()
-    {
-        using TestDatabase database = TestDatabase.Create();
-        DurableApplicationId root = DurableApplicationId.New();
-        DurableApplicationId member = DurableApplicationId.New();
-        DurableApplicationId nested = DurableApplicationId.New();
-        database.SeedApplication(root);
-        database.SeedApplication(member);
-        database.SeedApplication(nested);
-        var repository = database.CreateRepository(
-            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow));
-
-        database.AddGroupMember(member, root);
-        database.Execute($"INSERT INTO ApplicationCapturePolicy VALUES ('{member}', 'Deny');");
+        database.Execute($"""
+            PRAGMA foreign_keys = OFF;
+            INSERT INTO ApplicationGroupMembership VALUES (
+                '{orphan}', '{Guid.NewGuid():D}', '2026-09-23T10:00:00.0000000+00:00');
+            """);
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
-            await repository.GetApplicationPolicyAsync(member));
+            await repository.GetGroupPolicyAsync(orphan));
 
-        database.Execute($"DELETE FROM ApplicationCapturePolicy WHERE ApplicationId = '{member}';");
-        database.AddGroupMember(nested, member);
+        ApplicationGroupId group = database.InsertGroup(
+            "Editors",
+            new ClipboardCapturePolicy(ClipboardCapturePolicyRule.Allow),
+            renamed);
+        database.Execute($"UPDATE ApplicationGroup SET NameKey = 'Editors' WHERE GroupId = '{group}';");
         await Assert.ThrowsAsync<InvalidDataException>(async () =>
-            await repository.GetApplicationPolicyAsync(nested));
+            await repository.GetGroupPolicyAsync(renamed));
     }
 
     private sealed class TestDatabase : IDisposable
@@ -327,6 +304,29 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
             ClipboardCapturePolicy globalPolicy) =>
             new(Session, globalPolicy, _factory);
 
+        public LegacyApplicationCapturePolicyRepository CreateLegacyRepository() => new(Session, _factory);
+
+        public ApplicationGroupId InsertGroup(
+            string name,
+            ClipboardCapturePolicy policy,
+            params DurableApplicationId[] members)
+        {
+            var created = new DateTimeOffset(2026, 9, 23, 10, 0, 0, TimeSpan.Zero);
+            var group = new ApplicationGroup(ApplicationGroupId.New(), ApplicationGroupName.Create(name), policy, created);
+            using SqliteConnection connection = _factory.Open(
+                CurrentDatabasePath,
+                Session.DangerousGetMasterKeyMemory(),
+                SqliteOpenMode.ReadWrite);
+            using SqliteTransaction transaction = connection.BeginTransaction();
+            ApplicationGroupSql.InsertGroupInTransaction(connection, transaction, group, CancellationToken.None);
+            foreach (DurableApplicationId member in members)
+            {
+                ApplicationGroupSql.SetMembershipInTransaction(connection, transaction, member, group.GroupId, created);
+            }
+            transaction.Commit();
+            return group.GroupId;
+        }
+
         public void SeedApplication(DurableApplicationId applicationId)
         {
             using SqliteConnection connection = _factory.Open(
@@ -355,13 +355,6 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
             command.CommandText = sql;
             command.ExecuteNonQuery();
         }
-
-        public void AddGroupMember(DurableApplicationId member, DurableApplicationId parent) =>
-            Execute($"""
-                INSERT INTO ApplicationGroupMember (
-                    ApplicationId, ParentApplicationId, RetainedFromApplicationId, JoinedAtUtc)
-                VALUES ('{member}', '{parent}', NULL, '2026-09-22T10:00:00.0000000+00:00');
-                """);
 
         public int CountRows(string tableName)
         {
@@ -448,9 +441,13 @@ public sealed class SqliteClipboardCapturePolicyRepositoryTests
             {
                 ApplicationCapturePolicySqlSchema.CreateTables(connection, transaction);
             }
-            if (schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion)
+            if (schemaVersion == 11)
             {
                 ApplicationGroupMemberSqlSchema.CreateTable(connection, transaction);
+            }
+            if (schemaVersion >= ApplicationGroupSqlSchema.MinimumCurrentSchemaVersion)
+            {
+                ApplicationGroupSqlSchema.CreateTables(connection, transaction);
             }
 
             using (SqliteCommand userVersion = connection.CreateCommand())

@@ -54,7 +54,7 @@ internal static class ApplicationGroupMaintenanceDatabase
             GlobalCapturePolicySqlSchema.ValidateTables(connection);
             CustomBinaryFormatConfigurationSqlSchema.ValidateTable(connection);
             PendingPolicyMaintenanceSqlSchema.ValidateTable(connection);
-            ApplicationGroupMemberSqlSchema.ValidateTable(connection);
+            ApplicationGroupSqlSchema.ValidateTables(connection);
             ValidateForeignKeys(connection, "Current");
             token.ThrowIfCancellationRequested();
             return connection;

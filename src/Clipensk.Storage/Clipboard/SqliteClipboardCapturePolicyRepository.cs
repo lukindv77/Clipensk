@@ -1,4 +1,5 @@
 using System.Globalization;
+using Clipensk.Core.Applications;
 using Clipensk.Core.Clipboard;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
@@ -8,6 +9,10 @@ using DurableApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.Storage.Clipboard;
 
+/// <summary>
+/// Supplies capture with the global policy and, for an application in a user group, that group's
+/// standalone policy (<c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §1, invariant 4).
+/// </summary>
 public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePolicyRepository
 {
     private readonly ProtectedStorageSessionLease _session;
@@ -37,13 +42,7 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         return ValueTask.FromResult(_globalPolicy);
     }
 
-    /// <summary>
-    /// Returns the personal policy that governs capture for <paramref name="applicationId"/>: its
-    /// group root's, per <c>docs/APPLICATION_GROUP_PROTOCOL.md</c> §2.3. A group member never has a
-    /// policy of its own, so nothing is hidden by resolving through the root. Null means the root has
-    /// no personal policy and only the global policy applies.
-    /// </summary>
-    public ValueTask<ClipboardCapturePolicy?> GetApplicationPolicyAsync(
+    public ValueTask<ClipboardCapturePolicy?> GetGroupPolicyAsync(
         DurableApplicationId applicationId,
         CancellationToken cancellationToken = default)
     {
@@ -52,131 +51,21 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         CancellationToken token = linkedCancellation.Token;
         token.ThrowIfCancellationRequested();
 
-        using SqliteConnection connection = OpenValidatedCurrent(
-            SqliteOpenMode.ReadOnly,
-            token,
-            out int schemaVersion);
-        using SqliteTransaction transaction = connection.BeginTransaction();
-        DurableApplicationId governing = schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion
-            ? ResolveGroupRoot(connection, transaction, applicationId, token)
-            : applicationId;
-        ClipboardCapturePolicy? policy = ReadApplicationPolicy(connection, transaction, governing, token);
+        using SqliteConnection connection = OpenValidatedCurrent(token);
+        using SqliteTransaction transaction = connection.BeginTransaction(deferred: true);
+        ApplicationGroup? group = ApplicationGroupSql.ReadGroupOfInTransaction(
+            connection,
+            transaction,
+            applicationId,
+            token);
         token.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(policy);
+        return ValueTask.FromResult(group?.Policy);
     }
 
-    public ValueTask SetApplicationPolicyAsync(
-        DurableApplicationId applicationId,
-        ClipboardCapturePolicy policy,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(applicationId);
-        ArgumentNullException.ThrowIfNull(policy);
-        ValidatePolicy(policy);
+    private CancellationTokenSource CreateLinkedCancellation(CancellationToken callerToken) =>
+        CancellationTokenSource.CreateLinkedTokenSource(_session.CancellationToken, callerToken);
 
-        using CancellationTokenSource linkedCancellation = CreateLinkedCancellation(cancellationToken);
-        CancellationToken token = linkedCancellation.Token;
-        token.ThrowIfCancellationRequested();
-
-        using SqliteConnection connection = OpenValidatedCurrent(
-            SqliteOpenMode.ReadWrite,
-            token,
-            out int schemaVersion);
-        using SqliteTransaction transaction = connection.BeginTransaction();
-        if (schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion &&
-            ReadParentApplicationId(connection, transaction, applicationId) is not null)
-        {
-            throw new InvalidOperationException(
-                "A group member cannot have its own capture policy; change the group root's policy instead.");
-        }
-
-        using (SqliteCommand upsert = connection.CreateCommand())
-        {
-            upsert.Transaction = transaction;
-            upsert.CommandText = """
-                INSERT INTO ApplicationCapturePolicy (ApplicationId, CaptureRule)
-                VALUES ($applicationId, $captureRule)
-                ON CONFLICT(ApplicationId) DO UPDATE SET
-                    CaptureRule = excluded.CaptureRule;
-                """;
-            upsert.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            upsert.Parameters.AddWithValue("$captureRule", FormatRule(policy.Capture));
-            upsert.ExecuteNonQuery();
-        }
-
-        using (SqliteCommand deleteFormats = connection.CreateCommand())
-        {
-            deleteFormats.Transaction = transaction;
-            deleteFormats.CommandText = """
-                DELETE FROM ApplicationFormatCapturePolicy
-                WHERE ApplicationId = $applicationId;
-                """;
-            deleteFormats.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            deleteFormats.ExecuteNonQuery();
-        }
-
-        foreach ((string formatName, ClipboardFormatCapturePolicy formatPolicy) in policy.Formats)
-        {
-            token.ThrowIfCancellationRequested();
-            using SqliteCommand insertFormat = connection.CreateCommand();
-            insertFormat.Transaction = transaction;
-            insertFormat.CommandText = """
-                INSERT INTO ApplicationFormatCapturePolicy (
-                    ApplicationId, FormatName, CaptureRule, MaxBytes)
-                VALUES ($applicationId, $formatName, $captureRule, $maxBytes);
-                """;
-            insertFormat.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            insertFormat.Parameters.AddWithValue("$formatName", formatName);
-            insertFormat.Parameters.AddWithValue("$captureRule", FormatRule(formatPolicy.Capture));
-            insertFormat.Parameters.AddWithValue(
-                "$maxBytes",
-                formatPolicy.MaxBytes.HasValue
-                    ? formatPolicy.MaxBytes.Value
-                    : DBNull.Value);
-            insertFormat.ExecuteNonQuery();
-        }
-
-        token.ThrowIfCancellationRequested();
-        transaction.Commit();
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask DeleteApplicationPolicyAsync(
-        DurableApplicationId applicationId,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(applicationId);
-        using CancellationTokenSource linkedCancellation = CreateLinkedCancellation(cancellationToken);
-        CancellationToken token = linkedCancellation.Token;
-        token.ThrowIfCancellationRequested();
-
-        using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token, out _);
-        using SqliteTransaction transaction = connection.BeginTransaction();
-        using SqliteCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            DELETE FROM ApplicationCapturePolicy
-            WHERE ApplicationId = $applicationId;
-            """;
-        command.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-        command.ExecuteNonQuery();
-
-        token.ThrowIfCancellationRequested();
-        transaction.Commit();
-        return ValueTask.CompletedTask;
-    }
-
-    private CancellationTokenSource CreateLinkedCancellation(CancellationToken callerToken)
-    {
-        return CancellationTokenSource.CreateLinkedTokenSource(
-            _session.CancellationToken,
-            callerToken);
-    }
-
-    private SqliteConnection OpenValidatedCurrent(
-        SqliteOpenMode mode,
-        CancellationToken cancellationToken,
-        out int schemaVersion)
+    private SqliteConnection OpenValidatedCurrent(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!_session.IsActive)
@@ -187,18 +76,19 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         SqliteConnection connection = _connectionFactory.Open(
             _currentDatabasePath,
             _session.DangerousGetMasterKeyMemory(),
-            mode);
+            SqliteOpenMode.ReadOnly);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            EnableForeignKeys(connection);
-            schemaVersion = ValidateCurrentDatabase(connection);
-            ApplicationIdentitySqlSchema.ValidateTables(connection);
-            ApplicationCapturePolicySqlSchema.ValidateTables(connection);
-            if (schemaVersion >= ApplicationGroupMemberSqlSchema.MinimumCurrentSchemaVersion)
+            using (SqliteCommand foreignKeys = connection.CreateCommand())
             {
-                ApplicationGroupMemberSqlSchema.ValidateTable(connection);
+                foreignKeys.CommandText = "PRAGMA foreign_keys = ON;";
+                foreignKeys.ExecuteNonQuery();
             }
+
+            ValidateCurrentDatabase(connection);
+            ApplicationIdentitySqlSchema.ValidateTables(connection);
+            ApplicationGroupSqlSchema.ValidateTables(connection);
             cancellationToken.ThrowIfCancellationRequested();
             return connection;
         }
@@ -209,7 +99,7 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
         }
     }
 
-    private int ValidateCurrentDatabase(SqliteConnection connection)
+    private void ValidateCurrentDatabase(SqliteConnection connection)
     {
         int schemaVersion;
         using (SqliteCommand command = connection.CreateCommand())
@@ -230,10 +120,10 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
             if (!Guid.TryParse(reader.GetString(0), out Guid storageId) ||
                 storageId != _session.StorageId ||
                 !string.Equals(reader.GetString(1), DatabaseRole.Current.ToString(), StringComparison.Ordinal) ||
-                schemaVersion < ApplicationCapturePolicySqlSchema.MinimumCurrentSchemaVersion)
+                schemaVersion < ApplicationGroupSqlSchema.MinimumCurrentSchemaVersion)
             {
                 throw new InvalidDataException(
-                    "Capture policy repository requires Current schema v3 or later.");
+                    "Capture policy repository requires Current schema v12 or later.");
             }
         }
 
@@ -244,191 +134,5 @@ public sealed class SqliteClipboardCapturePolicyRepository : IClipboardCapturePo
             throw new InvalidDataException(
                 "Current database user_version does not match the capture policy schema contract.");
         }
-
-        return schemaVersion;
-    }
-
-    private static DurableApplicationId ResolveGroupRoot(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        DurableApplicationId applicationId,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        DurableApplicationId? parent = ReadParentApplicationId(connection, transaction, applicationId);
-        if (parent is null)
-        {
-            return applicationId;
-        }
-
-        if (ReadParentApplicationId(connection, transaction, parent) is not null)
-        {
-            throw new InvalidDataException(
-                "Application groups must be flat: a group root cannot be a member.");
-        }
-
-        using SqliteCommand ownPolicy = connection.CreateCommand();
-        ownPolicy.Transaction = transaction;
-        ownPolicy.CommandText = """
-            SELECT COUNT(*)
-            FROM ApplicationCapturePolicy
-            WHERE ApplicationId = $applicationId;
-            """;
-        ownPolicy.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-        if (Convert.ToInt64(ownPolicy.ExecuteScalar(), CultureInfo.InvariantCulture) != 0)
-        {
-            throw new InvalidDataException("A group member cannot have its own capture policy.");
-        }
-
-        return parent;
-    }
-
-    private static DurableApplicationId? ReadParentApplicationId(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        DurableApplicationId applicationId)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT ParentApplicationId
-            FROM ApplicationGroupMember
-            WHERE ApplicationId = $applicationId;
-            """;
-        command.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-        object? value = command.ExecuteScalar();
-        if (value is null or DBNull)
-        {
-            return null;
-        }
-
-        if (value is not string text ||
-            !Guid.TryParseExact(text, "D", out Guid parsed) ||
-            parsed == Guid.Empty ||
-            !string.Equals(text, parsed.ToString("D"), StringComparison.Ordinal))
-        {
-            throw new InvalidDataException(
-                "Application group membership contains a non-canonical parent ApplicationId.");
-        }
-
-        return new DurableApplicationId(parsed);
-    }
-
-    private static ClipboardCapturePolicy? ReadApplicationPolicy(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        DurableApplicationId applicationId,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        ClipboardCapturePolicyRule captureRule;
-        using (SqliteCommand policyCommand = connection.CreateCommand())
-        {
-            policyCommand.Transaction = transaction;
-            policyCommand.CommandText = """
-                SELECT CaptureRule
-                FROM ApplicationCapturePolicy
-                WHERE ApplicationId = $applicationId;
-                """;
-            policyCommand.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            object? value = policyCommand.ExecuteScalar();
-            if (value is null or DBNull)
-            {
-                return null;
-            }
-
-            if (value is not string text || !TryParseRule(text, out captureRule))
-            {
-                throw new InvalidDataException("Application capture policy contains an invalid capture rule.");
-            }
-        }
-
-        var formats = new Dictionary<string, ClipboardFormatCapturePolicy>(StringComparer.Ordinal);
-        using (SqliteCommand formatsCommand = connection.CreateCommand())
-        {
-            formatsCommand.Transaction = transaction;
-            formatsCommand.CommandText = """
-                SELECT FormatName, CaptureRule, MaxBytes
-                FROM ApplicationFormatCapturePolicy
-                WHERE ApplicationId = $applicationId
-                ORDER BY FormatName COLLATE BINARY;
-                """;
-            formatsCommand.Parameters.AddWithValue("$applicationId", applicationId.ToString());
-            using SqliteDataReader reader = formatsCommand.ExecuteReader();
-            while (reader.Read())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                string formatName = reader.GetString(0);
-                if (string.IsNullOrWhiteSpace(formatName) ||
-                    !TryParseRule(reader.GetString(1), out ClipboardCapturePolicyRule formatRule))
-                {
-                    throw new InvalidDataException(
-                        "Application format capture policy contains invalid metadata.");
-                }
-
-                long? maxBytes = reader.IsDBNull(2) ? null : reader.GetInt64(2);
-                if (maxBytes is <= 0)
-                {
-                    throw new InvalidDataException(
-                        "Application format capture policy contains an invalid size limit.");
-                }
-
-                if (!formats.TryAdd(
-                        formatName,
-                        new ClipboardFormatCapturePolicy(formatRule, maxBytes)))
-                {
-                    throw new InvalidDataException(
-                        "Application format capture policy contains duplicate format rows.");
-                }
-            }
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return new ClipboardCapturePolicy(captureRule, formats);
-    }
-
-    private static void ValidatePolicy(ClipboardCapturePolicy policy)
-    {
-        ValidateRule(policy.Capture, nameof(policy));
-        foreach ((string formatName, ClipboardFormatCapturePolicy formatPolicy) in policy.Formats)
-        {
-            if (string.IsNullOrWhiteSpace(formatName))
-            {
-                throw new ArgumentException("Clipboard format name cannot be empty.", nameof(policy));
-            }
-            ValidateRule(formatPolicy.Capture, nameof(policy));
-            if (formatPolicy.MaxBytes is <= 0)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(policy),
-                    "Configured clipboard format size limit must be positive.");
-            }
-        }
-    }
-
-    private static void ValidateRule(ClipboardCapturePolicyRule rule, string parameterName)
-    {
-        if (!Enum.IsDefined(rule))
-        {
-            throw new ArgumentOutOfRangeException(parameterName, rule, "Unknown capture policy rule.");
-        }
-    }
-
-    private static string FormatRule(ClipboardCapturePolicyRule rule)
-    {
-        ValidateRule(rule, nameof(rule));
-        return rule.ToString();
-    }
-
-    private static bool TryParseRule(string value, out ClipboardCapturePolicyRule rule)
-    {
-        return Enum.TryParse(value, ignoreCase: false, out rule) && Enum.IsDefined(rule);
-    }
-
-    private static void EnableForeignKeys(SqliteConnection connection)
-    {
-        using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = "PRAGMA foreign_keys = ON;";
-        command.ExecuteNonQuery();
     }
 }

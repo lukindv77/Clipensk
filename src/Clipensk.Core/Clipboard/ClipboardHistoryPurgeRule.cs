@@ -7,7 +7,7 @@ namespace Clipensk.Core.Clipboard;
 /// its exact format name. <c>MaxBytes</c> is deliberately not part of the rule — the size limit
 /// gates capture only.
 /// </summary>
-public sealed class ClipboardHistoryPurgeRule
+public sealed class ClipboardHistoryPurgeRule : IEquatable<ClipboardHistoryPurgeRule>
 {
     private readonly HashSet<string> _allowedFormats;
 
@@ -57,5 +57,24 @@ public sealed class ClipboardHistoryPurgeRule
     {
         ArgumentNullException.ThrowIfNull(formatName);
         return Capture == ClipboardCapturePolicyRule.Allow && _allowedFormats.Contains(formatName);
+    }
+
+    /// <summary>Two rules are equal when their capture rule and allowed format names match exactly.</summary>
+    public bool Equals(ClipboardHistoryPurgeRule? other) =>
+        other is not null &&
+        Capture == other.Capture &&
+        AllowedFormats.SequenceEqual(other.AllowedFormats, StringComparer.Ordinal);
+
+    public override bool Equals(object? obj) => Equals(obj as ClipboardHistoryPurgeRule);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Capture);
+        foreach (string formatName in AllowedFormats)
+        {
+            hash.Add(formatName, StringComparer.Ordinal);
+        }
+        return hash.ToHashCode();
     }
 }

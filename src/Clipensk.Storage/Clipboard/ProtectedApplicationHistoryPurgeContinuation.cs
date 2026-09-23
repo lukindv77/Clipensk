@@ -322,8 +322,9 @@ public sealed class ProtectedApplicationHistoryPurgeContinuation
     }
 
     /// <summary>
-    /// Confirms the marker belongs to this operation kind and that Current still matches it: every
-    /// source still belongs to the root's group and the root's personal policy is the one recorded.
+    /// Confirms the marker belongs to this operation kind and that Current still matches it: the
+    /// moved application is still a member of the target group and the group's policy is the one
+    /// recorded at start.
     /// </summary>
     private static ApplicationHistoryPurgeState VerifyInTransaction(
         SqliteConnection connection,
@@ -337,27 +338,23 @@ public sealed class ProtectedApplicationHistoryPurgeContinuation
         }
 
         ApplicationHistoryPurgeState state = ApplicationHistoryPurgeStateCodec.Parse(operation.StateJson);
-        var root = new ApplicationId(Guid.ParseExact(state.RootApplicationId, "D"));
-        ApplicationGroupSnapshot groups =
-            SqliteApplicationGroupRepository.ReadSnapshotInTransaction(connection, transaction, token);
-        foreach (string source in state.SourceApplicationIds)
-        {
-            if (groups.RootOf(new ApplicationId(Guid.ParseExact(source, "D"))) != root)
-            {
-                throw new InvalidDataException(
-                    "An application in the history purge scope no longer belongs to the purge's group.");
-            }
-        }
-
-        ClipboardCapturePolicy? rootPolicy =
-            CapturePolicySql.ReadApplicationPolicyInTransaction(connection, transaction, root, token);
-        string? fingerprint = rootPolicy is null
-            ? null
-            : ApplicationPolicyMaintenanceStateCodec.ComputePolicyFingerprint(rootPolicy);
-        if (!string.Equals(fingerprint, state.RootPolicyFingerprint, StringComparison.Ordinal))
+        var applicationId = new ApplicationId(Guid.ParseExact(state.ApplicationId, "D"));
+        ApplicationGroup? group = ApplicationGroupSql.ReadGroupOfInTransaction(
+            connection,
+            transaction,
+            applicationId,
+            token);
+        if (group is null || !string.Equals(group.GroupId.ToString(), state.GroupId, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
-                "The group root's personal policy changed while the history purge was pending.");
+                "The moved application is no longer a member of the history purge's group.");
+        }
+        if (!string.Equals(
+                ApplicationPolicyMaintenanceStateCodec.ComputePolicyFingerprint(group.Policy),
+                state.GroupPolicyFingerprint,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The group policy changed while the history purge was pending.");
         }
 
         return state;

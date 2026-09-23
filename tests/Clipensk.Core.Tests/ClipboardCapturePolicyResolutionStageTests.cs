@@ -7,7 +7,7 @@ namespace Clipensk.Core.Tests;
 public sealed class ClipboardCapturePolicyResolutionStageTests
 {
     [Fact]
-    public async Task ResolveAsync_UsesProviderPoliciesForCaptureContext()
+    public async Task ResolveAsync_AGroupPolicyReplacesTheGlobalPolicyInsteadOfRefiningIt()
     {
         ClipboardCaptureContext captureContext = CreateCaptureContext();
         var global = new ClipboardCapturePolicy(
@@ -15,14 +15,15 @@ public sealed class ClipboardCapturePolicyResolutionStageTests
             new Dictionary<string, ClipboardFormatCapturePolicy>
             {
                 ["Text"] = new(ClipboardCapturePolicyRule.Allow, 1024),
+                ["HTML Format"] = new(ClipboardCapturePolicyRule.Allow),
             });
-        var application = new ClipboardCapturePolicy(
-            ClipboardCapturePolicyRule.Inherit,
+        var group = new ClipboardCapturePolicy(
+            ClipboardCapturePolicyRule.Allow,
             new Dictionary<string, ClipboardFormatCapturePolicy>
             {
                 ["Text"] = new(ClipboardCapturePolicyRule.Deny),
             });
-        var provider = new StubPolicyProvider(new ClipboardCapturePolicySet(global, application));
+        var provider = new StubPolicyProvider(new ClipboardCapturePolicySet(global, group));
         var stage = new ClipboardCapturePolicyResolutionStage(
             provider,
             new ClipboardCapturePolicyEvaluator());
@@ -35,7 +36,8 @@ public sealed class ClipboardCapturePolicyResolutionStageTests
         Assert.Equal(captureContext, result.CaptureContext);
         Assert.Equal(ClipboardCapturePolicyRule.Allow, result.Policy.Capture);
         Assert.Equal(ClipboardCapturePolicyRule.Deny, result.Policy.Formats["Text"].Capture);
-        Assert.Equal(1024, result.Policy.Formats["Text"].MaxBytes);
+        Assert.Null(result.Policy.Formats["Text"].MaxBytes);
+        Assert.False(result.Policy.Formats.ContainsKey("HTML Format"));
         Assert.Equal(captureContext, provider.LastCaptureContext);
         Assert.Equal(cancellationSource.Token, provider.LastCancellationToken);
     }

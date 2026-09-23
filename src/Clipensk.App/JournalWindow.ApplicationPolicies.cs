@@ -393,7 +393,7 @@ public sealed partial class JournalWindow
                 }
 
                 return await new SqliteClipboardCapturePolicyRepository(session, global)
-                    .GetApplicationPolicyAsync(applicationId, session.CancellationToken)
+                    .GetGroupPolicyAsync(applicationId, session.CancellationToken)
                     .ConfigureAwait(false);
             },
             session.CancellationToken);
