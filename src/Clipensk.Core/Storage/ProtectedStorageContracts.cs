@@ -61,8 +61,35 @@ public sealed record ProtectedStorageIdentityResult(
     public bool IsIdentified => Status == ProtectedStorageIdentityStatus.Identified && StorageId != Guid.Empty;
 }
 
+/// <summary>How an interrupted password change was settled (<c>docs/PASSWORD_CHANGE_PROTOCOL.md</c> §5).</summary>
+public enum PasswordChangeRecoveryOutcome
+{
+    NothingPending = 0,
+
+    /// <summary>The key opens every database: the change never switched anything; its copies are gone.</summary>
+    RolledBack = 1,
+
+    /// <summary>Every database opens with the key itself or through its copy: the change was finished.</summary>
+    Completed = 2,
+
+    /// <summary>Part of the storage already switched to the new password; this one is the old one.</summary>
+    NewPasswordRequired = 3,
+
+    /// <summary>The change never switched anything and this is the new password: the old one still applies.</summary>
+    OldPasswordStillValid = 4,
+}
+
 public interface IProtectedStorageDatabaseService
 {
+    /// <summary>
+    /// Settles an interrupted password change with the key the password gave, before anything else
+    /// opens the storage. Does nothing when no change is pending.
+    /// </summary>
+    Task<PasswordChangeRecoveryOutcome> ResolvePendingPasswordChangeAsync(
+        string dataRootPath,
+        ReadOnlyMemory<byte> storageKey,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Tries the key on the storage databases whose header carries the key's salt, and returns
     /// the <c>StorageId</c> of the first one it opens (<c>docs/CRYPTOGRAPHY.md</c> §4). Nothing

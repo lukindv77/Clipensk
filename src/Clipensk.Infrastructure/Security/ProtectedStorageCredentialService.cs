@@ -112,6 +112,35 @@ public sealed class ProtectedStorageCredentialService : IProtectedStorageCredent
                 switch (identity.Status)
                 {
                     case ProtectedStorageIdentityStatus.Identified when identity.IsIdentified:
+                        // An interrupted password change is settled before anything opens the
+                        // storage (PASSWORD_CHANGE_PROTOCOL.md §5).
+                        PasswordChangeRecoveryOutcome pending;
+                        try
+                        {
+                            pending = await _databaseService.ResolvePendingPasswordChangeAsync(
+                                normalizedRoot,
+                                storageKey,
+                                cancellationToken);
+                        }
+                        catch (Exception exception) when (
+                            exception is IOException or UnauthorizedAccessException or InvalidDataException)
+                        {
+                            return Failure(
+                                ProtectedStorageUnlockStatus.StorageUnavailable,
+                                ProtectedStorageDatabaseStatus.StorageFailure);
+                        }
+
+                        if (pending == PasswordChangeRecoveryOutcome.NewPasswordRequired)
+                        {
+                            return Failure(ProtectedStorageUnlockStatus.NewPasswordRequired);
+                        }
+
+                        if (pending == PasswordChangeRecoveryOutcome.OldPasswordStillValid)
+                        {
+                            // Only the unfinished copies accept this password: it is not the storage's.
+                            continue;
+                        }
+
                         var lease = new MasterKeyLease(storageKey);
                         storageKey = null;
                         return new ProtectedStorageUnlockResult(
@@ -147,6 +176,21 @@ public sealed class ProtectedStorageCredentialService : IProtectedStorageCredent
         }
 
         return Failure(ProtectedStorageUnlockStatus.InvalidPassword);
+    }
+
+    public async Task<MasterKeyLease> DeriveStorageKeyAsync(
+        string password,
+        ReadOnlyMemory<byte> salt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(password);
+        if (!_supportedProfiles.TryGetValue(StorageSalt.GetProfileVersion(salt.Span), out KeyDerivationProfile? profile))
+        {
+            throw new NotSupportedException("The storage salt names an unknown key derivation profile.");
+        }
+
+        return new MasterKeyLease(
+            await DeriveStorageKeyAsync(password, salt.ToArray(), profile, cancellationToken));
     }
 
     private async Task<ProtectedStorageUnlockResult> InitializeAsync(

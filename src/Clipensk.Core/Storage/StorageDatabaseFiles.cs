@@ -19,6 +19,12 @@ public static class StorageDatabaseFiles
     /// </summary>
     public const string LegacyCryptoMetadataFileName = "storage-crypto.json";
 
+    /// <summary>
+    /// The suffix of a database's copy re-encrypted with a new password, next to the database,
+    /// while a password change is under way (<c>docs/PASSWORD_CHANGE_PROTOCOL.md</c> §4).
+    /// </summary>
+    public const string PasswordChangeCopySuffix = ".clipensk-rekey";
+
     public static string CurrentRelativePath { get; } = Path.Combine(CurrentDirectoryName, CurrentFileName);
 
     public static string CatalogRelativePath { get; } = Path.Combine(CurrentDirectoryName, CatalogFileName);
@@ -47,6 +53,39 @@ public static class StorageDatabaseFiles
         }
 
         return files;
+    }
+
+    /// <summary>
+    /// The re-encrypted copies of an interrupted password change: files named after a storage
+    /// database plus <see cref="PasswordChangeCopySuffix"/>, in <c>Current</c> and <c>Archive</c>,
+    /// whether or not the database itself is still there.
+    /// </summary>
+    public static IReadOnlyList<string> EnumeratePasswordChangeCopies(string dataRootPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataRootPath);
+        string root = Path.GetFullPath(dataRootPath);
+
+        var copies = new List<string>();
+        foreach (string directoryName in new[] { CurrentDirectoryName, ArchiveDirectoryName })
+        {
+            string directory = Path.Combine(root, directoryName);
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (string path in Directory.GetFiles(directory, "*" + PasswordChangeCopySuffix, SearchOption.TopDirectoryOnly))
+            {
+                string databasePath = path[..^PasswordChangeCopySuffix.Length];
+                if (IsStorageDatabase(Path.GetRelativePath(root, databasePath)))
+                {
+                    copies.Add(path);
+                }
+            }
+        }
+
+        copies.Sort(StringComparer.OrdinalIgnoreCase);
+        return copies;
     }
 
     /// <summary>Whether a path relative to the data root names one of the storage databases.</summary>

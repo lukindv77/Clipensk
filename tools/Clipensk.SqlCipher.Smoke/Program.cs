@@ -150,6 +150,7 @@ static async Task VerifyPasswordUnlockAsync(ProtectedStorageDatabaseService serv
     Require(StorageDatabaseFiles.TryReadSalt(currentPath, header) &&
             StorageSalt.GetProfileVersion(header) == KeyDerivationProfile.ProductionV1.ProfileVersion,
         "current.db does not carry a salt of the production KDF profile.");
+    byte[] saltBeforeChange = header.ToArray();
 
     ProtectedStorageUnlockResult unlocked =
         await credentials.UnlockOrInitializeAsync(dataRoot, password, allowInitialize: false);
@@ -169,6 +170,47 @@ static async Task VerifyPasswordUnlockAsync(ProtectedStorageDatabaseService serv
         await credentials.UnlockOrInitializeAsync(dataRoot, password + "!", allowInitialize: true);
     Require(wrong.Status == ProtectedStorageUnlockStatus.InvalidPassword && wrong.MasterKey is null,
         $"A wrong password was not refused: {wrong.Status}.");
+
+    // Password change (docs/PASSWORD_CHANGE_PROTOCOL.md): every database re-encrypted by
+    // sqlite3_rekey with the new password's key and the same salt.
+    const string newPassword = "Clipensk smoke новый пароль";
+    ProtectedStorageUnlockResult current =
+        await credentials.UnlockOrInitializeAsync(dataRoot, password, allowInitialize: false);
+    Require(current.IsSuccess, $"The storage did not unlock before the password change: {current.Status}.");
+    using (MasterKeyLease currentKey = current.MasterKey!)
+    using (MasterKeyLease newKey = await credentials.DeriveStorageKeyAsync(
+               newPassword,
+               StorageKeyMaterial.GetSalt(currentKey.DangerousGetMemory().Span).ToArray()))
+    {
+        PasswordChangeResult changed = await new ProtectedStoragePasswordChangeService().ChangeAsync(
+            dataRoot,
+            current.StorageId,
+            currentKey.DangerousGetMemory(),
+            newKey.DangerousGetMemory());
+        Require(changed.DatabaseCount == 2, $"The password change re-encrypted {changed.DatabaseCount} databases, expected 2.");
+    }
+
+    Require(StorageDatabaseFiles.TryReadSalt(currentPath, header) &&
+            header.AsSpan().SequenceEqual(saltBeforeChange),
+        "The password change altered the storage salt.");
+    ProtectedStorageUnlockResult afterChange =
+        await credentials.UnlockOrInitializeAsync(dataRoot, newPassword, allowInitialize: false);
+    Require(afterChange.IsSuccess && afterChange.StorageId == created.StorageId,
+        $"The new password did not open the storage: {afterChange.Status}.");
+    using (MasterKeyLease afterKey = afterChange.MasterKey!)
+    {
+        ProtectedStorageDatabaseResult storage = await service.InitializeOrValidateAsync(
+            dataRoot,
+            afterChange.StorageId,
+            afterKey.DangerousGetMemory(),
+            allowInitialize: false);
+        Require(storage.IsSuccess, $"The re-encrypted storage did not validate: {storage.Status}.");
+    }
+
+    ProtectedStorageUnlockResult oldAfterChange =
+        await credentials.UnlockOrInitializeAsync(dataRoot, password, allowInitialize: false);
+    Require(oldAfterChange.Status == ProtectedStorageUnlockStatus.InvalidPassword,
+        $"The old password still opened the storage after the change: {oldAfterChange.Status}.");
 }
 
 static void RequireEncryptedHeader(string databasePath)

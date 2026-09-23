@@ -66,6 +66,13 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
             cancellationToken);
     }
 
+    public Task<PasswordChangeRecoveryOutcome> ResolvePendingPasswordChangeAsync(
+        string dataRootPath,
+        ReadOnlyMemory<byte> storageKey,
+        CancellationToken cancellationToken = default) =>
+        new ProtectedStoragePasswordChangeService(_connectionFactory)
+            .ResolvePendingAsync(dataRootPath, storageKey, cancellationToken);
+
     public Task<ProtectedStorageIdentityResult> IdentifyAsync(
         string dataRootPath,
         ReadOnlyMemory<byte> storageKey,
@@ -198,7 +205,10 @@ public sealed class ProtectedStorageDatabaseService : IProtectedStorageDatabaseS
         int rejected = 0;
         ProtectedStorageDatabaseStatus failure = ProtectedStorageDatabaseStatus.InvalidDatabaseIdentity;
 
-        foreach (string databasePath in StorageDatabaseFiles.EnumerateExisting(dataRootPath))
+        // The copies of an interrupted password change come last: they carry the same salt, and
+        // only through them can the new password finish the change (PASSWORD_CHANGE_PROTOCOL.md §5).
+        foreach (string databasePath in StorageDatabaseFiles.EnumerateExisting(dataRootPath)
+                     .Concat(StorageDatabaseFiles.EnumeratePasswordChangeCopies(dataRootPath)))
         {
             cancellationToken.ThrowIfCancellationRequested();
 

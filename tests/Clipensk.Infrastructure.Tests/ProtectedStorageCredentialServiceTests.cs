@@ -223,6 +223,54 @@ public sealed class ProtectedStorageCredentialServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AnInterruptedPasswordChange_IsSettledBeforeTheKeyIsHandedOut()
+    {
+        byte[] key = await CreateStorageKeyAsync();
+        WriteDatabase(StorageDatabaseFiles.CurrentRelativePath, StorageKeyMaterial.GetSalt(key).ToArray());
+        _databases.Accept(key, Guid.NewGuid());
+        _databases.PendingPasswordChange = PasswordChangeRecoveryOutcome.Completed;
+
+        ProtectedStorageUnlockResult completed =
+            await _service.UnlockOrInitializeAsync(_root, Password, allowInitialize: false);
+
+        Assert.True(completed.IsSuccess);
+        Assert.Equal(1, _databases.PendingPasswordChangeResolutions);
+        completed.MasterKey!.Dispose();
+
+        _databases.PendingPasswordChange = PasswordChangeRecoveryOutcome.NewPasswordRequired;
+        ProtectedStorageUnlockResult oldPassword =
+            await _service.UnlockOrInitializeAsync(_root, Password, allowInitialize: false);
+
+        Assert.Equal(ProtectedStorageUnlockStatus.NewPasswordRequired, oldPassword.Status);
+        Assert.Null(oldPassword.MasterKey);
+
+        // Only the unfinished copies accept this password: for the storage it is a wrong one.
+        _databases.PendingPasswordChange = PasswordChangeRecoveryOutcome.OldPasswordStillValid;
+        ProtectedStorageUnlockResult newPassword =
+            await _service.UnlockOrInitializeAsync(_root, Password, allowInitialize: false);
+
+        Assert.Equal(ProtectedStorageUnlockStatus.InvalidPassword, newPassword.Status);
+        Assert.Null(newPassword.MasterKey);
+    }
+
+    [Fact]
+    public async Task DeriveStorageKey_GivesTheKeyThePasswordOpensTheStorageWith()
+    {
+        byte[] key = await CreateStorageKeyAsync();
+
+        using MasterKeyLease same = await _service.DeriveStorageKeyAsync(Password, StorageKeyMaterial.GetSalt(key).ToArray());
+        using MasterKeyLease other = await _service.DeriveStorageKeyAsync("другой-пароль", StorageKeyMaterial.GetSalt(key).ToArray());
+
+        Assert.Equal(key, same.DangerousGetMemory().ToArray());
+        Assert.Equal(StorageKeyMaterial.GetSalt(key).ToArray(), StorageKeyMaterial.GetSalt(other.DangerousGetMemory().Span).ToArray());
+        Assert.NotEqual(key, other.DangerousGetMemory().ToArray());
+
+        byte[] unknownProfile = StorageKeyMaterial.GetSalt(key).ToArray();
+        unknownProfile[0] = 0xEE;
+        await Assert.ThrowsAsync<NotSupportedException>(() => _service.DeriveStorageKeyAsync(Password, unknownProfile));
+    }
+
+    [Fact]
     public void AProfileThatDoesNotFitTheStorageFormat_IsRefused()
     {
         Assert.Throws<ArgumentException>(() => new ProtectedStorageCredentialService(
@@ -265,6 +313,19 @@ public sealed class ProtectedStorageCredentialServiceTests : IDisposable
         public List<byte[]> TriedSalts { get; } = [];
 
         public ProtectedStorageIdentityResult? Forced { get; set; }
+
+        public PasswordChangeRecoveryOutcome PendingPasswordChange { get; set; } = PasswordChangeRecoveryOutcome.NothingPending;
+
+        public int PendingPasswordChangeResolutions { get; private set; }
+
+        public Task<PasswordChangeRecoveryOutcome> ResolvePendingPasswordChangeAsync(
+            string dataRootPath,
+            ReadOnlyMemory<byte> storageKey,
+            CancellationToken cancellationToken = default)
+        {
+            PendingPasswordChangeResolutions++;
+            return Task.FromResult(PendingPasswordChange);
+        }
 
         public void Accept(byte[] key, Guid storageId)
         {

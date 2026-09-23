@@ -66,6 +66,39 @@ public sealed class SqlCipherConnectionFactory : IKeyedSqliteConnectionFactory
         }
     }
 
+    public void Rekey(SqliteConnection connection, ReadOnlyMemory<byte> newStorageKey)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        if (newStorageKey.Length != StorageKeyMaterial.LengthBytes)
+        {
+            throw new ArgumentException(
+                "SQLCipher требует ключ хранилища: 32-байтовый MasterKey и 16-байтовую соль.",
+                nameof(newStorageKey));
+        }
+
+        byte[] sqlCipherRawKey = BuildSqlCipherRawKey(newStorageKey.Span);
+        try
+        {
+            int result = raw.sqlite3_rekey(connection.Handle, sqlCipherRawKey);
+            if (result != raw.SQLITE_OK)
+            {
+                throw new ProtectedStorageEncryptionUnavailableException(
+                    $"SQLCipher не перешифровал БД новым ключом, SQLite result={result}.");
+            }
+        }
+        catch (Exception exception) when (
+            exception is DllNotFoundException or EntryPointNotFoundException)
+        {
+            throw new ProtectedStorageEncryptionUnavailableException(
+                "Загруженная SQLite library не предоставляет SQLCipher rekey API.",
+                exception);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(sqlCipherRawKey);
+        }
+    }
+
     private static void EnsureProvider()
     {
         if (_providerInitialized)

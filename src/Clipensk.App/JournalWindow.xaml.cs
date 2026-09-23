@@ -616,6 +616,7 @@ public sealed partial class JournalWindow : Window
     {
         RefreshNavigationAvailability();
         UpdateDataRootRelocationButton();
+        UpdateChangePasswordButton();
         DataRootValue.Text = _settings.DataRootPath ?? _localization.GetString("Settings.DataRoot.NotConfigured");
         PasswordHintValue.Text = string.IsNullOrWhiteSpace(_settings.PasswordHint)
             ? _localization.GetString("Lock.PasswordHintEmpty")
@@ -712,6 +713,11 @@ public sealed partial class JournalWindow : Window
                 break;
             case ProtectedStorageUnlockStatus.StorageUnavailable:
                 ShowStorageFailure(result.StorageStatus);
+                break;
+            case ProtectedStorageUnlockStatus.NewPasswordRequired:
+                LockInfo.Severity = InfoBarSeverity.Warning;
+                LockInfo.Message = _localization.GetString("Lock.PasswordChangeIncomplete");
+                LockInfo.IsOpen = true;
                 break;
             default:
                 LockInfo.Severity = InfoBarSeverity.Error;

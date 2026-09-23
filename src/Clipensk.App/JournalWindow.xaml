@@ -405,6 +405,11 @@
                             HorizontalAlignment="Left"
                             Click="OnSaveAutoLockClicked" />
                     <InfoBar x:Name="AutoLockInfo" IsOpen="False" IsClosable="True" />
+                    <Button x:Name="ChangePasswordButton"
+                            HorizontalAlignment="Left"
+                            IsEnabled="False"
+                            Click="OnChangePasswordClicked" />
+                    <InfoBar x:Name="ChangePasswordInfo" IsOpen="False" IsClosable="True" />
                 </StackPanel>
 
                 <TextBlock x:Name="HotKeyTitle" Style="{StaticResource SubtitleTextBlockStyle}" />

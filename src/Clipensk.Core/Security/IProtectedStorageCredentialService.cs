@@ -30,6 +30,12 @@ public enum ProtectedStorageUnlockStatus
     /// <see cref="ProtectedStorageUnlockResult.StorageStatus"/>.
     /// </summary>
     StorageUnavailable = 3,
+
+    /// <summary>
+    /// A password change was interrupted after part of the storage switched to the new password,
+    /// and this is the old one (<c>docs/PASSWORD_CHANGE_PROTOCOL.md</c> §5).
+    /// </summary>
+    NewPasswordRequired = 4,
 }
 
 /// <param name="IsNewStorage">
@@ -70,5 +76,14 @@ public interface IProtectedStorageCredentialService
         string dataRootPath,
         string password,
         bool allowInitialize,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The storage key a password gives with a known storage salt: to check the current password
+    /// against the session's key and to derive the key of a new one (same salt).
+    /// </summary>
+    Task<MasterKeyLease> DeriveStorageKeyAsync(
+        string password,
+        ReadOnlyMemory<byte> salt,
         CancellationToken cancellationToken = default);
 }
