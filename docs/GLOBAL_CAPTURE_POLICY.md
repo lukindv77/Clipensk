@@ -1,10 +1,10 @@
 # Глобальная capture policy — введена в Current v5
 
-Latest Current schema — **v6**. Global capture policy остаётся storage-scoped контрактом, введённым в v5; v6 добавляет exact custom-binary file-extension configuration. Первичный product setup сохраняет policy и относящиеся к ней custom mappings атомарно.
+Global capture policy — storage-scoped контракт, введённый в Current v5; v6 добавила exact custom-binary file-extension configuration. Первичный product setup сохраняет policy и относящиеся к ней custom mappings атомарно. Актуальная версия схемы Current — в `CURRENT_DATABASE_SCHEMA.md` (сейчас v12).
 
 ## Принятый контракт
 
-Глобальная policy принадлежит выбранному хранилищу и сохраняется в зашифрованной `Current/current.db`. Она не является общей настройкой процесса в JSON и не хранится только в rebuildable Catalog. Индивидуальные overrides остаются привязаны к `ApplicationId`.
+Глобальная policy принадлежит выбранному хранилищу и сохраняется в зашифрованной `Current/current.db`. Она не является общей настройкой процесса в JSON и не хранится только в rebuildable Catalog. С Current v12 глобальная policy — это правила **группы по умолчанию**: по ним захватываются новые и нераспределённые приложения. Собственные правила приложения задаются только через пользовательскую группу (`APPLICATION_GROUP_PROTOCOL.md` v2); прежние индивидуальные overrides при миграции v11→v12 стали группами.
 
 При создании или миграции хранилища policy **не настроена**: policy tables пусты. `CustomBinaryFormatConfiguration` в новом/migrated v6 также изначально пуста. Отсутствие policy не превращается в `Allow`, `Deny`, пустую разрешающую policy или format/size defaults. Пользователь должен явно выполнить первичную настройку.
 
@@ -21,11 +21,11 @@ Current v5 добавила:
 
 Current v6 отдельно добавила `CustomBinaryFormatConfiguration(FormatName, FileExtension)`. Этот mapping не является частью merge semantics policy, но product initial setup может писать его в той же Current transaction, что global policy.
 
-Global rules не имеют родительской policy: `Inherit` и неизвестные enum значения не принимаются при первичной настройке. Для индивидуальных overrides `Inherit` сохраняет существующую семантику. Имена форматов сравниваются ordinal/BINARY, без нормализации. Пустые/whitespace имена отклоняются.
+Global rules не имеют родительской policy: `Inherit` и неизвестные enum значения не принимаются при первичной настройке. Policy пользовательской группы тоже самостоятельна: только `Allow`/`Deny`, `Inherit` не принимается. Имена форматов сравниваются ordinal/BINARY, без нормализации. Пустые/whitespace имена отклоняются.
 
 `MaxBytes = null` означает explicit unlimited только для разрешённого формата после соответствующего user choice. Численный `MaxBytes` обязан быть положительным Int64. Для Deny численный limit не сохраняется. Exact size semantics определены в `CLIPBOARD_CAPTURE_SIZE_LIMITS.md`.
 
-В policy tables попадают только переданные caller rules. Selector читает формат только при итоговом `Capture = Allow` и явном `Formats[name].Capture = Allow` после merge. Global `Deny` является наследуемой базой; application override может заменить его. Это не безусловный kill switch.
+В policy tables попадают только переданные caller rules. Selector читает формат только при итоговом `Capture = Allow` и явном `Formats[name].Capture = Allow` после merge. С Current v12 capture применяет **либо** policy пользовательской группы приложения, **либо** глобальную — без слияния (`ClipboardCapturePolicyEvaluator.Merge(GroupPolicy ?? GlobalPolicy, null)` в `ClipboardCapturePolicyResolutionStage`). Global `Deny` поэтому не kill switch: пользовательская группа со своим `Allow` его не наследует.
 
 ## Individual repository
 
@@ -89,7 +89,7 @@ Extension нормализуется через `ExternalPayloadAddressFactory.N
 
 Read-only summary для non-standard Allow дополнительно читает exact extension mapping. Если policy была создана старым/ручным путём без mapping, UI показывает missing mapping как fail-closed состояние; fallback extension не подставляется.
 
-Для выбранного приложения UI показывает persisted runtime-discovered exact format names без эвристического переименования. Discovery сам по себе остаётся read-only observation и не включает неизвестный формат. В application formats editor discovered non-standard rows доступны для explicit `Inherit`/`Allow`/`Deny`; explicit `Allow` требует canonicalizable extension и проходит через mapping-aware application maintenance. Existing exact mapping переиспользуется и не может быть rebound через этот UI; `Inherit`/`Deny` новый mapping не создают. Таким образом enable всегда является отдельным явным действием пользователя, а не следствием discovery.
+Для выбранного приложения UI показывает persisted runtime-discovered exact format names без эвристического переименования. Discovery сам по себе остаётся read-only observation и не включает неизвестный формат. С Current v12 форматы включаются в редакторе правил группы (новая группа при переносе или «Настройки группы…»): discovered non-standard rows её приложений доступны для explicit `Allow`/`Deny` или остаются без правила (не захватываются); explicit `Allow` требует canonicalizable extension, который публикуется вместе с policy группы. Existing exact mapping переиспользуется и не может быть rebound через этот UI. Таким образом enable всегда является отдельным явным действием пользователя, а не следствием discovery.
 
 ## Composition, worker lifecycle и maintenance quiescence
 
@@ -101,17 +101,17 @@ App выполняет composition после active protected session и пуб
 
 Для non-null composition App создаёт exact-session single-reader `ClipboardAcceptedCaptureWorker`. Новый worker ждёт завершения previous generation; Windows listener запускается только после ready-reader gate. Lock останавливает listener, инвалидирует capture epoch, worker generation и composition; linked App/session cancellation завершает blocked/active worker.
 
-Перед изменением уже настроенного application override App имеет отдельный runtime-quiescence boundary. `TryQuiesceClipboardRuntimeAsync` атомарно захватывает unique suspension owner token, блокирует новые composition/worker/listener paths, останавливает listener, отменяет current worker и ждёт завершения exact worker task до возврата caller'у. Это закрывает stale-policy race: старый delivery graph не может оставаться активным во время destructive cleanup/policy publication.
+Перед публикацией policy (глобальной или группы) и переносом приложения в группу App использует отдельный runtime-quiescence boundary. `TryQuiesceClipboardRuntimeAsync` атомарно захватывает unique suspension owner token, блокирует новые composition/worker/listener paths, останавливает listener, отменяет current worker и ждёт завершения exact worker task до возврата caller'у. Это закрывает stale-policy race: старый delivery graph не может оставаться активным во время destructive cleanup/policy publication.
 
 После successful quiesce maintenance caller обязан передать exact owner token в `TryResumeClipboardRuntimeAfterMaintenance`; только тогда App снимает suspension и для всё ещё current protected session строит **fresh composition**, заново читая persisted policy. Lock/reopen ABA защищён owner-token semantics: stale old-session caller не может снять suspension новой session.
 
-Application-policy maintenance реализован как durable workflow Current → Archive → Catalog → Trash → Completion с `PendingPolicyMaintenance` marker. Mapping-aware Current phase публикует новые exact custom mappings, application policy, Current cleanup и v2 marker одной transaction. Legacy operations продолжают использовать v1 marker; v2 отдельно фиксирует fingerprint полного custom-binary configuration snapshot. Rebind/update/delete mapping не входят в этот contract.
-
-Application discovered-format editor подключён к этому mapping-aware path через отдельный App boundary с теми же recovery, quiescence и resume semantics.
+Legacy application-policy maintenance (durable workflow Current → Archive → Catalog → Trash → Completion с `PendingPolicyMaintenance` marker v1/v2) больше не запускается из App; сохранён только его resume-путь для операций, начатых до Current v12. Rebind/update/delete mapping не входят ни в один contract.
 
 **Изменение после решения 2026-09-22** (`REQUIREMENTS.md` §18, `APPLICATION_GROUP_PROTOCOL.md` §3): правка глобальной policy и правка уже заданной персональной policy корня группы больше **не чистят** сохранённую историю и не создают marker. Их публикует `ProtectedCapturePolicyPublishService` одной транзакцией Current под mutation lease (с той же приостановкой runtime в App): новые custom-binary mappings вставляются вместе с policy, rebind запрещён, при pending marker публикация отклоняется. Первое назначение персональной policy ненастроенному корню — не правка: оно чистит запрещённую историю и до реализации `ApplicationHistoryPurge` идёт прежним application-policy maintenance путём. Прежние global/application maintenance marker больше не создаются, но их resume-путь сохранён для доведения операций, начатых до изменения.
 
-Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md` и `CUSTOM_BINARY_FORMAT_CONFIGURATION.md`.
+**Решение 2026-09-23** (`APPLICATION_GROUP_PROTOCOL.md` v2) заменило персональные policy группами. Правка policy любой группы (включая глобальную) — publish-only без очистки; очистка истории выполняется только при переносе приложения в пользовательскую группу операцией `ApplicationGroupMove` с предпросмотром и подтверждением. Первое назначение персональной policy как отдельное действие больше не существует.
+
+Контракты подробно описаны в `PROTECTED_CLIPBOARD_DELIVERY_COMPOSITION.md`, `CLIPBOARD_WORKER_LIFECYCLE.md`, `CUSTOM_BINARY_FORMAT_CONFIGURATION.md` и `APPLICATION_GROUP_PROTOCOL.md`.
 
 ## Migration и latest schema
 

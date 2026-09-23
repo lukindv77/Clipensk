@@ -85,9 +85,15 @@ Individual repository остаётся доступным как низкоур�
 
 После reload read-only summary показывает extension для каждого non-standard allowed format. Если policy была создана старым/ручным путём без mapping, UI показывает отсутствие mapping как fail-closed состояние; оно не заменяется `.bin` или эвристикой.
 
-Раздел «Приложения» показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName`. Сам discovery остаётся только наблюдением: он не добавляет формат в policy и не включает его автоматически. В application formats editor non-standard discovered rows можно явно перевести в `Allow`, `Deny` или оставить `Inherit`; explicit `Allow` требует canonicalizable extension, после чего UI вызывает mapping-aware application maintenance. Уже существующий exact mapping показывается и переиспользуется без UI-rebind, а `Inherit`/`Deny` новый mapping не создают. Prohibited formats по-прежнему блокируются capture guard. Rebind/update/delete mapping остаются отдельным cleanup contract.
+Раздел «Приложения» показывает для выбранного `ApplicationId` persisted runtime-discovered exact `FormatName`. Сам discovery остаётся только наблюдением: он не добавляет формат в policy и не включает его автоматически. С Current v12 (`APPLICATION_GROUP_PROTOCOL.md` v2) форматы включаются в редакторе правил **группы**: при создании группы в диалоге переноса или в «Настройках группы…». Non-standard rows (из policy группы и обнаруженные у её приложений) можно явно перевести в `Allow` или `Deny` либо оставить без правила (формат не захватывается); explicit `Allow` требует canonicalizable extension. Уже существующий exact mapping показывается и переиспользуется без UI-rebind, а `Deny` новый mapping не создаёт. Prohibited formats по-прежнему блокируются capture guard. Rebind/update/delete mapping остаются отдельным cleanup contract.
 
-## Application policy maintenance + mappings
+## Group policy publication + mappings
+
+`ProtectedCapturePolicyPublishService.PublishGroupPolicyAsync(groupId, policy, mappings)` и перенос приложения в новую группу (`ApplicationGroupMove`, `NewApplicationGroupTarget.CustomBinaryConfigurations`) используют те же правила mapping, что и прежний mapping-aware path ниже: exact `FormatName`, capture guard, только для explicit `Allow`, нормализация extension, reuse только с тем же canonical extension, rebind отклоняется без mutation. Новые mappings вставляются в той же транзакции Current, что policy группы (для переноса — в транзакции фазы Current вместе с группой, членством, очисткой Current и marker).
+
+## Legacy: application policy maintenance + mappings
+
+Этот путь больше не запускается из App (Current v12 заменил персональные policy группами); описание сохранено, потому что resume-путь доводит операции, начатые до обновления.
 
 `ProtectedCurrentApplicationPolicyMaintenanceService` имеет backward-compatible legacy path и mapping-aware overload с `ApplicationCustomBinaryFormatConfiguration`.
 
@@ -117,11 +123,11 @@ Production App создаёт `SqliteCustomBinaryFormatConfigurationRepository` 
 
 После успешного aggregate setup JournalWindow отправляет App post-COMMIT notification; App пересобирает protected composition для той же active session. Ошибка callback не демотирует committed initial configuration.
 
-Mapping-aware application edit использует тот же runtime-quiescence boundary, что application-policy maintenance: listener/worker останавливаются до durable workflow, а после успешного Resume App строит fresh composition для той же active protected session.
+Публикация policy группы и перенос приложения в группу используют runtime-quiescence boundary: listener/worker останавливаются до durable write, а после успеха (или после Resume незавершённого переноса) App строит fresh composition для той же active protected session.
 
 ## Migration
 
-Latest Current schema — v6; Catalog — v3.
+Здесь описана миграция, которая ввела mapping (Current v6); актуальные версии схем — в `CURRENT_DATABASE_SCHEMA.md` и `STORAGE_CATALOG_SCHEMA.md`.
 
 Migration `Current v5 → v6`:
 

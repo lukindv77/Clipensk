@@ -110,7 +110,7 @@ Cancellation проверяется до каждого individual filesystem pu
 Этот boundary не реализует:
 
 - удаление clipboard history references;
-- изменение global/per-application capture policy;
+- изменение global/group capture policy;
 - multi-DB Current+Archive cleanup перед policy mutation;
 - retention purge самого Trash;
 - восстановление missing external payload bytes;

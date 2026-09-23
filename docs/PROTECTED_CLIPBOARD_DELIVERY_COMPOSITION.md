@@ -3,7 +3,8 @@
 ## Назначение и граница этапа
 
 `ProtectedClipboardDeliveryServices.TryCreateAsync` связывает persisted global policy,
-индивидуальные policy overrides, durable application identity, Catalog-backed external resolver,
+policy групп приложений (с Current v12; до неё — индивидуальные policy overrides), durable
+application identity, Catalog-backed external resolver,
 history sink и accepted capture delivery с одной активной `ProtectedStorageSessionLease`.
 
 Latest storage contract — Current v7 / Catalog v3. Current v6 предоставляет storage-scoped

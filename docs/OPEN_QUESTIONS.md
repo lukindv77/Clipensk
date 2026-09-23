@@ -296,11 +296,13 @@ Durable application identity contract зафиксирован в `APPLICATION_I
 - `SourceApplication` и `InvocationApplication` остаются отдельными runtime concepts;
 - `ApplicationId` и aliases сохраняются в защищённом Current с atomic uniqueness/conflict semantics;
 - conflicting AUMID/path bindings завершаются fail-closed, без last-write-wins;
-- per-application capture policy repository индексируется только по durable `ApplicationId`, а не по runtime process metadata.
+- членство в группах (с Current v12; до неё — per-application capture policy) индексируется только по durable `ApplicationId`, а не по runtime process metadata.
 
 Следовательно, concrete policy/history schema больше не заблокирована отсутствием универсального Windows-native durable key.
 
-**Решение пользователя (2026-09-23): группы приложений как отдельная сущность.** Реализуется.
+**Решение пользователя (2026-09-23): группы приложений как отдельная сущность.** Реализовано
+(этапы 1–14 `APPLICATION_GROUP_PROTOCOL.md` §10, exact-SHA evidence — там же); ручной smoke на
+Windows — `UNVERIFIED`.
 Уточняет решение от 2026-09-22 (группа как приложение-корень с детьми, merge «ребёнок → родитель»,
 split и «удерживающая» identity): эта модель отменена. Полная спецификация — `APPLICATION_IDENTITY.md`
 §9; техническая реализация, модель данных (Current v12) и этапы — `APPLICATION_GROUP_PROTOCOL.md`

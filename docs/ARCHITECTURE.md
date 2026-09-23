@@ -108,7 +108,7 @@ Win32 используется для мониторинга и системно
 
 При вызове журнала глобальной горячей клавишей сначала сохраняется foreground HWND/PID, и только потом активируется окно Clipensk.
 
-Приложения имеют постоянную сущность `Application` и индивидуальную `ApplicationCapturePolicy`.
+Приложения имеют постоянную сущность `Application` (`APPLICATION_IDENTITY.md`). Правила сбора задаются группами приложений (`APPLICATION_GROUP_PROTOCOL.md` v2): приложение без группы относится к группе по умолчанию и захватывается по глобальной policy; приложение пользовательской группы — по policy этой группы.
 
 ## 6. Состояния приложения и шифрование
 
@@ -473,16 +473,11 @@ Files\YYYY-MM-DD\<SHA256>.png
 ## 20. Политики форматов
 
 ```text
-GlobalCapturePolicy
-        ↓ inherited/overridden by
-ApplicationCapturePolicy
+GlobalCapturePolicy            — группа по умолчанию (новые и нераспределённые приложения)
+ApplicationGroup policy        — пользовательская группа, заменяет глобальную для своих приложений
 ```
 
-Для отдельных параметров рекомендуется модель:
-
-- Inherit;
-- Allow;
-- Deny.
+С Current v12 обе policy самостоятельны и содержат только `Allow`/`Deny`; слияния «глобальная ← приложение» и значения `Inherit` больше нет. Прежние индивидуальные `ApplicationCapturePolicy` при миграции v11→v12 стали группами (`APPLICATION_GROUP_PROTOCOL.md` §2.2).
 
 Unknown registered/private binary format:
 
