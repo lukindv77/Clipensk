@@ -42,8 +42,11 @@ public sealed partial class JournalWindow
             return;
         }
 
-        if (!IsCurrentJournalSession(session))
+        bool sameSession = ReferenceEquals(_journalGroupFilterSession, session);
+        if (!IsCurrentJournalSession(session) || (groups is null && sameSession))
         {
+            // A failed read keeps the list already shown for this session: it says nothing about
+            // whether the selected group still exists.
             return;
         }
 
@@ -58,7 +61,6 @@ public sealed partial class JournalWindow
                 new JournalGroupFilterItem(JournalGroupFilterKind.User, group.GroupId, group.Name.Value)));
         }
 
-        bool sameSession = ReferenceEquals(_journalGroupFilterSession, session);
         JournalGroupFilterItem? previous = sameSession ? CurrentJournalGroupFilter() : null;
         int index = previous is null
             ? 0
@@ -178,12 +180,13 @@ public sealed partial class JournalWindow
         {
             (IReadOnlyList<ApplicationIdentitySummary> identities, ApplicationGroupDirectory groups) =
                 await ReadJournalApplicationsAsync(session);
-            if (!IsCurrentJournalSession(session) || !ReferenceEquals(CurrentJournalGroupFilter(), group))
+            // The filter list may have been refilled meanwhile; the selection is compared by value.
+            JournalGroupMembersPanel.Children.Clear();
+            if (!IsCurrentJournalSession(session) || CurrentJournalGroupFilter() != group)
             {
                 return;
             }
 
-            JournalGroupMembersPanel.Children.Clear();
             if (group.Kind == JournalGroupFilterKind.User &&
                 (group.GroupId is not { } groupId || groups.FindGroup(groupId) is null))
             {
