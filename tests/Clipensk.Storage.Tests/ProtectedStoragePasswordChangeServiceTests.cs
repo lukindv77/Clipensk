@@ -119,6 +119,65 @@ public sealed class ProtectedStoragePasswordChangeServiceTests
     }
 
     [Fact]
+    public async Task LeftoversOfAbandonedOperations_AreRemoved_AndTheChangeProceeds()
+    {
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: false);
+        string restart = Path.Combine(environment.Root, "Current", ".clipensk-current-restart-1.tmp");
+        string initialization = Path.Combine(environment.Root, ".clipensk-storage-init-1");
+        File.Copy(environment.CurrentPath, restart);
+        Directory.CreateDirectory(Path.Combine(initialization, "Current"));
+        File.Copy(environment.CatalogPath, Path.Combine(initialization, "Current", "storage-catalog.db"));
+
+        await environment.Service.ChangeAsync(environment.Root, environment.StorageId, environment.OldKey, environment.NewKey);
+
+        Assert.False(File.Exists(restart));
+        Assert.False(Directory.Exists(initialization));
+        Assert.All(environment.Databases, database => Assert.True(environment.Opens(database, environment.NewKey)));
+    }
+
+    [Fact]
+    public async Task AnUnknownLeftover_IsRefused()
+    {
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: false);
+        File.WriteAllBytes(Path.Combine(environment.Root, "Current", ".clipensk-something-else"), [1]);
+
+        PasswordChangeRefusedException refusal = await Assert.ThrowsAsync<PasswordChangeRefusedException>(() =>
+            environment.Service.ChangeAsync(environment.Root, environment.StorageId, environment.OldKey, environment.NewKey));
+
+        Assert.Equal(PasswordChangeRefusal.PendingOperation, refusal.Refusal);
+    }
+
+    [Fact]
+    public async Task ADatabasePublishedWhileCopying_UndoesTheCopies()
+    {
+        using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: false);
+        string late = Path.Combine(environment.Root, "Archive", "archive_000099.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(late)!);
+        bool published = false;
+
+        PasswordChangeRefusedException refusal = await Assert.ThrowsAsync<PasswordChangeRefusedException>(() =>
+            environment.Service.ChangeAsync(
+                environment.Root,
+                environment.StorageId,
+                environment.OldKey,
+                environment.NewKey,
+                new SynchronousProgress(_ =>
+                {
+                    if (!published)
+                    {
+                        // An operation finishing after the lock renames a new archive into place.
+                        File.WriteAllBytes(late, [1, 2, 3]);
+                        published = true;
+                    }
+                })));
+
+        Assert.Equal(PasswordChangeRefusal.DatabaseBusy, refusal.Refusal);
+        Assert.Empty(StorageDatabaseFiles.EnumeratePasswordChangeCopies(environment.Root));
+        Assert.True(environment.Opens(environment.CurrentPath, environment.OldKey));
+        Assert.True(environment.Opens(environment.CatalogPath, environment.OldKey));
+    }
+
+    [Fact]
     public async Task SameKey_InsufficientSpace_AndABusyDatabase_AreRefused()
     {
         using PasswordEnvironment environment = await PasswordEnvironment.CreateAsync(withArchive: false);

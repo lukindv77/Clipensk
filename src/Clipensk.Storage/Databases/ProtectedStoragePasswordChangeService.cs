@@ -47,6 +47,16 @@ public sealed class ProtectedStoragePasswordChangeService
 {
     private const int SqliteNotADatabase = 26;
 
+    private static readonly string[] AbandonedLeftoverPrefixes =
+    [
+        ".clipensk-storage-init-",
+        ".clipensk-catalog-recovery-",
+        ".clipensk-catalog-replacement-",
+        ".clipensk-current-restart-",
+        ".clipensk-archive-create-",
+        ".clipensk-write-probe-",
+    ];
+
     private readonly IKeyedSqliteConnectionFactory _connectionFactory;
     private readonly Func<string, long> _availableFreeSpace;
 
@@ -116,7 +126,7 @@ public sealed class ProtectedStoragePasswordChangeService
             throw Refused(PasswordChangeRefusal.NoDatabases, "The data root holds no storage database.");
         }
 
-        EnsureNothingPending(root, databases);
+        PrepareNothingPending(root, databases);
 
         var copies = new List<string>(databases.Count);
         var held = new List<FileStream>(databases.Count);
@@ -149,6 +159,13 @@ public sealed class ProtectedStoragePasswordChangeService
 
                 ReEncryptCopy(copy, RoleOf(root, databases[index]), storageId, currentKey, newKey);
                 progress?.Report(new PasswordChangeProgress(index + 1, databases.Count));
+            }
+
+            // An operation that was already past its last cancellation check when Clipensk locked
+            // could still publish a database; one not held here would keep the old key.
+            if (!StorageDatabaseFiles.EnumerateExisting(root).SequenceEqual(databases, StringComparer.OrdinalIgnoreCase))
+            {
+                throw Refused(PasswordChangeRefusal.DatabaseBusy, "The storage changed while the copies were made.");
             }
         }
         catch
@@ -350,10 +367,15 @@ public sealed class ProtectedStoragePasswordChangeService
             : DatabaseRole.Archive;
     }
 
-    private static void EnsureNothingPending(string root, IReadOnlyList<string> databases)
+    /// <summary>
+    /// Staging of an Archive rotation or split belongs to an operation the next unlock resumes with
+    /// the current key: the change waits for it. Leftovers of operations that run to completion or
+    /// not at all (a crashed storage initialization, Catalog recovery or replacement, Current
+    /// restart, archive creation, write probe) are nobody's any more and are removed — they would
+    /// otherwise stay readable with the old password. Anything else is refused.
+    /// </summary>
+    private static void PrepareNothingPending(string root, IReadOnlyList<string> databases)
     {
-        // Staging of Archive rotation/split, Catalog replacement, storage initialization or a
-        // Current restart still holds databases written with the current key.
         foreach (string directory in new[]
                  {
                      root,
@@ -361,10 +383,36 @@ public sealed class ProtectedStoragePasswordChangeService
                      Path.Combine(root, StorageDatabaseFiles.ArchiveDirectoryName),
                  })
         {
-            if (Directory.Exists(directory) &&
-                Directory.EnumerateFileSystemEntries(directory, ".clipensk-*", SearchOption.TopDirectoryOnly).Any())
+            if (!Directory.Exists(directory))
             {
-                throw Refused(PasswordChangeRefusal.PendingOperation, $"'{directory}' holds an unfinished operation.");
+                continue;
+            }
+
+            foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos(".clipensk-*"))
+            {
+                bool abandoned = AbandonedLeftoverPrefixes.Any(prefix =>
+                    entry.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+                if (!abandoned || entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw Refused(PasswordChangeRefusal.PendingOperation, $"'{entry.FullName}' belongs to an unfinished operation.");
+                }
+
+                try
+                {
+                    if (entry is DirectoryInfo leftoverDirectory)
+                    {
+                        leftoverDirectory.Delete(recursive: true);
+                    }
+                    else
+                    {
+                        entry.Delete();
+                    }
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // Still open: the operation that made it has not finished after the lock yet.
+                    throw Refused(PasswordChangeRefusal.DatabaseBusy, $"'{entry.FullName}' is in use.", exception);
+                }
             }
         }
 
