@@ -25,8 +25,45 @@ public sealed partial class JournalWindow
 
     private async void OnChangeApplicationGroupClicked(object sender, RoutedEventArgs e)
     {
-        if (_applicationPolicyEditInProgress ||
-            ApplicationPoliciesList.SelectedItem is not ApplicationPolicyListItem selected)
+        if (ApplicationPoliciesList.SelectedItem is not ApplicationPolicyListItem selected)
+        {
+            return;
+        }
+
+        await RunApplicationPageGroupChangeAsync(
+            (session, isCurrent) => RunApplicationGroupMoveDialogAsync(
+                session,
+                selected.Summary.ApplicationId,
+                selected.ApplicationName,
+                isCurrent),
+            ApplicationPoliciesInfo);
+    }
+
+    private async void OnEditApplicationGroupSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        if (ApplicationPoliciesList.SelectedItem is not ApplicationPolicyListItem { Group: { } group })
+        {
+            return;
+        }
+
+        await RunApplicationGroupSettingsAsync(group.GroupId, ApplicationPoliciesInfo);
+    }
+
+    private Task RunApplicationGroupSettingsAsync(ApplicationGroupId groupId, InfoBar resultBar) =>
+        RunApplicationPageGroupChangeAsync(
+            (session, isCurrent) => RunGroupSettingsDialogAsync(session, groupId, isCurrent),
+            resultBar);
+
+    /// <summary>
+    /// Runs one group change started from the Applications page: at most one at a time, with the
+    /// page's buttons disabled, then rereads the page and reports the result in
+    /// <paramref name="resultBar"/>.
+    /// </summary>
+    private async Task RunApplicationPageGroupChangeAsync(
+        Func<ProtectedStorageSessionLease, Func<bool>, Task<GroupChangeResult?>> change,
+        InfoBar resultBar)
+    {
+        if (_applicationPolicyEditInProgress)
         {
             return;
         }
@@ -40,23 +77,16 @@ public sealed partial class JournalWindow
 
         _applicationPolicyEditInProgress = true;
         SetApplicationGroupButtons(null);
+        SetApplicationGroupManagementButtons(null);
         GroupChangeResult? result = null;
         try
         {
-            result = await RunApplicationGroupMoveDialogAsync(
-                session,
-                selected.Summary.ApplicationId,
-                selected.ApplicationName,
-                () => IsCurrentApplicationPolicyOperation(session, generation));
+            result = await change(session, () => IsCurrentApplicationPolicyOperation(session, generation));
         }
         finally
         {
             _applicationPolicyEditInProgress = false;
-            await FinishApplicationGroupChangeAsync(
-                session,
-                generation,
-                result?.Message,
-                result?.Severity ?? InfoBarSeverity.Success);
+            await FinishApplicationGroupChangeAsync(session, generation, result, resultBar);
         }
     }
 
@@ -320,43 +350,30 @@ public sealed partial class JournalWindow
         return resultMessage is null ? null : new GroupChangeResult(resultMessage, resultSeverity);
     }
 
-    private async void OnEditApplicationGroupSettingsClicked(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Edits the standalone rules of one user group for all its members; saved history is kept.
+    /// Returns what to report, or <see langword="null"/> when the user cancelled.
+    /// </summary>
+    private async Task<GroupChangeResult?> RunGroupSettingsDialogAsync(
+        ProtectedStorageSessionLease session,
+        ApplicationGroupId groupId,
+        Func<bool> isCurrent)
     {
-        if (_applicationPolicyEditInProgress ||
-            ApplicationPoliciesList.SelectedItem is not ApplicationPolicyListItem selected)
-        {
-            return;
-        }
-
-        ProtectedStorageSessionLease? session = _protectedStorageSession;
-        long generation = Volatile.Read(ref _applicationPoliciesGeneration);
-        if (session is null || !IsCurrentApplicationPolicyOperation(session, generation))
-        {
-            return;
-        }
-
-        ApplicationId applicationId = selected.Summary.ApplicationId;
-        _applicationPolicyEditInProgress = true;
-        SetApplicationGroupButtons(null);
         string? resultMessage = null;
         InfoBarSeverity resultSeverity = InfoBarSeverity.Success;
         try
         {
             GroupDialogData data = await ReadGroupDialogDataAsync(
                 session,
-                groups => groups.GroupOf(applicationId) is { } current
-                    ? groups.MembersOf(current.GroupId)
-                    : [applicationId]);
-            if (!IsCurrentApplicationPolicyOperation(session, generation))
+                groups => groups.FindGroup(groupId) is null ? [] : groups.MembersOf(groupId));
+            if (!isCurrent())
             {
-                return;
+                return null;
             }
 
-            if (data.Groups.GroupOf(applicationId) is not { } group)
+            if (data.Groups.FindGroup(groupId) is not { } group)
             {
-                resultMessage = ApplicationGroupText("PrepareFailed");
-                resultSeverity = InfoBarSeverity.Error;
-                return;
+                return new GroupChangeResult(ApplicationGroupText("GroupGone"), InfoBarSeverity.Warning);
             }
 
             var error = CreateGroupErrorBar();
@@ -395,7 +412,7 @@ public sealed partial class JournalWindow
                 var deferral = args.GetDeferral();
                 try
                 {
-                    if (!IsCurrentApplicationPolicyOperation(session, generation))
+                    if (!isCurrent())
                     {
                         ShowGroupError(error, ApplicationGroupText("SessionChanged"));
                         args.Cancel = true;
@@ -456,11 +473,8 @@ public sealed partial class JournalWindow
             resultMessage = ApplicationGroupText("PrepareFailed");
             resultSeverity = InfoBarSeverity.Error;
         }
-        finally
-        {
-            _applicationPolicyEditInProgress = false;
-            await FinishApplicationGroupChangeAsync(session, generation, resultMessage, resultSeverity);
-        }
+
+        return resultMessage is null ? null : new GroupChangeResult(resultMessage, resultSeverity);
     }
 
     private async Task<ContentDialogResult> ShowApplicationGroupDialogAsync(ContentDialog dialog)
@@ -479,12 +493,12 @@ public sealed partial class JournalWindow
         }
     }
 
-    /// <summary>Reloads the list so group membership shown matches storage, then reports the result.</summary>
+    /// <summary>Rereads the page so groups and membership shown match storage, then reports the result.</summary>
     private async Task FinishApplicationGroupChangeAsync(
         ProtectedStorageSessionLease session,
         long generation,
-        string? resultMessage,
-        InfoBarSeverity resultSeverity)
+        GroupChangeResult? result,
+        InfoBar resultBar)
     {
         if (!IsCurrentApplicationPolicyOperation(session, generation))
         {
@@ -492,11 +506,11 @@ public sealed partial class JournalWindow
         }
 
         await LoadApplicationPoliciesAsync();
-        if (resultMessage is not null && ReferenceEquals(session, _protectedStorageSession))
+        if (result is not null && ReferenceEquals(session, _protectedStorageSession))
         {
-            ApplicationPoliciesInfo.Severity = resultSeverity;
-            ApplicationPoliciesInfo.Message = resultMessage;
-            ApplicationPoliciesInfo.IsOpen = true;
+            resultBar.Severity = result.Severity;
+            resultBar.Message = result.Message;
+            resultBar.IsOpen = true;
         }
     }
 

@@ -23,6 +23,7 @@ public sealed partial class JournalWindow
         ChangeApplicationGroupButton.Content = ApplicationGroupText("ChooseGroup");
         EditApplicationGroupSettingsButton.Content = ApplicationGroupText("GroupSettings");
         ReloadApplicationPoliciesButton.Content = ApplicationPolicyText("Reload");
+        SetApplicationGroupManagementTexts();
 
         ShellNavigation.SelectionChanged -= OnApplicationPoliciesNavigationSelectionChanged;
         ShellNavigation.SelectionChanged += OnApplicationPoliciesNavigationSelectionChanged;
@@ -91,6 +92,7 @@ public sealed partial class JournalWindow
         SelectedApplicationPolicySummary.Text = string.Empty;
         SelectedApplicationDiscoveredFormats.Text = string.Empty;
         SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Collapsed;
+        ClearApplicationGroupManagementUi(clearList: true);
     }
 
     private async void OnReloadApplicationPoliciesClicked(object sender, RoutedEventArgs e)
@@ -110,10 +112,12 @@ public sealed partial class JournalWindow
         SelectedApplicationPolicySummary.Text = string.Empty;
         SelectedApplicationDiscoveredFormats.Text = string.Empty;
         SelectedApplicationDiscoveredFormatsPanel.Visibility = Visibility.Collapsed;
+        ClearApplicationGroupManagementUi(clearList: false);
 
         if (session is null || !session.IsActive || !_lifecycle.CanAccessProtectedData)
         {
             ApplicationPoliciesList.ItemsSource = null;
+            ApplicationGroupsList.ItemsSource = null;
             ApplicationPoliciesProgress.IsActive = false;
             ApplicationPoliciesProgress.Visibility = Visibility.Collapsed;
             return;
@@ -146,6 +150,7 @@ public sealed partial class JournalWindow
                 .ThenBy(static item => item.ApplicationName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             ApplicationPoliciesList.ItemsSource = items;
+            PopulateApplicationGroupList(identities, groups);
             if (items.Length == 0)
             {
                 ApplicationPoliciesInfo.Severity = InfoBarSeverity.Informational;

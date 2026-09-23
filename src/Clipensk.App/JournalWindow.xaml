@@ -313,6 +313,32 @@
                         </StackPanel>
                     </StackPanel>
 
+                    <StackPanel x:Name="ApplicationGroupsPanel" Spacing="12">
+                        <TextBlock x:Name="ApplicationGroupsTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ApplicationGroupsBody" TextWrapping="Wrap" />
+                        <InfoBar x:Name="ApplicationGroupsInfo" IsOpen="False" IsClosable="True" />
+                        <ListView x:Name="ApplicationGroupsList"
+                                  SelectionChanged="OnApplicationGroupSelectionChanged"
+                                  DisplayMemberPath="DisplayName"
+                                  MaxHeight="240" />
+                        <TextBlock x:Name="SelectedApplicationGroupSummary" TextWrapping="Wrap" />
+                        <TextBox x:Name="ApplicationGroupRenameBox"
+                                 MaxWidth="420"
+                                 HorizontalAlignment="Left"
+                                 IsEnabled="False" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button x:Name="RenameApplicationGroupButton"
+                                    IsEnabled="False"
+                                    Click="OnRenameApplicationGroupClicked" />
+                            <Button x:Name="ApplicationGroupSettingsButton"
+                                    IsEnabled="False"
+                                    Click="OnApplicationGroupSettingsClicked" />
+                            <Button x:Name="DeleteApplicationGroupButton"
+                                    IsEnabled="False"
+                                    Click="OnDeleteApplicationGroupClicked" />
+                        </StackPanel>
+                    </StackPanel>
+
                     <TextBlock x:Name="GlobalPolicyTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
                     <TextBlock x:Name="GlobalPolicyBody" TextWrapping="Wrap" />
                     <InfoBar x:Name="GlobalPolicyInfo" IsOpen="True" IsClosable="False" />
