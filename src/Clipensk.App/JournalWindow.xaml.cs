@@ -107,6 +107,27 @@ public sealed partial class JournalWindow : Window
     }
 
     /// <summary>
+    /// The tray icon and a second launch bring back a window that is still open, on the page it
+    /// shows — an unsaved capture rules editor stays as it was — and open the journal only when the
+    /// window is hidden (smoke finding З3, 2026-09-24). The hotkey always opens the journal.
+    /// </summary>
+    public void BringToFrontOrShowJournal()
+    {
+        if (!AppWindow.IsVisible)
+        {
+            ShowJournal();
+            return;
+        }
+
+        if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter)
+        {
+            presenter.Restore();
+        }
+
+        Activate();
+    }
+
+    /// <summary>
     /// Settings is reachable without unlocking — it is plaintext configuration, not protected data —
     /// so unlike <see cref="ShowJournal"/> this only falls back to the first-run panel, never the
     /// lock screen, mirroring exactly what <c>OnSelectionChanged</c> already does for the
@@ -782,7 +803,11 @@ public sealed partial class JournalWindow : Window
 
     /// <summary>
     /// Auto-hides the journal when it loses OS-level foreground activation to a different top-level
-    /// window — "click away" — per the same 2026-09-21 decision. A <see cref="ContentDialog"/> stays
+    /// window — "click away" — per the same 2026-09-21 decision. Only the journal page hides this
+    /// way: it is the quick-paste view the hotkey opens. Every other page — capture rules, settings,
+    /// the password screens — is work the user may leave for another window (a password manager, a
+    /// document) and come back to, so it stays open with its taskbar button (smoke finding З3,
+    /// 2026-09-24). A <see cref="ContentDialog"/> stays
     /// inside this window's own XamlRoot and never triggers this; only another real top-level window
     /// (another app, or a system picker) does. <see cref="_systemPickerOpen"/> suppresses this while
     /// a <c>FileOpenPicker</c>/<c>FolderPicker</c> is in flight — those pickers are themselves a
@@ -793,12 +818,17 @@ public sealed partial class JournalWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated
             && AppWindow.IsVisible
+            && IsJournalPageShown
             && !_systemPickerOpen
             && !_allowClose)
         {
             HideJournalWindow();
         }
     }
+
+    private bool IsJournalPageShown =>
+        PlaceholderPanel.Visibility == Visibility.Visible &&
+        ReferenceEquals(ShellNavigation.SelectedItem, JournalItem);
 
     private void HideJournalWindow()
     {

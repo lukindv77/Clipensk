@@ -52,7 +52,7 @@ public partial class App
         window?.DispatcherQueue.TryEnqueue(() =>
         {
             window.SetJournalInvocationApplicationHint(null);
-            window.ShowJournal();
+            window.BringToFrontOrShowJournal();
         });
     }
 }
