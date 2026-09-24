@@ -58,11 +58,17 @@
                     <TextBox x:Name="PasswordHintEditor" Width="460" HorizontalAlignment="Left" />
                 </StackPanel>
 
-                <PasswordBox x:Name="PasswordEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek" />
+                <PasswordBox x:Name="PasswordEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek"
+                             PasswordChanged="OnSetupPasswordChanged" />
 
                 <StackPanel x:Name="PasswordConfirmationPanel" Spacing="6" Visibility="Collapsed">
                     <TextBlock x:Name="PasswordConfirmationLabel" />
-                    <PasswordBox x:Name="PasswordConfirmationEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek" />
+                    <PasswordBox x:Name="PasswordConfirmationEntry" Width="360" HorizontalAlignment="Left" PasswordRevealMode="Peek"
+                                 PasswordChanged="OnSetupPasswordChanged" />
+                    <TextBlock x:Name="PasswordMismatchHint"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed" />
                 </StackPanel>
 
                 <Button x:Name="UnlockButton" HorizontalAlignment="Left" Click="OnUnlockClicked" />

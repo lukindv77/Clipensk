@@ -671,6 +671,16 @@ public sealed partial class JournalWindow : Window
         LockNowButton.IsEnabled = protectedAccess;
     }
 
+    /// <summary>A mismatched confirmation is shown while the new password is typed (З1).</summary>
+    private void OnSetupPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        bool mismatch =
+            _credentialState == ProtectedStorageCredentialState.Uninitialized &&
+            PasswordConfirmation.IsMismatch(PasswordEntry.Password, PasswordConfirmationEntry.Password);
+        PasswordMismatchHint.Text = _localization.GetString("Lock.PasswordMismatch");
+        PasswordMismatchHint.Visibility = mismatch ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void RefreshCredentialUi()
     {
         bool isSetup = _credentialState == ProtectedStorageCredentialState.Uninitialized;

@@ -5,6 +5,7 @@ using Clipensk.Core.Storage;
 using Clipensk.Storage.Databases;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace Clipensk.App;
 
@@ -126,9 +127,23 @@ public sealed partial class JournalWindow
             Text = _localization.GetString("PasswordChange.Body"),
             TextWrapping = TextWrapping.Wrap,
         });
+        // A mismatched confirmation is shown while it is typed, not after Apply (З1).
+        var mismatch = new TextBlock
+        {
+            Text = _localization.GetString("Lock.PasswordMismatch"),
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        if (Application.Current.Resources.TryGetValue("SystemFillColorCriticalBrush", out object? critical) &&
+            critical is Brush criticalBrush)
+        {
+            mismatch.Foreground = criticalBrush;
+        }
+
         content.Children.Add(current);
         content.Children.Add(fresh);
         content.Children.Add(confirmation);
+        content.Children.Add(mismatch);
         content.Children.Add(hint);
 
         var dialog = new ContentDialog
@@ -140,6 +155,16 @@ public sealed partial class JournalWindow
             CloseButtonText = _localization.GetString("PasswordChange.Cancel"),
             DefaultButton = ContentDialogButton.Close,
         };
+
+        void RefreshMismatch(object sender, RoutedEventArgs e)
+        {
+            bool isMismatch = PasswordConfirmation.IsMismatch(fresh.Password, confirmation.Password);
+            mismatch.Visibility = isMismatch ? Visibility.Visible : Visibility.Collapsed;
+            dialog.IsPrimaryButtonEnabled = !isMismatch;
+        }
+
+        fresh.PasswordChanged += RefreshMismatch;
+        confirmation.PasswordChanged += RefreshMismatch;
 
         ContentDialogResult result = await dialog.ShowAsync();
         PasswordChangeRequest? request = result == ContentDialogResult.Primary
