@@ -87,6 +87,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Read the clipboard as resident capture does
+        shell: pwsh
+        run: |
+          # Puts text on the clipboard and reads it back through the capture pipeline on a
+          # thread-pool thread, as the resident worker does (tools/Clipensk.Clipboard.Probe).
+          dotnet run --project tools/Clipensk.Clipboard.Probe/Clipensk.Clipboard.Probe.csproj --configuration Release -p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Start the published app
+        if: always()
         shell: pwsh
         run: ./eng/verify-app-startup.ps1
