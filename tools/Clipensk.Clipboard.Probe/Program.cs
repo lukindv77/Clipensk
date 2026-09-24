@@ -33,7 +33,8 @@ internal static class Program
 
         PutOnClipboard(package => package.SetText(ProbeText));
         Report("WinRT clipboard, STA main thread (diagnostic)", ReadTextDirectlyAsync(), static text => text == ProbeText);
-        Report("WinRT clipboard, thread-pool thread (diagnostic)", Task.Run(ReadTextDirectlyAsync), static text => text == ProbeText);
+        // Expected to fail with 0x8001010E: the reason Clipensk reads the clipboard on its own STA thread.
+        Report("WinRT clipboard, thread-pool thread (diagnostic, expected to fail)", Task.Run(ReadTextDirectlyAsync), static text => text == ProbeText);
 
         using var host = new ResidentWindowsHost(
             new HtmlAgilityPackClipboardHtmlSearchTextConverter(),

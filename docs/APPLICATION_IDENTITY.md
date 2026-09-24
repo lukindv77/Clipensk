@@ -54,6 +54,8 @@
 
 Эти признаки в будущем могут использоваться как UI hints для ручного переноса в группу (§9), но не как silent durable equivalence.
 
+Так уже сделано для одинаковых имён: если в одном списке у двух приложений совпадает отображаемое имя (например, `chrome.exe` дважды), у каждого в скобках показывается путь (или AUMID), по которому оно распознано (`ApplicationDisplayName.ForList`, замечание З6 от 2026-09-24). Объединения при этом не происходит; сравнение путей без учёта регистра — открытый вопрос (`OPEN_QUESTIONS.md` §13).
+
 ## 6. Registry result
 
 `IApplicationIdentityRegistry.ResolveOrCreateAsync` возвращает `ApplicationIdentityResolution`:

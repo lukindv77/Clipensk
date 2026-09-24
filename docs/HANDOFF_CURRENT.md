@@ -32,6 +32,20 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
+Ручная проверка на Windows (2026-09-24, `docs/MANUAL_SMOKE_RESULTS.md`), сборка `5911117`
+(тот же код, что main `a06acd3`): A1–A6 — OK; **B1 — FAIL**: журнал пуст, хотя источники попадают в
+«Приложения»; замечания З1–З6. Ветка `fix/clipboard-capture` (§E пункт 43):
+- B1: причина доказана на Windows пробой `tools/Clipensk.Clipboard.Probe` (шаг Build-задачи
+  `app-startup`): WinRT-объекты буфера привязаны к STA, захват шёл из пула потоков (MTA) —
+  `COMException 0x8001010E` (Build run `35956983605`, `bf34d9f`). Исправление `f048750` (чтение на
+  своём STA-потоке) + лог сбоев захвата `783e1c4`: Build run `35957881093` на `242712e` —
+  **SUCCESS**, проба PASS для текста, веб-фрагмента, изображения и списка файлов;
+- З1 `eeb33c0`, З2 `593fb9a`, З3 `242712e`, З5 `bbe4679`, З6 `fb6e9f8` (Build run `35958514640` на
+  `bbe4679` — **SUCCESS**, `build` и `app-startup`), З4 `6ddc713` (Build run `35958912823` — итог в
+  §J);
+- повторная проверка — `MANUAL_SMOKE_TEST.md` раздел 2 (N1–N7); первый прогон на Windows остальных
+  пунктов (B2–M) ещё не выполнен — `UNVERIFIED`.
+
 Первый ручной запуск на Windows (2026-09-24, сборка `8fabb62`) — сбой при старте: `0xc000027b` в
 `Microsoft.UI.Xaml.dll`. Ветка `fix/app-startup` (§E пункт 42):
 - `80c0664` — новая задача Build `app-startup` воспроизвела сбой (Build run `35947362483`, задача
@@ -39,7 +53,9 @@ Clipensk — resident Windows clipboard-history manager.
 - `dd7abf6` — журнал сбоев показал причину (run `35947552912`): `XamlParseException` в
   `JournalWindow.InitializeComponent()`; в публикации не было `Clipensk.App.pri`;
 - `5911117` — исправление: Build run `35947806991` — **SUCCESS** (`build` и `app-startup`: окно
-  «Clipensk» 25 с, `Clipensk.App.pri` опубликован); Native run `35948278157` — итог в §J.
+  «Clipensk» 25 с, `Clipensk.App.pri` опубликован); Native run `35948278157` — **SUCCESS**
+  (артефакт этого прогона пользователь запустил на Windows). Промоушен в main: `a06acd3` —
+  exact-main Build run `35950087636` и Native run `35950087625` — **SUCCESS**.
 
 Ревизия смены пароля (§E пункт 39), ветка `fix/orphan-password-change-copies`, промоушен в main
 fast-forward'ом: `6718a03` — Build run `35868280011` и Native run `35868283029` — **SUCCESS**;
@@ -388,7 +404,29 @@ Trash, принято в `main`:
       App, ставит Windows App Runtime из MSIX-пакетов NuGet, запускает exe и требует окно 25 с без
       сбоя.
 
-Storage 721, Core 335, Infrastructure 200 — все зелёные локально. Ручной smoke групп, переноса
+43. **Исправления по первому ручному прогону на Windows** (2026-09-24, ветка
+    `fix/clipboard-capture`, `docs/MANUAL_SMOKE_RESULTS.md`, evidence — §C):
+    - B1 — журнал не заполнялся: `ClipboardStaThread` (`Clipensk.Windows/Clipboard/`) — отдельный
+      STA-поток со своим `SynchronizationContext`; снимок форматов и все пять reader'ов выполняются
+      на нём, их `await` возвращаются туда же (без `ConfigureAwait(false)`, в том числе в
+      `PngImageNormalizer`). `ClipboardAcceptedCaptureWorker` сообщает о сбое захвата, App пишет
+      первый сбой каждого вида (тип + HRESULT, не более 20 видов за запуск) в `error.log`. Проба
+      `tools/Clipensk.Clipboard.Probe` в задаче `app-startup` проверяет конвейер захвата на Windows;
+    - З1 — `PasswordConfirmation.IsMismatch` (Core): несовпадение видно при вводе (создание пароля,
+      «Сменить пароль…»);
+    - З2 — каждый формат в редакторах правил — карточка с названием;
+    - З3 — автоскрытие по щелчку мимо только на странице журнала; трей и повторный запуск
+      возвращают открытое окно на его страницу (`BringToFrontOrShowJournal`);
+    - З4 — первоначальная настройка в четыре шага (`JournalWindow.InitialSetup.cs`,
+      `InitialSetupParameters`, `ApplicationSettings.InitialSetupCompleted`); шаг правил открывается
+      после разблокировки всякий раз, когда у хранилища нет правил; шаг 4 требует горячую клавишу
+      (по умолчанию её не было);
+    - З5 — только русский язык в интерфейсе (исключения — имена файлов/папок в путях, форматов
+      Windows и PNG/UTF-8/JSON/SQLCipher/Argon2id);
+    - З6 — `ApplicationDisplayName.ForList`: одинаковые имена показываются с путём; сравнение пути
+      без учёта регистра — `OPEN_QUESTIONS.md` §13 (решение пользователя не принято).
+
+Storage 721, Core 357, Infrastructure 201 — все зелёные локально. Ручной smoke групп, переноса
 хранилища и разблокировки по заголовкам баз на Windows — `UNVERIFIED`.
 
 ## F. Load-bearing design decisions
@@ -520,13 +558,15 @@ Windows 11, комментарий/экспорт шаблона локализ�
     **резервную копию** (создание, отмена, занятые файлы, съёмный диск, открытие копии и
     разблокировка её паролем, «Открыть хранилище из папки…» и возврат к прежнему) и
     **предупреждение на Windows 10** — весь этот
-    Win32/WinUI код проверен CI только на уровне компиляции, реальное поведение на Windows не
-    подтверждено.
+    Win32/WinUI код проверен CI только на уровне компиляции и запуска окна, реальное поведение на
+    Windows не подтверждено. Первый прогон (2026-09-24, `docs/MANUAL_SMOKE_RESULTS.md`): A1–A6 — OK,
+    B1 — FAIL (исправлено, §E пункт 43), остальное не выполнялось. Следующий прогон — с раздела 2
+    (N1–N7) и далее по порядку на сборке с исправлениями.
 
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит документов поверх `5911117` (исправление запуска App, §E пункт 42; под ним `dd7abf6`, `80c0664`, `23482b5`). Идёт ручной smoke на Windows по `docs/MANUAL_SMOKE_TEST.md` (§I.10): пользователь присылает результаты по пунктам; при сбое — текст сообщения и `%LOCALAPPDATA%\Clipensk\error.log`. Сборку для проверки даёт последний успешный Native на `main`.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — `a06acd3` (исправление запуска App, §E пункт 42) либо, если промоушен уже выполнен, голова ветки `fix/clipboard-capture` (§E пункт 43: B1 и З1–З6, документы). Если ветка ещё не в main: Build и Native на её голове → TOCTOU-проверка main → fast-forward → exact-main Build и Native. Затем пользователь проверяет новую сборку по `docs/MANUAL_SMOKE_TEST.md`, начиная с раздела 2 (N1–N7), и присылает результаты по пунктам; при сбое — текст сообщения и `%LOCALAPPDATA%\Clipensk\error.log`. Сборку даёт последний успешный Native на `main`. Открытый вопрос к пользователю — `OPEN_QUESTIONS.md` §13 (регистр букв в пути программы).
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
 5. Не переделывать заново принятые слайсы ротации (включая дефолты порогов и валидацию), Archive Split, возврата в clipboard (включая режим «вставить как обычный текст»), Trash retention, журнала (период/поиск/фильтр/дефолт 30 дней), блокировки (ручная + автоблокировка по простою), внешней локализации (включая экспорт шаблона с русским комментарием), оболочки (tray/автозапуск/«О программе»), single-instance/защиты каталога данных, таргета только Windows 11, focus restoration (minimize-to-tray, Escape, авто-скрытие по клику мимо), дефолтов/KB-редактирования числовых лимитов форматов (`OPEN_QUESTIONS.md` §6) групп приложений с ретроактивной очисткой (`APPLICATION_GROUP_PROTOCOL.md` этапы 1–15) и переноса хранилища с `settings.json` рядом с программой (`DATA_ROOT_RELOCATION_PROTOCOL.md` этапы 1–4).
