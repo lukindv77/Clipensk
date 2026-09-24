@@ -44,9 +44,7 @@ public sealed partial class JournalWindow
         IReadOnlyList<ApplicationIdentitySummary> identities,
         ApplicationGroupDirectory groups)
     {
-        Dictionary<ApplicationId, string> names = identities.ToDictionary(
-            static summary => summary.ApplicationId,
-            static summary => ApplicationDisplayName.From(summary));
+        IReadOnlyDictionary<ApplicationId, string> names = ApplicationDisplayName.ForList(identities);
 
         string[] SortedNames(IEnumerable<ApplicationId> members) => members
             .Select(member => names.TryGetValue(member, out string? name) ? name : member.ToString())

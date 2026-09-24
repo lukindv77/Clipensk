@@ -151,6 +151,41 @@ public sealed class ApplicationGroupModelTests
         Assert.Equal(id.ToString(), ApplicationDisplayName.From(new ApplicationIdentitySummary(id, Created, [], [])));
     }
 
+    [Fact]
+    public void ListNames_ShowThePathOnlyForNamesTheListShares()
+    {
+        var chrome = new ApplicationIdentitySummary(
+            ApplicationId.New(), Created, [], [@"C:\Program Files\Google\Chrome\Application\chrome.exe"]);
+        var chromeOtherSpelling = new ApplicationIdentitySummary(
+            ApplicationId.New(), Created, [], [@"C:\PROGRAM FILES\Google\Chrome\Application\CHROME.EXE"]);
+        var notepad = new ApplicationIdentitySummary(
+            ApplicationId.New(), Created, [], [@"C:\Windows\notepad.exe"]);
+
+        IReadOnlyDictionary<ApplicationId, string> names =
+            ApplicationDisplayName.ForList([chrome, chromeOtherSpelling, notepad]);
+
+        Assert.Equal(@"chrome.exe (C:\Program Files\Google\Chrome\Application\chrome.exe)", names[chrome.ApplicationId]);
+        Assert.Equal(@"CHROME.EXE (C:\PROGRAM FILES\Google\Chrome\Application\CHROME.EXE)", names[chromeOtherSpelling.ApplicationId]);
+        Assert.Equal("notepad.exe", names[notepad.ApplicationId]);
+    }
+
+    [Fact]
+    public void ListNames_WithoutAPathFallBackToTheAumidThenTheApplicationId()
+    {
+        var packaged = new ApplicationIdentitySummary(ApplicationId.New(), Created, ["Contoso.App_1!App"], [@"C:\Apps\app.exe"]);
+        var packagedWithoutPath = new ApplicationIdentitySummary(ApplicationId.New(), Created, ["Contoso.App_2!App"], []);
+        var bare = new ApplicationIdentitySummary(ApplicationId.New(), Created, [], []);
+        var sameAumidName = new ApplicationIdentitySummary(ApplicationId.New(), Created, ["app.exe"], []);
+
+        IReadOnlyDictionary<ApplicationId, string> names =
+            ApplicationDisplayName.ForList([packaged, packagedWithoutPath, bare, sameAumidName]);
+
+        Assert.Equal(@"app.exe (C:\Apps\app.exe)", names[packaged.ApplicationId]);
+        Assert.Equal("Contoso.App_2!App", names[packagedWithoutPath.ApplicationId]);
+        Assert.Equal(bare.ApplicationId.ToString(), names[bare.ApplicationId]);
+        Assert.Equal($"app.exe ({sameAumidName.ApplicationId})", names[sameAumidName.ApplicationId]);
+    }
+
     private static ApplicationGroup Group(string name, ClipboardCapturePolicy policy) =>
         new(ApplicationGroupId.New(), ApplicationGroupName.Create(name), policy, Created);
 

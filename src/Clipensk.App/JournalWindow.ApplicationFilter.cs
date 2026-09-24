@@ -3,6 +3,7 @@ using Clipensk.Core.Input;
 using Clipensk.Core.Storage;
 using Clipensk.Storage.Applications;
 using Microsoft.UI.Xaml.Controls;
+using ApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.App;
 
@@ -77,12 +78,13 @@ public sealed partial class JournalWindow
                 new(null, JournalText("Application.All")),
             };
 
+            IReadOnlyDictionary<ApplicationId, string> names = ApplicationDisplayName.ForList(identities);
             if (invocationApplicationId is Guid invocationId)
             {
                 ApplicationIdentitySummary? invocationSummary = identities
                     .FirstOrDefault(summary => summary.ApplicationId.Value == invocationId);
                 string invocationName = invocationSummary is not null
-                    ? ApplicationDisplayName.From(invocationSummary)
+                    ? names[invocationSummary.ApplicationId]
                     : invocationId.ToString();
                 items.Add(new JournalApplicationFilterItem(
                     invocationId,
@@ -93,7 +95,7 @@ public sealed partial class JournalWindow
                 .Where(summary => summary.ApplicationId.Value != invocationApplicationId)
                 .Select(summary => new JournalApplicationFilterItem(
                     summary.ApplicationId.Value,
-                    ApplicationDisplayName.From(summary))));
+                    names[summary.ApplicationId])));
 
             // Reopening the journal must not silently keep a stale selection from a previous
             // protected session, so this always resets to "all applications".

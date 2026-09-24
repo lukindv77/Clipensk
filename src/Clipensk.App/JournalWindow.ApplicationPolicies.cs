@@ -6,6 +6,7 @@ using Clipensk.Storage.Applications;
 using Clipensk.Storage.Clipboard;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using ApplicationId = Clipensk.Core.Applications.ApplicationId;
 
 namespace Clipensk.App;
 
@@ -143,8 +144,9 @@ public sealed partial class JournalWindow
                 return;
             }
 
+            IReadOnlyDictionary<ApplicationId, string> names = ApplicationDisplayName.ForList(identities);
             ApplicationPolicyListItem[] items = identities
-                .Select(summary => CreateApplicationListItem(summary, groups))
+                .Select(summary => CreateApplicationListItem(summary, names[summary.ApplicationId], groups))
                 .OrderBy(static item => item.Group is null ? 0 : 1)
                 .ThenBy(static item => item.Group?.Name.Key, StringComparer.Ordinal)
                 .ThenBy(static item => item.ApplicationName, StringComparer.OrdinalIgnoreCase)
@@ -287,9 +289,9 @@ public sealed partial class JournalWindow
 
     private ApplicationPolicyListItem CreateApplicationListItem(
         ApplicationIdentitySummary summary,
+        string applicationName,
         ApplicationGroupDirectory groups)
     {
-        string applicationName = ApplicationDisplayName.From(summary);
         ApplicationGroup? group = groups.GroupOf(summary.ApplicationId);
         return new ApplicationPolicyListItem(
             summary,

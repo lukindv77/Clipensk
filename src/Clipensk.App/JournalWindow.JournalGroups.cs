@@ -194,11 +194,12 @@ public sealed partial class JournalWindow
                 return;
             }
 
+            IReadOnlyDictionary<ApplicationId, string> names = ApplicationDisplayName.ForList(identities);
             ApplicationIdentitySummary[] members = identities
                 .Where(summary => group.Kind == JournalGroupFilterKind.Default
                     ? groups.IsInDefaultGroup(summary.ApplicationId)
                     : groups.GroupOf(summary.ApplicationId)?.GroupId == group.GroupId)
-                .OrderBy(static summary => ApplicationDisplayName.From(summary), StringComparer.OrdinalIgnoreCase)
+                .OrderBy(summary => names[summary.ApplicationId], StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             if (members.Length == 0)
             {
@@ -212,7 +213,7 @@ public sealed partial class JournalWindow
                 Guid memberId = member.ApplicationId.Value;
                 var toggle = new CheckBox
                 {
-                    Content = ApplicationDisplayName.From(member),
+                    Content = names[member.ApplicationId],
                     IsChecked = !_journalExcludedGroupMembers.Contains(memberId),
                 };
                 toggle.Checked += (_, _) => ToggleJournalGroupMember(memberId, include: true);
@@ -391,11 +392,12 @@ public sealed partial class JournalWindow
                 return;
             }
 
+            IReadOnlyDictionary<ApplicationId, string> names = ApplicationDisplayName.ForList(identities);
             JournalUnassignedItem[] items = identities
                 .Where(summary => groups.IsInDefaultGroup(summary.ApplicationId))
-                .Select(static summary => new JournalUnassignedItem(
+                .Select(summary => new JournalUnassignedItem(
                     summary.ApplicationId,
-                    ApplicationDisplayName.From(summary)))
+                    names[summary.ApplicationId]))
                 .OrderBy(static item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
