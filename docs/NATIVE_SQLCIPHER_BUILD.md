@@ -111,13 +111,19 @@ Workflow `.github/workflows/sqlcipher-native.yml` на x64:
 1. собирает pinned OpenSSL + SQLCipher;
 2. записывает provenance manifest;
 3. публикует smoke host и выполняет native smoke рядом с исходным verified artifact;
-4. публикует текущий unpackaged `Clipensk.App` x64 runtime через `eng/publish-windows-x64.ps1`;
+4. публикует текущий unpackaged `Clipensk.App` x64 runtime через `eng/publish-windows-x64.ps1` (публикация без индекса ресурсов `Clipensk.App.pri` отвергается: без него App не загружает свой XAML);
 5. выполняет `eng/verify-published-windows-x64.ps1`, который проверяет runtime/native manifests, hashes и provenance, а затем повторно запускает production storage smoke из отдельной директории без собственной `sqlcipher.dll`, с итоговым publish-каталогом первым в `PATH`;
 6. сохраняет native evidence и unpackaged runtime artifact на ограниченный срок.
 
 Таким образом, второй smoke подтверждает не только пригодность собранной DLL, но и загрузку exact staged `sqlcipher.dll` из текущего publish layout.
 
 Обычный `.github/workflows/build.yml` продолжает проверять managed Restore/Build/Test. Его PASS не заменяет native SQLCipher evidence.
+
+В нём же задача `app-startup` (`windows-2025`, сборка класса Windows 11) запускает само приложение:
+`eng/verify-app-startup.ps1` публикует `Clipensk.App` так же, как `eng/publish-windows-x64.ps1`
+(без `sqlcipher.dll` — на первом запуске базы не открываются), устанавливает Windows App Runtime из
+MSIX-пакетов `Microsoft.WindowsAppSDK.Runtime` в кеше NuGet и требует, чтобы `Clipensk.App.exe`
+25 секунд работал с открытым окном, без событий сбоя и без `%LOCALAPPDATA%\Clipensk\error.log`.
 
 ## 8. Architecture scope
 

@@ -32,6 +32,15 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
+Первый ручной запуск на Windows (2026-09-24, сборка `8fabb62`) — сбой при старте: `0xc000027b` в
+`Microsoft.UI.Xaml.dll`. Ветка `fix/app-startup` (§E пункт 42):
+- `80c0664` — новая задача Build `app-startup` воспроизвела сбой (Build run `35947362483`, задача
+  `app-startup` — failure, то же событие Application Error);
+- `dd7abf6` — журнал сбоев показал причину (run `35947552912`): `XamlParseException` в
+  `JournalWindow.InitializeComponent()`; в публикации не было `Clipensk.App.pri`;
+- `5911117` — исправление: Build run `35947806991` — **SUCCESS** (`build` и `app-startup`: окно
+  «Clipensk» 25 с, `Clipensk.App.pri` опубликован); Native run `35948278157` — итог в §J.
+
 Ревизия смены пароля (§E пункт 39), ветка `fix/orphan-password-change-copies`, промоушен в main
 fast-forward'ом: `6718a03` — Build run `35868280011` и Native run `35868283029` — **SUCCESS**;
 `63b72e7` (docs, `OPEN_QUESTIONS.md` §5) — Build run `35869094836` — **SUCCESS**; `7bcc6d0` — Build
@@ -365,7 +374,21 @@ Trash, принято в `main`:
     Общий код копирования дерева вынесен из движка переноса в `DataRootTreeCopy` без изменения
     поведения.
 
-Storage 721, Core 335, Infrastructure 197 — все зелёные локально. Ручной smoke групп, переноса
+42. Запуск приложения на Windows (2026-09-24): до этого `Clipensk.App.exe` не запускался ни разу —
+    CI только собирал и публиковал его. Первый ручной запуск упал при загрузке XAML окна:
+    - `Clipensk.App.csproj`: `EnableMsixTooling=true` — без MSIX tooling unpackaged-приложение не
+      получает индекс ресурсов `Clipensk.App.pri`;
+    - `App.xaml`: `XamlControlsResources` — шаблоны WinUI и стили `TitleTextBlockStyle` и
+      `SubtitleTextBlockStyle`, которые использует окно;
+    - `eng/publish-windows-x64.ps1` отвергает публикацию без `Clipensk.App.pri`;
+    - необработанная ошибка больше не завершает Clipensk молча: сведения об исключении пишутся в
+      `%LOCALAPPDATA%\Clipensk\error.log`, пользователь видит сообщение с путём
+      (`App.CrashReport.cs`);
+    - Build получил задачу `app-startup` (`eng/verify-app-startup.ps1`, `windows-2025`): публикует
+      App, ставит Windows App Runtime из MSIX-пакетов NuGet, запускает exe и требует окно 25 с без
+      сбоя.
+
+Storage 721, Core 335, Infrastructure 200 — все зелёные локально. Ручной smoke групп, переноса
 хранилища и разблокировки по заголовкам баз на Windows — `UNVERIFIED`.
 
 ## F. Load-bearing design decisions
@@ -431,6 +454,9 @@ Storage 721, Core 335, Infrastructure 197 — все зелёные локаль
 
 - Manual production WinUI smoke — **UNVERIFIED** для Split, Rotation, возврата в clipboard и журнальных фильтров: весь WinUI/WinRT-слой не покрыт автотестами, CI подтверждает только компиляцию и publish.
 - Локальные тесты идут на `e_sqlite3`, а не SQLCipher: шифрование, native provenance и published-runtime loading локально не проверяются. Поведение SQLCipher с явной солью (§E п.35) дополнительно проверено локально на консольном SQLCipher 4.5.6 (`apt install sqlcipher`) и smoke-хостом с временно пониженным порогом версии; для 4.17.0 evidence — только Native CI.
+- До 2026-09-24 приложение ни разу не запускалось на Windows (§E п.42); ручной smoke только
+  начинается, и следующие сбои интерфейса вероятны. Задача `app-startup` проверяет лишь запуск до
+  первого окна, а не сценарии.
 - Смена пароля (§E п.38) не стирает прежние зашифрованные байты с диска надёжно, а резервные копии хранилища, сделанные до смены, открываются старым паролем (`PASSWORD_CHANGE_PROTOCOL.md` §6).
 - Двойной сбой «прерванная смена пароля + потерянный `current.db`», при котором копию `current.db` не открывает ни один пароль вместе с остальными базами, разбирается только вручную: копию удаляет пользователь, после чего доступно «Начать текущую базу заново» (`PASSWORD_CHANGE_PROTOCOL.md` §5).
 - SDK не переживает пересоздание сессии; процедура — `docs/LOCAL_BUILD_AND_TEST.md`.
@@ -500,7 +526,7 @@ Windows 11, комментарий/экспорт шаблона локализ�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит handoff поверх `27851af` (резервная копия и «Открыть хранилище из папки…», §E пункт 41; под ним `a4c16b3`, `6c956d7` — предупреждение на Windows 10, `1e166b2`). Все решения `OPEN_QUESTIONS.md` на 2026-09-23 приняты и реализованы; из запланированного остаётся ручной smoke на Windows (§I.10), который по решению пользователя выполняется после задач, не требующих предварительной проверки на Windows.
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — коммит документов поверх `5911117` (исправление запуска App, §E пункт 42; под ним `dd7abf6`, `80c0664`, `23482b5`). Идёт ручной smoke на Windows по `docs/MANUAL_SMOKE_TEST.md` (§I.10): пользователь присылает результаты по пунктам; при сбое — текст сообщения и `%LOCALAPPDATA%\Clipensk\error.log`. Сборку для проверки даёт последний успешный Native на `main`.
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
 5. Не переделывать заново принятые слайсы ротации (включая дефолты порогов и валидацию), Archive Split, возврата в clipboard (включая режим «вставить как обычный текст»), Trash retention, журнала (период/поиск/фильтр/дефолт 30 дней), блокировки (ручная + автоблокировка по простою), внешней локализации (включая экспорт шаблона с русским комментарием), оболочки (tray/автозапуск/«О программе»), single-instance/защиты каталога данных, таргета только Windows 11, focus restoration (minimize-to-tray, Escape, авто-скрытие по клику мимо), дефолтов/KB-редактирования числовых лимитов форматов (`OPEN_QUESTIONS.md` §6) групп приложений с ретроактивной очисткой (`APPLICATION_GROUP_PROTOCOL.md` этапы 1–15) и переноса хранилища с `settings.json` рядом с программой (`DATA_ROOT_RELOCATION_PROTOCOL.md` этапы 1–4).
