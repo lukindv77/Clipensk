@@ -113,6 +113,12 @@ if (-not (Test-Path -LiteralPath $publishedExePath) -or
     throw "Clipensk.App publish output is incomplete."
 }
 
+# The window's compiled XAML is loaded through the resource index; without it the app ends at start.
+$publishedResourceIndexPath = Join-Path $outputDirectoryPath "Clipensk.App.pri"
+if (-not (Test-Path -LiteralPath $publishedResourceIndexPath)) {
+    throw "Clipensk.App publish output has no resource index (Clipensk.App.pri); the app could not load its XAML."
+}
+
 if (Test-Path -LiteralPath $publishedDllPath) {
     throw "dotnet publish produced an unexpected sqlcipher.dll before verified native staging."
 }
