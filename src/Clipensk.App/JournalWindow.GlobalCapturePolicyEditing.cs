@@ -163,7 +163,7 @@ public sealed partial class JournalWindow
         var editors = new List<PolicyFormatEditor>();
         foreach ((string name, string label) in StandardPolicyFormats())
         {
-            ComboBox rule = CreatePolicyRuleEditor(label);
+            ComboBox rule = CreatePolicyFormatRuleEditor(label);
             ComboBox limit = CreatePolicyLimitEditor(label);
             TextBox bytes = CreatePolicyBytesEditor(label);
             var editor = new PolicyFormatEditor(name, rule, limit, bytes);
@@ -175,11 +175,7 @@ public sealed partial class JournalWindow
                 PopulateStandardPolicyEditor(editor, currentFormat);
             }
 
-            var row = new StackPanel { Spacing = 8 };
-            row.Children.Add(rule);
-            row.Children.Add(limit);
-            row.Children.Add(bytes);
-            root.Children.Add(row);
+            root.Children.Add(CreatePolicyFormatCard(label, rule, limit, bytes));
             editors.Add(editor);
         }
 

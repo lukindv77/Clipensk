@@ -6,6 +6,7 @@ using Clipensk.Storage.ExternalFiles;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace Clipensk.App;
@@ -67,13 +68,10 @@ public sealed partial class JournalWindow
         GlobalPolicyFormatRows.Children.Clear();
         foreach ((string name, string label) in StandardPolicyFormats())
         {
-            var rule = CreatePolicyRuleEditor(label);
+            var rule = CreatePolicyFormatRuleEditor(label);
             var limit = CreatePolicyLimitEditor(label);
             var bytes = CreatePolicyBytesEditor(label);
-            var row = new StackPanel { Spacing = 8 };
-            row.Children.Add(rule);
-            row.Children.Add(limit);
-            row.Children.Add(bytes);
+            Border row = CreatePolicyFormatCard(label, rule, limit, bytes);
             var editor = new PolicyFormatEditor(name, rule, limit, bytes);
             rule.SelectionChanged += (_, _) => UpdateLimitAvailability(editor);
             limit.SelectionChanged += (_, _) => UpdateLimitAvailability(editor);
@@ -141,6 +139,47 @@ public sealed partial class JournalWindow
             return DefaultClipboardFormatCaptureLimits.StorageItemsMaxBytes;
         }
         return null;
+    }
+
+    /// <summary>
+    /// One format's editors in a card of their own, titled with the format's name, so it is plain
+    /// which action, limit and size belong together (smoke finding З2, 2026-09-24).
+    /// </summary>
+    private static Border CreatePolicyFormatCard(string title, params UIElement[] editors)
+    {
+        var content = new StackPanel { Spacing = 8 };
+        content.Children.Add(new TextBlock
+        {
+            Text = title,
+            Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"],
+            TextWrapping = TextWrapping.Wrap,
+        });
+        foreach (UIElement editor in editors)
+        {
+            content.Children.Add(editor);
+        }
+
+        return new Border
+        {
+            Child = content,
+            Padding = new Thickness(16, 12, 16, 16),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            BorderBrush = FindBrush("CardStrokeColorDefaultBrush")
+                ?? new SolidColorBrush(Microsoft.UI.Colors.Gray) { Opacity = 0.5 },
+            Background = FindBrush("CardBackgroundFillColorDefaultBrush"),
+        };
+    }
+
+    private static Brush? FindBrush(string key) =>
+        Application.Current.Resources.TryGetValue(key, out object? value) ? value as Brush : null;
+
+    /// <summary>The action editor inside a format's card: the card already names the format.</summary>
+    private ComboBox CreatePolicyFormatRuleEditor(string label)
+    {
+        ComboBox rule = CreatePolicyRuleEditor(label);
+        rule.Header = PolicyText("Action");
+        return rule;
     }
 
     private ComboBox CreatePolicyRuleEditor(string label)
@@ -212,7 +251,7 @@ public sealed partial class JournalWindow
             HorizontalAlignment = HorizontalAlignment.Stretch,
             IsEnabled = false,
         };
-        var rule = CreatePolicyRuleEditor(PolicyText("CustomRule"));
+        var rule = CreatePolicyFormatRuleEditor(PolicyText("CustomRule"));
         var limit = CreatePolicyLimitEditor(PolicyText("CustomRule"));
         var bytes = CreatePolicyBytesEditor(PolicyText("CustomRule"));
         var remove = new Button
@@ -220,13 +259,14 @@ public sealed partial class JournalWindow
             Content = PolicyText("RemoveCustomFormat"),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        var row = new StackPanel { Spacing = 8 };
-        row.Children.Add(formatName);
-        row.Children.Add(extension);
-        row.Children.Add(rule);
-        row.Children.Add(limit);
-        row.Children.Add(bytes);
-        row.Children.Add(remove);
+        Border row = CreatePolicyFormatCard(
+            PolicyText("CustomFormat"),
+            formatName,
+            extension,
+            rule,
+            limit,
+            bytes,
+            remove);
 
         var editor = new CustomPolicyFormatEditor(formatName, extension, rule, limit, bytes, row);
         rule.SelectionChanged += (_, _) => UpdateCustomEditorAvailability(editor);
@@ -524,5 +564,5 @@ public sealed partial class JournalWindow
         ComboBox Rule,
         ComboBox Limit,
         TextBox Bytes,
-        StackPanel Row);
+        UIElement Row);
 }

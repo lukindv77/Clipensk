@@ -784,7 +784,6 @@ public sealed partial class JournalWindow
 
         foreach (string formatName in customNames)
         {
-            PolicyFormatEditor format = CreateGroupFormatEditor(formatName, formatName, basePolicy, root);
             mappings.TryGetValue(formatName, out string? mapped);
             var extension = new TextBox
             {
@@ -794,12 +793,12 @@ public sealed partial class JournalWindow
                 Text = mapped ?? string.Empty,
                 IsReadOnly = mapped is not null,
             };
+            PolicyFormatEditor format = CreateGroupFormatEditor(formatName, formatName, basePolicy, root, extension);
             void UpdateExtension() =>
                 extension.IsEnabled =
                     (format.Rule.SelectedItem as PolicyRuleOption)?.Rule == ClipboardCapturePolicyRule.Allow;
             format.Rule.SelectionChanged += (_, _) => UpdateExtension();
             UpdateExtension();
-            root.Children.Add(extension);
             custom.Add(new GroupCustomFormatEditor(format, extension));
         }
 
@@ -810,9 +809,10 @@ public sealed partial class JournalWindow
         string formatName,
         string label,
         ClipboardCapturePolicy basePolicy,
-        StackPanel host)
+        StackPanel host,
+        UIElement? extension = null)
     {
-        ComboBox rule = CreatePolicyRuleEditor(label);
+        ComboBox rule = CreatePolicyFormatRuleEditor(label);
         ComboBox limit = CreatePolicyLimitEditor(label);
         TextBox bytes = CreatePolicyBytesEditor(label);
         var editor = new PolicyFormatEditor(formatName, rule, limit, bytes);
@@ -823,11 +823,9 @@ public sealed partial class JournalWindow
             PopulateStandardPolicyEditor(editor, current);
         }
 
-        var row = new StackPanel { Spacing = 8 };
-        row.Children.Add(rule);
-        row.Children.Add(limit);
-        row.Children.Add(bytes);
-        host.Children.Add(row);
+        host.Children.Add(extension is null
+            ? CreatePolicyFormatCard(label, rule, limit, bytes)
+            : CreatePolicyFormatCard(label, rule, limit, bytes, extension));
         return editor;
     }
 
