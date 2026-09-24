@@ -28,12 +28,38 @@ public partial class App : Application
 
     public App()
     {
-        InitializeComponent();
+        RegisterCrashReporting();
+        try
+        {
+            InitializeComponent();
+        }
+        catch (Exception exception)
+        {
+            ReportStartupFailure(exception);
+            throw;
+        }
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        try
+        {
+            await LaunchAsync();
+        }
+        catch (Exception exception)
+        {
+            // Without this an exception while loading the window's XAML or anywhere in the startup
+            // sequence ends Clipensk without a word.
+            ReportStartupFailure(exception);
+            ReleaseSingleInstance();
+            Exit();
+        }
+    }
+
+    private async Task LaunchAsync()
+    {
         var localization = new ExternalOverlayLocalizationService(new BuiltInRussianLocalizationService());
+        _crashLocalization = localization;
 
         // settings.json lives beside Clipensk.exe (docs/OPEN_QUESTIONS.md §12); a program folder that
         // does not accept new files could never keep the user's settings, so Clipensk does not start.
