@@ -72,3 +72,21 @@ jobs:
           path: artifacts/test-output.txt
           if-no-files-found: warn
           retention-days: 7
+
+  app-startup:
+    # Windows Server 2025 is a Windows 11 class build: an older one would show Clipensk's
+    # unsupported-Windows warning before anything else.
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Start the published app
+        shell: pwsh
+        run: ./eng/verify-app-startup.ps1
