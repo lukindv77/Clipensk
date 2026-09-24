@@ -4,67 +4,149 @@ using Clipensk.Infrastructure.Clipboard;
 using Clipensk.Infrastructure.Localization;
 using Clipensk.Windows;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Graphics.Imaging;
+using Windows.Storage;
+using Windows.Storage.Streams;
 using WindowsClipboard = Windows.ApplicationModel.DataTransfer.Clipboard;
 
 namespace Clipensk.Clipboard.Probe;
 
 /// <summary>
-/// Reads the Windows clipboard the way Clipensk's resident capture does — through
-/// <see cref="ResidentWindowsHost"/>'s capture pipeline, on a thread-pool thread after a capture
-/// request was queued — and reports whether the text put on the clipboard comes back. The raw WinRT
-/// clipboard is also read directly on the STA main thread and on a thread-pool thread, to tell an
-/// apartment problem from a pipeline one. Exit code 0 only when the pipeline read succeeds.
+/// Puts content on the Windows clipboard and reads it back the way Clipensk's resident capture does:
+/// through <see cref="ResidentWindowsHost"/>'s capture pipeline, on a thread-pool thread, after a
+/// capture request was queued. Covers plain text, a web fragment (text and HTML), an image and a file
+/// list. The raw WinRT clipboard is also read directly on the STA main thread and on a thread-pool
+/// thread, to tell an apartment problem from a pipeline one. Exit code 0 only when every pipeline read
+/// returns what was put on the clipboard.
 /// </summary>
 internal static class Program
 {
     private const string ProbeText = "Clipensk clipboard probe";
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
+    private const string HtmlMarker = "Clipensk HTML probe";
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(20);
+    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     [STAThread]
     private static int Main()
     {
-        var package = new DataPackage();
-        package.SetText(ProbeText);
-        WindowsClipboard.SetContent(package);
-        WindowsClipboard.Flush();
         Console.WriteLine($"Main thread apartment: {Thread.CurrentThread.GetApartmentState()}");
 
-        Report("WinRT clipboard, STA main thread", ReadDirectlyAsync());
-        Report("WinRT clipboard, thread-pool thread", Task.Run(ReadDirectlyAsync));
-        bool pipeline = Report("Clipensk capture pipeline, thread-pool thread (as the resident worker)", ReadThroughPipelineAsync());
-        return pipeline ? 0 : 1;
-    }
+        PutOnClipboard(package => package.SetText(ProbeText));
+        Report("WinRT clipboard, STA main thread (diagnostic)", ReadTextDirectlyAsync(), static text => text == ProbeText);
+        Report("WinRT clipboard, thread-pool thread (diagnostic)", Task.Run(ReadTextDirectlyAsync), static text => text == ProbeText);
 
-    private static async Task<string> ReadDirectlyAsync()
-    {
-        DataPackageView content = WindowsClipboard.GetContent();
-        return await content.GetTextAsync();
-    }
-
-    private static async Task<string> ReadThroughPipelineAsync()
-    {
         using var host = new ResidentWindowsHost(
             new HtmlAgilityPackClipboardHtmlSearchTextConverter(),
             new ManagedClipboardRtfSearchTextConverter(),
             new BuiltInRussianLocalizationService());
         ClipboardCaptureReadExecutionPipeline pipeline =
-            host.CreateCaptureReadExecutionPipeline(new AllowTextPolicyProvider());
-        if (!host.CaptureQueue.TryEnqueue(new ClipboardCaptureRequest(EventTimeContext.CaptureNow())))
-        {
-            throw new InvalidOperationException("The capture request was not queued.");
-        }
+            host.CreateCaptureReadExecutionPipeline(new AllowProbeFormatsPolicyProvider());
 
-        // The resident worker runs the pipeline on the thread pool (App.ClipboardWorker.cs).
-        ClipboardContentReadExecution execution = await Task.Run(
-            async () => await pipeline.ProcessNextAsync().ConfigureAwait(false));
-        ClipboardCapturedTextContent? text = execution.CapturedContent
-            .OfType<ClipboardCapturedTextContent>()
-            .FirstOrDefault();
-        return text?.Value ?? throw new InvalidOperationException(
-            $"No text captured; formats: {string.Join(", ", execution.Plan.Selection.Formats.Select(static f => f.FormatName))}.");
+        bool passed = true;
+
+        PutOnClipboard(package => package.SetText(ProbeText));
+        passed &= Report(
+            "Pipeline: plain text",
+            ReadThroughPipeline(host, pipeline),
+            static execution => execution.CapturedContent.OfType<ClipboardCapturedTextContent>()
+                .Any(static text => text.Value == ProbeText));
+
+        PutOnClipboard(package =>
+        {
+            package.SetText(ProbeText);
+            package.SetHtmlFormat(HtmlFormatHelper.CreateHtmlFormat($"<p><b>{HtmlMarker}</b></p>"));
+        });
+        passed &= Report(
+            "Pipeline: web fragment (text and HTML)",
+            ReadThroughPipeline(host, pipeline),
+            static execution =>
+                execution.CapturedContent.OfType<ClipboardCapturedTextContent>().Any(static text => text.Value == ProbeText) &&
+                execution.CapturedContent.OfType<ClipboardCapturedTextContent>().Any(static text => text.Value.Contains(HtmlMarker, StringComparison.Ordinal)));
+
+        InMemoryRandomAccessStream image = CreatePng();
+        PutOnClipboard(package => package.SetBitmap(RandomAccessStreamReference.CreateFromStream(image)));
+        passed &= Report(
+            "Pipeline: image",
+            ReadThroughPipeline(host, pipeline),
+            static execution => execution.CapturedContent.OfType<ClipboardCapturedPngImageContent>()
+                .Any(static png => png.PngBytes.Span.StartsWith(PngSignature)));
+
+        string directory = Path.Combine(Path.GetTempPath(), "clipensk-probe-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string first = Path.Combine(directory, "first.txt");
+        string second = Path.Combine(directory, "second.txt");
+        File.WriteAllText(first, "first");
+        File.WriteAllText(second, "second");
+        IStorageItem[] files =
+        [
+            Wait(StorageFile.GetFileFromPathAsync(first).AsTask()),
+            Wait(StorageFile.GetFileFromPathAsync(second).AsTask()),
+        ];
+        PutOnClipboard(package => package.SetStorageItems(files));
+        passed &= Report(
+            "Pipeline: file list",
+            ReadThroughPipeline(host, pipeline),
+            execution => execution.CapturedContent.OfType<ClipboardCapturedStorageItemsContent>()
+                .Any(items =>
+                    items.CanonicalRepresentation.Contains(first, StringComparison.OrdinalIgnoreCase) &&
+                    items.CanonicalRepresentation.Contains(second, StringComparison.OrdinalIgnoreCase)));
+
+        Console.WriteLine(passed ? "Clipboard probe PASS." : "Clipboard probe FAIL.");
+        return passed ? 0 : 1;
     }
 
-    private static bool Report(string name, Task<string> read)
+    /// <summary>Puts a package on the clipboard from the STA main thread and renders it.</summary>
+    private static void PutOnClipboard(Action<DataPackage> fill)
+    {
+        var package = new DataPackage();
+        fill(package);
+        WindowsClipboard.SetContent(package);
+        WindowsClipboard.Flush();
+    }
+
+    private static async Task<string> ReadTextDirectlyAsync()
+    {
+        DataPackageView content = WindowsClipboard.GetContent();
+        return await content.GetTextAsync();
+    }
+
+    /// <summary>Queues a capture request and runs the pipeline on the thread pool, as the resident worker does.</summary>
+    private static Task<ClipboardContentReadExecution> ReadThroughPipeline(
+        ResidentWindowsHost host,
+        ClipboardCaptureReadExecutionPipeline pipeline)
+    {
+        if (!host.CaptureQueue.TryEnqueue(new ClipboardCaptureRequest(EventTimeContext.CaptureNow())))
+        {
+            return Task.FromException<ClipboardContentReadExecution>(
+                new InvalidOperationException("The capture request was not queued."));
+        }
+
+        return Task.Run(async () => await pipeline.ProcessNextAsync().ConfigureAwait(false));
+    }
+
+    private static InMemoryRandomAccessStream CreatePng()
+    {
+        var stream = new InMemoryRandomAccessStream();
+        using var bitmap = new SoftwareBitmap(BitmapPixelFormat.Bgra8, 4, 4, BitmapAlphaMode.Premultiplied);
+        BitmapEncoder encoder = Wait(BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream).AsTask());
+        encoder.SetSoftwareBitmap(bitmap);
+        Wait(encoder.FlushAsync().AsTask());
+        stream.Seek(0);
+        return stream;
+    }
+
+    private static T Wait<T>(Task<T> task) =>
+        task.Wait(Timeout) ? task.Result : throw new TimeoutException("Probe setup did not finish.");
+
+    private static void Wait(Task task)
+    {
+        if (!task.Wait(Timeout))
+        {
+            throw new TimeoutException("Probe setup did not finish.");
+        }
+    }
+
+    private static bool Report<T>(string name, Task<T> read, Func<T, bool> check)
     {
         try
         {
@@ -74,10 +156,8 @@ internal static class Program
                 return false;
             }
 
-            bool ok = read.Result == ProbeText;
-            Console.WriteLine(ok
-                ? $"PASS  {name}: read the probe text."
-                : $"FAIL  {name}: read '{read.Result}'.");
+            bool ok = check(read.Result);
+            Console.WriteLine(ok ? $"PASS  {name}." : $"FAIL  {name}: {Describe(read.Result)}");
             return ok;
         }
         catch (AggregateException exception)
@@ -89,8 +169,19 @@ internal static class Program
         }
     }
 
-    private sealed class AllowTextPolicyProvider : IClipboardCapturePolicyProvider
+    private static string Describe(object? result) => result switch
     {
+        ClipboardContentReadExecution execution =>
+            $"captured [{string.Join(", ", execution.CapturedContent.Select(static content => content.SelectedFormat.FormatName))}], " +
+            $"selected [{string.Join(", ", execution.Plan.Selection.Formats.Select(static format => format.FormatName))}], " +
+            $"available [{string.Join(", ", execution.Plan.Selection.Snapshot.AvailableFormats)}]",
+        _ => $"read '{result}'",
+    };
+
+    private sealed class AllowProbeFormatsPolicyProvider : IClipboardCapturePolicyProvider
+    {
+        private const long Limit = 16 * 1024 * 1024;
+
         public ValueTask<ClipboardCapturePolicySet> GetPoliciesAsync(
             ClipboardCaptureContext captureContext,
             CancellationToken cancellationToken = default) =>
@@ -98,7 +189,10 @@ internal static class Program
                 ClipboardCapturePolicyRule.Allow,
                 new Dictionary<string, ClipboardFormatCapturePolicy>(StringComparer.Ordinal)
                 {
-                    [StandardDataFormats.Text] = new(ClipboardCapturePolicyRule.Allow, 1024 * 1024),
+                    [StandardDataFormats.Text] = new(ClipboardCapturePolicyRule.Allow, Limit),
+                    [StandardDataFormats.Html] = new(ClipboardCapturePolicyRule.Allow, Limit),
+                    [StandardDataFormats.Bitmap] = new(ClipboardCapturePolicyRule.Allow, Limit),
+                    [StandardDataFormats.StorageItems] = new(ClipboardCapturePolicyRule.Allow, Limit),
                 })));
     }
 }

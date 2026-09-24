@@ -5,16 +5,32 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardLinkContentReader : IClipboardLinkContentReader
 {
+    private readonly ClipboardStaThread _clipboardThread;
+
+    public WindowsClipboardLinkContentReader(ClipboardStaThread clipboardThread)
+    {
+        _clipboardThread = clipboardThread ?? throw new ArgumentNullException(nameof(clipboardThread));
+    }
+
     public bool SupportsFormat(string formatName)
     {
         return string.Equals(formatName, StandardDataFormats.WebLink, StringComparison.Ordinal)
             || string.Equals(formatName, StandardDataFormats.ApplicationLink, StringComparison.Ordinal);
     }
 
-    public async ValueTask<Uri> ReadAsync(
+    public ValueTask<Uri> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
         string formatName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        new(_clipboardThread.RunAsync(
+            () => ReadOnClipboardThreadAsync(contentSnapshot, formatName, cancellationToken),
+            cancellationToken));
+
+    // Runs on the clipboard thread: every await resumes there, as the clipboard objects require.
+    private async Task<Uri> ReadOnClipboardThreadAsync(
+        IClipboardContentSnapshot contentSnapshot,
+        string formatName,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
@@ -43,13 +59,11 @@ internal sealed class WindowsClipboardLinkContentReader : IClipboardLinkContentR
         {
             return await windowsSnapshot.Content
                 .GetWebLinkAsync()
-                .AsTask(cancellationToken)
-                .ConfigureAwait(false);
+                .AsTask(cancellationToken);
         }
 
         return await windowsSnapshot.Content
             .GetApplicationLinkAsync()
-            .AsTask(cancellationToken)
-            .ConfigureAwait(false);
+            .AsTask(cancellationToken);
     }
 }

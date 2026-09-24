@@ -6,9 +6,21 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardFormatSnapshotReader : IClipboardFormatSnapshotReader
 {
-    public IClipboardContentSnapshot ReadSnapshot()
+    private readonly ClipboardStaThread _clipboardThread;
+
+    public WindowsClipboardFormatSnapshotReader(ClipboardStaThread clipboardThread)
     {
-        DataPackageView content = WindowsClipboard.GetContent();
-        return new WindowsClipboardContentSnapshot(content);
+        _clipboardThread = clipboardThread ?? throw new ArgumentNullException(nameof(clipboardThread));
     }
+
+    /// <summary>
+    /// Takes the snapshot on the clipboard thread: the view it holds is bound to that thread's
+    /// apartment, and the content readers read it there too.
+    /// </summary>
+    public IClipboardContentSnapshot ReadSnapshot() =>
+        _clipboardThread.Run(() =>
+        {
+            DataPackageView content = WindowsClipboard.GetContent();
+            return (IClipboardContentSnapshot)new WindowsClipboardContentSnapshot(content);
+        });
 }

@@ -6,10 +6,14 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardPngImageContentReader : IClipboardPngImageContentReader
 {
+    private readonly ClipboardStaThread _clipboardThread;
     private readonly PngImageNormalizer _normalizer;
 
-    public WindowsClipboardPngImageContentReader(PngImageNormalizer? normalizer = null)
+    public WindowsClipboardPngImageContentReader(
+        ClipboardStaThread clipboardThread,
+        PngImageNormalizer? normalizer = null)
     {
+        _clipboardThread = clipboardThread ?? throw new ArgumentNullException(nameof(clipboardThread));
         _normalizer = normalizer ?? new PngImageNormalizer();
     }
 
@@ -18,10 +22,19 @@ internal sealed class WindowsClipboardPngImageContentReader : IClipboardPngImage
         return string.Equals(formatName, StandardDataFormats.Bitmap, StringComparison.Ordinal);
     }
 
-    public async ValueTask<byte[]> ReadNormalizedPngAsync(
+    public ValueTask<byte[]> ReadNormalizedPngAsync(
         IClipboardContentSnapshot contentSnapshot,
         string formatName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        new(_clipboardThread.RunAsync(
+            () => ReadNormalizedPngOnClipboardThreadAsync(contentSnapshot, formatName, cancellationToken),
+            cancellationToken));
+
+    // Runs on the clipboard thread: every await resumes there, as the clipboard objects require.
+    private async Task<byte[]> ReadNormalizedPngOnClipboardThreadAsync(
+        IClipboardContentSnapshot contentSnapshot,
+        string formatName,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
@@ -48,14 +61,11 @@ internal sealed class WindowsClipboardPngImageContentReader : IClipboardPngImage
 
         RandomAccessStreamReference bitmapReference = await windowsSnapshot.Content
             .GetBitmapAsync()
-            .AsTask(cancellationToken)
-            .ConfigureAwait(false);
+            .AsTask(cancellationToken);
         using IRandomAccessStreamWithContentType bitmapStream = await bitmapReference
             .OpenReadAsync()
-            .AsTask(cancellationToken)
-            .ConfigureAwait(false);
+            .AsTask(cancellationToken);
         return await _normalizer
-            .NormalizeAsync(bitmapStream, cancellationToken)
-            .ConfigureAwait(false);
+            .NormalizeAsync(bitmapStream, cancellationToken);
     }
 }

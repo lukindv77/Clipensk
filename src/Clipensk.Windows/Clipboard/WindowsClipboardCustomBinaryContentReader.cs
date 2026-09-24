@@ -5,16 +5,33 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardCustomBinaryContentReader : IClipboardCustomBinaryContentReader
 {
+    private readonly ClipboardStaThread _clipboardThread;
+
+    public WindowsClipboardCustomBinaryContentReader(ClipboardStaThread clipboardThread)
+    {
+        _clipboardThread = clipboardThread ?? throw new ArgumentNullException(nameof(clipboardThread));
+    }
+
     public bool SupportsFormat(string formatName)
     {
         return !string.IsNullOrWhiteSpace(formatName);
     }
 
-    public async ValueTask<byte[]?> ReadWithinLimitAsync(
+    public ValueTask<byte[]?> ReadWithinLimitAsync(
         IClipboardContentSnapshot contentSnapshot,
         string formatName,
         long? maxBytes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        new(_clipboardThread.RunAsync(
+            () => ReadWithinLimitOnClipboardThreadAsync(contentSnapshot, formatName, maxBytes, cancellationToken),
+            cancellationToken));
+
+    // Runs on the clipboard thread: every await resumes there, as the clipboard objects require.
+    private async Task<byte[]?> ReadWithinLimitOnClipboardThreadAsync(
+        IClipboardContentSnapshot contentSnapshot,
+        string formatName,
+        long? maxBytes,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
@@ -39,8 +56,7 @@ internal sealed class WindowsClipboardCustomBinaryContentReader : IClipboardCust
 
         object value = await windowsSnapshot.Content
             .GetDataAsync(formatName)
-            .AsTask(cancellationToken)
-            .ConfigureAwait(false);
+            .AsTask(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (value is not IRandomAccessStream stream)
@@ -72,8 +88,7 @@ internal sealed class WindowsClipboardCustomBinaryContentReader : IClipboardCust
             using var reader = new DataReader(stream.GetInputStreamAt(0));
             uint loaded = await reader
                 .LoadAsync((uint)bytes.Length)
-                .AsTask(cancellationToken)
-                .ConfigureAwait(false);
+                .AsTask(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
 
             if (loaded != bytes.Length)

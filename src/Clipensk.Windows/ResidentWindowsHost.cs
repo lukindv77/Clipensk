@@ -15,6 +15,7 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
     private readonly GlobalHotKeyService _hotKeyService;
     private readonly ClipboardUpdateMonitor _clipboardMonitor;
     private readonly WindowsTrayIconService _trayIconService;
+    private readonly ClipboardStaThread _clipboardThread;
     private bool _disposed;
 
     public ResidentWindowsHost(
@@ -27,19 +28,20 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
         ArgumentNullException.ThrowIfNull(localization);
 
         _messageWindow = new ResidentMessageWindow();
+        _clipboardThread = new ClipboardStaThread();
         _trayIconService = new WindowsTrayIconService(_messageWindow, localization);
         CaptureQueue = new ClipboardCaptureQueue();
         CaptureSourceStage = new ClipboardCaptureSourceStage(
             CaptureQueue,
             new WindowsClipboardSourceApplicationResolver());
         FormatDiscoveryStage = new ClipboardFormatDiscoveryStage(
-            new WindowsClipboardFormatSnapshotReader());
+            new WindowsClipboardFormatSnapshotReader(_clipboardThread));
         FormatSelectionStage = new ClipboardFormatSelectionStage();
-        TextContentReader = new WindowsClipboardTextContentReader();
-        PngImageContentReader = new WindowsClipboardPngImageContentReader();
-        LinkContentReader = new WindowsClipboardLinkContentReader();
-        StorageItemsContentReader = new WindowsClipboardStorageItemsContentReader();
-        CustomBinaryContentReader = new WindowsClipboardCustomBinaryContentReader();
+        TextContentReader = new WindowsClipboardTextContentReader(_clipboardThread);
+        PngImageContentReader = new WindowsClipboardPngImageContentReader(_clipboardThread);
+        LinkContentReader = new WindowsClipboardLinkContentReader(_clipboardThread);
+        StorageItemsContentReader = new WindowsClipboardStorageItemsContentReader(_clipboardThread);
+        CustomBinaryContentReader = new WindowsClipboardCustomBinaryContentReader(_clipboardThread);
         TextSearchTextExtractor = new WindowsClipboardTextSearchTextExtractor(
             htmlSearchTextConverter,
             rtfSearchTextConverter);
@@ -394,6 +396,7 @@ public sealed class ResidentWindowsHost : IDisposable, IClipboardAcceptedCapture
         _hotKeyService.Dispose();
         _trayIconService.Dispose();
         _messageWindow.Dispose();
+        _clipboardThread.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
     }

@@ -6,15 +6,31 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardStorageItemsContentReader : IClipboardStorageItemsContentReader
 {
+    private readonly ClipboardStaThread _clipboardThread;
+
+    public WindowsClipboardStorageItemsContentReader(ClipboardStaThread clipboardThread)
+    {
+        _clipboardThread = clipboardThread ?? throw new ArgumentNullException(nameof(clipboardThread));
+    }
+
     public bool SupportsFormat(string formatName)
     {
         return string.Equals(formatName, StandardDataFormats.StorageItems, StringComparison.Ordinal);
     }
 
-    public async ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
+    public ValueTask<IReadOnlyList<ClipboardStorageItemMetadata>> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
         string formatName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        new(_clipboardThread.RunAsync(
+            () => ReadOnClipboardThreadAsync(contentSnapshot, formatName, cancellationToken),
+            cancellationToken));
+
+    // Runs on the clipboard thread: every await resumes there, as the clipboard objects require.
+    private async Task<IReadOnlyList<ClipboardStorageItemMetadata>> ReadOnClipboardThreadAsync(
+        IClipboardContentSnapshot contentSnapshot,
+        string formatName,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
@@ -41,8 +57,7 @@ internal sealed class WindowsClipboardStorageItemsContentReader : IClipboardStor
 
         IReadOnlyList<IStorageItem> storageItems = await windowsSnapshot.Content
             .GetStorageItemsAsync()
-            .AsTask(cancellationToken)
-            .ConfigureAwait(false);
+            .AsTask(cancellationToken);
         ClipboardPreferredFileOperation preferredOperation = MapPreferredOperation(
             windowsSnapshot.Content.RequestedOperation);
         var result = new ClipboardStorageItemMetadata[storageItems.Count];

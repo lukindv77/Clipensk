@@ -5,6 +5,13 @@ namespace Clipensk.Windows.Clipboard;
 
 internal sealed class WindowsClipboardTextContentReader : IClipboardTextContentReader
 {
+    private readonly ClipboardStaThread _clipboardThread;
+
+    public WindowsClipboardTextContentReader(ClipboardStaThread clipboardThread)
+    {
+        _clipboardThread = clipboardThread ?? throw new ArgumentNullException(nameof(clipboardThread));
+    }
+
     public bool SupportsFormat(string formatName)
     {
         return string.Equals(formatName, StandardDataFormats.Text, StringComparison.Ordinal)
@@ -12,10 +19,19 @@ internal sealed class WindowsClipboardTextContentReader : IClipboardTextContentR
             || string.Equals(formatName, StandardDataFormats.Rtf, StringComparison.Ordinal);
     }
 
-    public async ValueTask<string> ReadAsync(
+    public ValueTask<string> ReadAsync(
         IClipboardContentSnapshot contentSnapshot,
         string formatName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        new(_clipboardThread.RunAsync(
+            () => ReadOnClipboardThreadAsync(contentSnapshot, formatName, cancellationToken),
+            cancellationToken));
+
+    // Runs on the clipboard thread: every await resumes there, as the clipboard objects require.
+    private async Task<string> ReadOnClipboardThreadAsync(
+        IClipboardContentSnapshot contentSnapshot,
+        string formatName,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(contentSnapshot);
         ArgumentException.ThrowIfNullOrWhiteSpace(formatName);
