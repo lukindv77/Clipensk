@@ -52,6 +52,60 @@ public sealed class ClipboardAcceptedCaptureWorkerTests
     }
 
     [Fact]
+    public async Task RunAsync_ReportsFailedCaptureAndGoesOnWhenReportingFails()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var failure = new InvalidDataException("Rejected capture.");
+        var reported = new List<Exception>();
+        int deliveryCallCount = 0;
+        var delivery = new DelegateDelivery(cancellationToken =>
+        {
+            if (++deliveryCallCount <= 2)
+            {
+                return Task.FromException<bool>(failure);
+            }
+
+            cancellation.Cancel();
+            return Task.FromResult(true);
+        });
+        var worker = new ClipboardAcceptedCaptureWorker(
+            delivery,
+            exception =>
+            {
+                reported.Add(exception);
+                throw new IOException("The log cannot be written.");
+            });
+
+        await worker.RunAsync(cancellation.Token).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(3, deliveryCallCount);
+        Assert.Equal([failure, failure], reported);
+    }
+
+    [Fact]
+    public async Task RunAsync_CancellationIsNotReportedAsFailure()
+    {
+        var entered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var delivery = new DelegateDelivery(async cancellationToken =>
+        {
+            entered.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return true;
+        });
+        int reported = 0;
+        var worker = new ClipboardAcceptedCaptureWorker(delivery, _ => reported++);
+        using var cancellation = new CancellationTokenSource();
+
+        Task run = worker.RunAsync(cancellation.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await run.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, reported);
+    }
+
+    [Fact]
     public async Task RunAsync_ProcessesOnlyOneCaptureAtATime()
     {
         using var cancellation = new CancellationTokenSource();

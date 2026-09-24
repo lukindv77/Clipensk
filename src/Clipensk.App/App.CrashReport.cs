@@ -18,6 +18,10 @@ public partial class App
 {
     internal const string ErrorLogFileName = "error.log";
 
+    private const int MaxLoggedCaptureFailureKinds = 20;
+
+    private static readonly HashSet<string> LoggedCaptureFailureKinds = new(StringComparer.Ordinal);
+
     private static ILocalizationService? _crashLocalization;
 
     private void RegisterCrashReporting()
@@ -38,6 +42,26 @@ public partial class App
 
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e) =>
         TryWriteErrorLog("TaskScheduler.UnobservedTaskException", e.Exception);
+
+    /// <summary>
+    /// A clipboard capture failed and its record was dropped; resident capture goes on. The first
+    /// failure of each kind (exception type and HRESULT) in this run is logged — never the content —
+    /// so a capture that keeps failing is visible without the log growing with every copy.
+    /// </summary>
+    private static void ReportCaptureFailure(Exception exception)
+    {
+        string kind = $"{exception.GetType().FullName}:{exception.HResult:X8}";
+        lock (LoggedCaptureFailureKinds)
+        {
+            if (LoggedCaptureFailureKinds.Count >= MaxLoggedCaptureFailureKinds ||
+                !LoggedCaptureFailureKinds.Add(kind))
+            {
+                return;
+            }
+        }
+
+        TryWriteErrorLog("Capture", exception, "A clipboard capture failed; its record was not saved.");
+    }
 
     /// <summary>Clipensk could not start: the reason is logged and shown, and the caller exits.</summary>
     private static void ReportStartupFailure(Exception exception)

@@ -140,7 +140,7 @@ public partial class App
                 }
             });
 
-            var worker = new ClipboardAcceptedCaptureWorker(services.Delivery);
+            var worker = new ClipboardAcceptedCaptureWorker(services.Delivery, ReportCaptureFailure);
             await worker.RunAsync(workerToken).ConfigureAwait(false);
         }
         finally
