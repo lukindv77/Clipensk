@@ -73,6 +73,15 @@ public sealed class SqliteApplicationIdentityRepository :
         {
             using (SqliteTransaction transaction = connection.BeginTransaction())
             {
+                // A path already known in another letter case is the same Windows file: creating a
+                // second identity for it would be a duplicate the primary key cannot see.
+                ApplicationIdentityAliasLookup existing = FindAliases(connection, observation, token, transaction);
+                if (existing.ApplicationUserModelIdApplicationId is not null ||
+                    existing.ExecutablePathApplicationId is not null)
+                {
+                    throw CreateConflict(observation, existing);
+                }
+
                 InsertApplication(connection, transaction, applicationId, createdAtUtc);
 
                 if (!string.IsNullOrWhiteSpace(observation.ApplicationUserModelId))
@@ -130,29 +139,32 @@ public sealed class SqliteApplicationIdentityRepository :
 
         using SqliteConnection connection = OpenValidatedCurrent(SqliteOpenMode.ReadWrite, token);
 
-        ApplicationId? existing = FindAlias(
-            connection,
-            ApplicationIdentitySqlSchema.ExecutablePathAliasType,
-            executablePath,
-            token);
-        if (existing is not null)
-        {
-            if (existing == applicationId)
-            {
-                return ValueTask.CompletedTask;
-            }
-
-            throw new ApplicationIdentityConflictException(
-                new ApplicationIdentityObservation(null, executablePath),
-                applicationUserModelIdApplicationId: null,
-                executablePathApplicationId: existing);
-        }
-
         string createdAtUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         try
         {
             using (SqliteTransaction transaction = connection.BeginTransaction())
             {
+                // Checked inside the write transaction: the path may already be bound in another
+                // letter case, which the primary key does not catch.
+                ApplicationId? existing = FindAlias(
+                    connection,
+                    ApplicationIdentitySqlSchema.ExecutablePathAliasType,
+                    executablePath,
+                    token,
+                    transaction);
+                if (existing is not null)
+                {
+                    if (existing == applicationId)
+                    {
+                        return ValueTask.CompletedTask;
+                    }
+
+                    throw new ApplicationIdentityConflictException(
+                        new ApplicationIdentityObservation(null, executablePath),
+                        applicationUserModelIdApplicationId: null,
+                        executablePathApplicationId: existing);
+                }
+
                 InsertAlias(
                     connection,
                     transaction,
@@ -363,7 +375,8 @@ public sealed class SqliteApplicationIdentityRepository :
     private static ApplicationIdentityAliasLookup FindAliases(
         SqliteConnection connection,
         ApplicationIdentityObservation observation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ApplicationId? aumid = string.IsNullOrWhiteSpace(observation.ApplicationUserModelId)
@@ -372,7 +385,8 @@ public sealed class SqliteApplicationIdentityRepository :
                 connection,
                 ApplicationIdentitySqlSchema.AumidAliasType,
                 observation.ApplicationUserModelId,
-                cancellationToken);
+                cancellationToken,
+                transaction);
 
         ApplicationId? path = string.IsNullOrWhiteSpace(observation.ExecutablePath)
             ? null
@@ -380,19 +394,29 @@ public sealed class SqliteApplicationIdentityRepository :
                 connection,
                 ApplicationIdentitySqlSchema.ExecutablePathAliasType,
                 observation.ExecutablePath,
-                cancellationToken);
+                cancellationToken,
+                transaction);
 
         return new ApplicationIdentityAliasLookup(aumid, path);
     }
 
+    /// <summary>
+    /// An AUMID alias matches exactly. An executable path alias matches as Windows compares file
+    /// paths — ignoring letter case (user decision 2026-09-24, <c>docs/OPEN_QUESTIONS.md</c> §13):
+    /// the exact spelling first, through the primary key, then any spelling that differs only in
+    /// case. Should several identities already hold such spellings (created before this rule), the
+    /// earliest created one wins, so the answer is stable.
+    /// </summary>
     private static ApplicationId? FindAlias(
         SqliteConnection connection,
         string aliasType,
         string aliasValue,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT ApplicationId
             FROM ApplicationIdentityAlias
@@ -405,9 +429,61 @@ public sealed class SqliteApplicationIdentityRepository :
         cancellationToken.ThrowIfCancellationRequested();
         if (value is null or DBNull)
         {
-            return null;
+            return string.Equals(aliasType, ApplicationIdentitySqlSchema.ExecutablePathAliasType, StringComparison.Ordinal)
+                ? FindExecutablePathIgnoringCase(connection, aliasValue, cancellationToken, transaction)
+                : null;
         }
 
+        return ParseAliasApplicationId(value);
+    }
+
+    private static ApplicationId? FindExecutablePathIgnoringCase(
+        SqliteConnection connection,
+        string executablePath,
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction)
+    {
+        // SQLite's NOCASE folds ASCII only; paths are compared here the way .NET folds case, which
+        // also covers non-ASCII folder names such as a Cyrillic user profile.
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT a.AliasValue, a.ApplicationId, i.CreatedAtUtc
+            FROM ApplicationIdentityAlias AS a
+            JOIN ApplicationIdentity AS i ON i.ApplicationId = a.ApplicationId
+            WHERE a.AliasType = $aliasType;
+            """;
+        command.Parameters.AddWithValue("$aliasType", ApplicationIdentitySqlSchema.ExecutablePathAliasType);
+
+        ApplicationId? best = null;
+        DateTimeOffset bestCreatedAtUtc = default;
+        using SqliteDataReader reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.Equals(reader.GetString(0), executablePath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            ApplicationId candidate = ParseAliasApplicationId(reader.GetValue(1));
+            DateTimeOffset createdAtUtc = ParsePersistedCreatedAtUtc(reader.GetString(2));
+            if (best is null ||
+                createdAtUtc < bestCreatedAtUtc ||
+                (createdAtUtc == bestCreatedAtUtc &&
+                 string.CompareOrdinal(candidate.ToString(), best.ToString()) < 0))
+            {
+                best = candidate;
+                bestCreatedAtUtc = createdAtUtc;
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return best;
+    }
+
+    private static ApplicationId ParseAliasApplicationId(object? value)
+    {
         if (value is not string text ||
             !Guid.TryParse(text, out Guid applicationId) ||
             applicationId == Guid.Empty)

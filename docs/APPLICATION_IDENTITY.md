@@ -27,11 +27,13 @@
 
 ## 4. Unpackaged Win32 applications
 
-Для процесса без AUMID exact executable path, полученный runtime resolver-ом, допускается как resolution alias, но не как durable key.
+Для процесса без AUMID executable path, полученный runtime resolver-ом, допускается как resolution alias, но не как durable key.
 
-На текущем contract boundary path alias сравнивается как точное наблюдаемое строковое значение. Registry не должен молча вводить case-folding, path rewriting, symlink/final-path equivalence или install-location heuristics как доказательство тождества приложений. Более широкая canonicalization может быть добавлена только отдельным решением с conflict semantics.
+Path alias сравнивается так, как Windows сравнивает пути файлов, — **без учёта регистра букв** (решение пользователя 2026-09-24, `OPEN_QUESTIONS.md` §13): `C:\Program Files\…\chrome.exe` и `C:\PROGRAM FILES\…\chrome.exe` — одно приложение. Windows возвращает путь процесса в том написании, каким его запустили, поэтому одна программа, запущенная из ярлыка и, например, после своего обновления, приходит в разных написаниях. Сравнение — `StringComparison.OrdinalIgnoreCase` (.NET), а не `NOCASE` SQLite, который складывает только ASCII: папки с кириллицей в пути сравниваются так же. Сохраняется первое увиденное написание; другие написания новых псевдонимов не создают. Кроме регистра, путь не нормализуется: registry не вводит path rewriting, symlink/final-path equivalence или install-location heuristics как доказательство тождества приложений. Более широкая canonicalization может быть добавлена только отдельным решением с conflict semantics. AUMID сравнивается точно.
 
-При первом наблюдении незнакомого path registry может создать новый `ApplicationId` и связать с ним этот exact path alias. Повторное наблюдение того же exact alias возвращает тот же `ApplicationId`.
+Правило в хранилище (`SqliteApplicationIdentityRepository`): сначала точное совпадение по первичному ключу псевдонима, затем — любое написание, отличающееся только регистром. Создание identity и привязка пути проверяют это внутри той же транзакции записи, поэтому второе написание не создаёт дубль и не привязывается к другой identity (конфликт). Дубли, созданные до решения, не объединяются автоматически: точное написание находит свою identity, иное написание — самую раннюю по времени создания; объединить их можно переносом в одну группу (§9).
+
+При первом наблюдении незнакомого path registry может создать новый `ApplicationId` и связать с ним этот path alias. Повторное наблюдение того же пути (в любом регистре) возвращает тот же `ApplicationId`.
 
 Перемещение, переименование или иное изменение наблюдаемого executable path **не** должно автоматически считаться тем же приложением. Новый path является новым identity candidate. Пользователь может явно перенести его в ту же группу, что и прежнюю identity (§9), либо в будущем может появиться отдельно утверждённый equivalence mechanism.
 
@@ -49,12 +51,12 @@
 - install directory prefix;
 - PID/process lifetime;
 - HWND;
-- изменению регистра/формы path, если это не покрыто отдельным alias-canonicalization contract;
+- изменению формы path (кроме регистра букв — см. §4), если это не покрыто отдельным alias-canonicalization contract;
 - внутреннему Windows heuristic AppUserModelID, который Clipensk не может надёжно наблюдать как стабильный contract.
 
 Эти признаки в будущем могут использоваться как UI hints для ручного переноса в группу (§9), но не как silent durable equivalence.
 
-Так уже сделано для одинаковых имён: если в одном списке у двух приложений совпадает отображаемое имя (например, `chrome.exe` дважды), у каждого в скобках показывается путь (или AUMID), по которому оно распознано (`ApplicationDisplayName.ForList`, замечание З6 от 2026-09-24). Объединения при этом не происходит; сравнение путей без учёта регистра — открытый вопрос (`OPEN_QUESTIONS.md` §13).
+Так уже сделано для одинаковых имён: если в одном списке у двух приложений совпадает отображаемое имя (например, `chrome.exe` дважды), у каждого в скобках показывается путь (или AUMID), по которому оно распознано (`ApplicationDisplayName.ForList`, замечание З6 от 2026-09-24). Объединения при этом не происходит. С 2026-09-24 пути сравниваются без учёта регистра (§4), так что новые дубли по регистру не появляются; подсказка остаётся для двух разных установок и для дублей, созданных до этого.
 
 ## 6. Registry result
 
@@ -72,13 +74,13 @@
 - если AUMID и path уже связаны с разными `ApplicationId`, выбрасывается `ApplicationIdentityConflictException`;
 - новый AUMID не привязывается автоматически к path, уже принадлежащему другой identity;
 - известному AUMID можно добавить ранее неизвестный path alias, если repository подтверждает uniqueness;
-- path-only observation использует существующий exact path alias либо создаёт новую identity.
+- path-only observation использует существующий path alias (без учёта регистра) либо создаёт новую identity.
 
 ## 7. Persistence implication
 
 `ApplicationId` уже является concrete durable FK boundary для защищённых данных Current.
 
-- Current v2+ хранит `ApplicationIdentity` и exact aliases.
+- Current v2+ хранит `ApplicationIdentity` и aliases; путь хранится в первом увиденном написании и сравнивается без учёта регистра (§4).
 - Current v3–v11 хранили индивидуальные capture policy overrides через FK на `ApplicationId`; с Current v12 настройки принадлежат группам (§9), членство хранится через FK на `ApplicationId`.
 - `storage-catalog.db` не является source of truth для identity или policy.
 - runtime `ClipboardSourceApplication` не передаётся в policy repository как ключ: capture pipeline сначала разрешает durable `SourceApplicationId`, и только после этого выполняется lookup policy его группы.

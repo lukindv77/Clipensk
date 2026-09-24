@@ -18,7 +18,7 @@ Current v2 добавила Clipensk-owned durable application identity:
 
 - `ApplicationIdentity(ApplicationId, CreatedAtUtc)`;
 - `ApplicationIdentityAlias(AliasType, AliasValue, ApplicationId, CreatedAtUtc)`;
-- exact alias uniqueness и FK `ON DELETE CASCADE`.
+- exact alias uniqueness (первичный ключ) и FK `ON DELETE CASCADE`. Для `ExecutablePath` репозиторий дополнительно обеспечивает уникальность без учёта регистра внутри транзакции записи (`APPLICATION_IDENTITY.md` §4); схема для этого не менялась.
 
 `ApplicationId`, а не PID/HWND/path/AUMID, является durable FK для policy/history boundaries. AUMID и executable path остаются resolution aliases/evidence.
 

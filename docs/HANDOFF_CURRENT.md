@@ -32,6 +32,17 @@ Clipensk — resident Windows clipboard-history manager.
 
 ## C. Current authoritative state
 
+Путь к программе без учёта регистра букв (решение пользователя 2026-09-24, `OPEN_QUESTIONS.md`
+§13, вариант A; §E пункт 44) — ветка `claude/affectionate-brahmagupta-vtgfm9` от main `c13d72a`;
+CI ветки, промоушен и exact-main — в следующем коммите и ответе пользователю (до них —
+`NOT READY`).
+
+Исправления первого ручного прогона (§E пункт 43) в main: `c13d72a` — CI ветки
+`fix/clipboard-capture` на этом SHA: Build run `35959195896` и Native run `35959198222` —
+**SUCCESS**; промоушен fast-forward'ом, exact-main Build run `35961076850` (`build` и
+`app-startup`) и Native run `35961085060` — **SUCCESS**. Сборка для повторной ручной проверки —
+артефакт `clipensk-app-win-x64-unpackaged` Native run `35961085060`.
+
 Ручная проверка на Windows (2026-09-24, `docs/MANUAL_SMOKE_RESULTS.md`), сборка `5911117`
 (тот же код, что main `a06acd3`): A1–A6 — OK; **B1 — FAIL**: журнал пуст, хотя источники попадают в
 «Приложения»; замечания З1–З6. Ветка `fix/clipboard-capture` (§E пункт 43):
@@ -41,8 +52,9 @@ Clipensk — resident Windows clipboard-history manager.
   своём STA-потоке) + лог сбоев захвата `783e1c4`: Build run `35957881093` на `242712e` —
   **SUCCESS**, проба PASS для текста, веб-фрагмента, изображения и списка файлов;
 - З1 `eeb33c0`, З2 `593fb9a`, З3 `242712e`, З5 `bbe4679`, З6 `fb6e9f8` (Build run `35958514640` на
-  `bbe4679` — **SUCCESS**, `build` и `app-startup`), З4 `6ddc713` (Build run `35958912823` — итог в
-  §J);
+  `bbe4679` — **SUCCESS**, `build` и `app-startup`), З4 `6ddc713` (Build run `35958912823`: задача
+  `app-startup` — **SUCCESS**, задача `build` отменена следующим запуском на той же ветке; полная
+  проверка этого кода — на `c13d72a`, см. выше);
 - повторная проверка — `MANUAL_SMOKE_TEST.md` раздел 2 (N1–N7); первый прогон на Windows остальных
   пунктов (B2–M) ещё не выполнен — `UNVERIFIED`.
 
@@ -426,7 +438,19 @@ Trash, принято в `main`:
     - З6 — `ApplicationDisplayName.ForList`: одинаковые имена показываются с путём; сравнение пути
       без учёта регистра — `OPEN_QUESTIONS.md` §13 (решение пользователя не принято).
 
-Storage 721, Core 357, Infrastructure 201 — все зелёные локально. Ручной smoke групп, переноса
+44. **Путь к программе без учёта регистра букв** (решение пользователя 2026-09-24,
+    `OPEN_QUESTIONS.md` §13, вариант A; правило — `APPLICATION_IDENTITY.md` §4):
+    `SqliteApplicationIdentityRepository.FindAlias` для `ExecutablePath` ищет сначала точное
+    написание (первичный ключ), затем любое, отличающееся только регистром
+    (`StringComparison.OrdinalIgnoreCase`, не `NOCASE` SQLite — тот складывает только ASCII); при
+    нескольких старых дублях — самая ранняя identity. `CreateAndBindAsync` и
+    `BindExecutablePathAliasAsync` проверяют это внутри транзакции записи (`BEGIN IMMEDIATE`):
+    второе написание не создаёт identity и не привязывается к чужой (конфликт). AUMID — точно, как
+    прежде. Схема Current не менялась; старые дубли не объединяются автоматически. Тесты:
+    `SqliteApplicationIdentityRepositoryTests` (+5, негативные контроли — снятие поиска без учёта
+    регистра роняет 6 тестов, снятие проверки в создании — 1).
+
+Storage 726, Core 357, Infrastructure 201 — все зелёные локально. Ручной smoke групп, переноса
 хранилища и разблокировки по заголовкам баз на Windows — `UNVERIFIED`.
 
 ## F. Load-bearing design decisions
@@ -566,7 +590,7 @@ Windows 11, комментарий/экспорт шаблона локализ�
 ## J. Exact resume point
 
 1. Fresh-read `AGENTS.md`, `docs/WORKFLOW_NEW_CHAT_HANDOFF.md`, этот файл, `docs/ARCHIVE_ROTATION_PROTOCOL.md`, `docs/ARCHIVE_SPLIT_PROTOCOL.md`, `docs/LOCAL_BUILD_AND_TEST.md`.
-2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — `a06acd3` (исправление запуска App, §E пункт 42) либо, если промоушен уже выполнен, голова ветки `fix/clipboard-capture` (§E пункт 43: B1 и З1–З6, документы). Если ветка ещё не в main: Build и Native на её голове → TOCTOU-проверка main → fast-forward → exact-main Build и Native. Затем пользователь проверяет новую сборку по `docs/MANUAL_SMOKE_TEST.md`, начиная с раздела 2 (N1–N7), и присылает результаты по пунктам; при сбое — текст сообщения и `%LOCALAPPDATA%\Clipensk\error.log`. Сборку даёт последний успешный Native на `main`. Открытый вопрос к пользователю — `OPEN_QUESTIONS.md` §13 (регистр букв в пути программы).
+2. Fresh-check `origin/main`; ожидаемое значение на момент checkpoint — `c13d72a` (§E пункт 43, exact-main evidence — §C) либо, если промоушен уже выполнен, голова ветки `claude/affectionate-brahmagupta-vtgfm9` (§E пункт 44). Если ветка ещё не в main: Build и Native на её голове → TOCTOU-проверка main → fast-forward → exact-main Build и Native. Затем пользователь проверяет новую сборку по `docs/MANUAL_SMOKE_TEST.md`, начиная с раздела 2 (N1–N7), и присылает результаты по пунктам; при сбое — текст сообщения и `%LOCALAPPDATA%\Clipensk\error.log`. Сборку даёт последний успешный Native на `main`. Открытых вопросов к пользователю нет (§13 решён 2026-09-24, вариант A).
 3. Для настроек/локализации/оболочки прочитать `ApplicationSettings`, `BuiltInRussianLocalizationService`, `JournalWindow.xaml(.cs)` и `ResidentWindowsHost` перед изменениями.
 4. Создать fresh ветку от exact accepted main.
 5. Не переделывать заново принятые слайсы ротации (включая дефолты порогов и валидацию), Archive Split, возврата в clipboard (включая режим «вставить как обычный текст»), Trash retention, журнала (период/поиск/фильтр/дефолт 30 дней), блокировки (ручная + автоблокировка по простою), внешней локализации (включая экспорт шаблона с русским комментарием), оболочки (tray/автозапуск/«О программе»), single-instance/защиты каталога данных, таргета только Windows 11, focus restoration (minimize-to-tray, Escape, авто-скрытие по клику мимо), дефолтов/KB-редактирования числовых лимитов форматов (`OPEN_QUESTIONS.md` §6) групп приложений с ретроактивной очисткой (`APPLICATION_GROUP_PROTOCOL.md` этапы 1–15) и переноса хранилища с `settings.json` рядом с программой (`DATA_ROOT_RELOCATION_PROTOCOL.md` этапы 1–4).

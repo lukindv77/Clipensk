@@ -14,7 +14,7 @@ namespace Clipensk.Storage.Tests;
 public sealed class SqliteApplicationIdentityRepositoryTests
 {
     [Fact]
-    public async Task FindAliasesAsync_ReturnsPersistedExactAliases()
+    public async Task FindAliasesAsync_ReturnsPersistedAliases()
     {
         using TestDatabase database = TestDatabase.Create();
         ClipenskApplicationId id = ClipenskApplicationId.New();
@@ -32,12 +32,117 @@ public sealed class SqliteApplicationIdentityRepositoryTests
         Assert.Equal(id, result.ApplicationUserModelIdApplicationId);
         Assert.Equal(id, result.ExecutablePathApplicationId);
 
+        // A path in another letter case is the same Windows file (OPEN_QUESTIONS.md §13); an AUMID
+        // still has to match exactly.
         ApplicationIdentityAliasLookup differentCase = await repository.FindAliasesAsync(
             new ApplicationIdentityObservation(
-                "Contoso.App_123!App",
+                "contoso.app_123!app",
                 "c:\\apps\\contoso.exe"));
-        Assert.Equal(id, differentCase.ApplicationUserModelIdApplicationId);
-        Assert.Null(differentCase.ExecutablePathApplicationId);
+        Assert.Null(differentCase.ApplicationUserModelIdApplicationId);
+        Assert.Equal(id, differentCase.ExecutablePathApplicationId);
+    }
+
+    [Fact]
+    public async Task FindAliasesAsync_MatchesAnExecutablePathIgnoringLetterCaseOnly()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        ClipenskApplicationId id = ClipenskApplicationId.New();
+        database.SeedIdentity(id, executablePath: "C:\\Users\\Дмитрий\\Apps\\Tool.exe");
+        var repository = database.CreateRepository();
+
+        ApplicationIdentityAliasLookup nonAscii = await repository.FindAliasesAsync(
+            new ApplicationIdentityObservation(null, "c:\\USERS\\ДМИТРИЙ\\apps\\TOOL.EXE"));
+        ApplicationIdentityAliasLookup otherPath = await repository.FindAliasesAsync(
+            new ApplicationIdentityObservation(null, "C:\\Users\\Дмитрий\\Apps\\Tool2.exe"));
+
+        Assert.Equal(id, nonAscii.ExecutablePathApplicationId);
+        Assert.Null(otherPath.ExecutablePathApplicationId);
+    }
+
+    [Fact]
+    public async Task FindAliasesAsync_CaseDuplicatesFromBeforeTheRule_PreferExactThenEarliest()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        ClipenskApplicationId earlier = ClipenskApplicationId.New();
+        ClipenskApplicationId later = ClipenskApplicationId.New();
+        DateTimeOffset created = new(2026, 9, 24, 8, 0, 0, TimeSpan.Zero);
+        database.SeedIdentity(later, executablePath: "C:\\APPS\\CHROME.EXE", createdAtUtc: created.AddMinutes(5));
+        database.SeedIdentity(earlier, executablePath: "C:\\Apps\\chrome.exe", createdAtUtc: created);
+        var repository = database.CreateRepository();
+
+        Assert.Equal(
+            later,
+            (await repository.FindAliasesAsync(new ApplicationIdentityObservation(null, "C:\\APPS\\CHROME.EXE"))).ExecutablePathApplicationId);
+        Assert.Equal(
+            earlier,
+            (await repository.FindAliasesAsync(new ApplicationIdentityObservation(null, "C:\\Apps\\chrome.exe"))).ExecutablePathApplicationId);
+        Assert.Equal(
+            earlier,
+            (await repository.FindAliasesAsync(new ApplicationIdentityObservation(null, "c:\\apps\\Chrome.exe"))).ExecutablePathApplicationId);
+    }
+
+    [Fact]
+    public async Task CreateAndBindAsync_PathKnownInAnotherLetterCase_IsAConflict()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        ClipenskApplicationId existing = ClipenskApplicationId.New();
+        database.SeedIdentity(existing, executablePath: "C:\\Apps\\Classic.exe");
+        var repository = database.CreateRepository();
+
+        ApplicationIdentityConflictException error =
+            await Assert.ThrowsAsync<ApplicationIdentityConflictException>(async () =>
+            {
+                await repository.CreateAndBindAsync(
+                    new ApplicationIdentityObservation(null, "C:\\APPS\\CLASSIC.EXE"),
+                    ApplicationIdentityResolutionBasis.ExecutablePathAlias);
+            });
+
+        Assert.Equal(existing, error.ExecutablePathApplicationId);
+        Assert.Equal(1, database.CountApplications());
+        Assert.Equal(1, database.CountAliases());
+    }
+
+    [Fact]
+    public async Task BindExecutablePathAliasAsync_PathInAnotherLetterCase_IsTheSameAlias()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        ClipenskApplicationId first = ClipenskApplicationId.New();
+        ClipenskApplicationId second = ClipenskApplicationId.New();
+        database.SeedIdentity(first);
+        database.SeedIdentity(second);
+        var repository = database.CreateRepository();
+
+        await repository.BindExecutablePathAliasAsync(first, "C:\\Apps\\Shared.exe");
+        await repository.BindExecutablePathAliasAsync(first, "c:\\apps\\SHARED.exe");
+
+        ApplicationIdentityConflictException error =
+            await Assert.ThrowsAsync<ApplicationIdentityConflictException>(async () =>
+            {
+                await repository.BindExecutablePathAliasAsync(second, "C:\\APPS\\SHARED.EXE");
+            });
+
+        Assert.Equal(first, error.ExecutablePathApplicationId);
+        Assert.Equal(1, database.CountAliases());
+    }
+
+    [Fact]
+    public async Task Registry_ResolvesOneProgramStartedFromTwoSpellingsOfItsPath_ToOneApplication()
+    {
+        using TestDatabase database = TestDatabase.Create();
+        var registry = new RepositoryApplicationIdentityRegistry(database.CreateRepository());
+
+        ApplicationIdentityResolution? first = await registry.ResolveOrCreateAsync(
+            new ApplicationIdentityObservation(null, "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"));
+        ApplicationIdentityResolution? second = await registry.ResolveOrCreateAsync(
+            new ApplicationIdentityObservation(null, "C:\\PROGRAM FILES\\Google\\Chrome\\Application\\chrome.exe"));
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.True(first.WasCreated);
+        Assert.False(second.WasCreated);
+        Assert.Equal(first.ApplicationId, second.ApplicationId);
+        Assert.Equal(1, database.CountApplications());
+        Assert.Equal(1, database.CountAliases());
     }
 
     [Fact]
@@ -254,14 +359,15 @@ public sealed class SqliteApplicationIdentityRepositoryTests
         public void SeedIdentity(
             ClipenskApplicationId applicationId,
             string? aumid = null,
-            string? executablePath = null)
+            string? executablePath = null,
+            DateTimeOffset? createdAtUtc = null)
         {
             using SqliteConnection connection = _factory.Open(
                 CurrentDatabasePath,
                 Session.DangerousGetMasterKeyMemory(),
                 SqliteOpenMode.ReadWrite);
             using SqliteTransaction transaction = connection.BeginTransaction();
-            string createdAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            string createdAt = (createdAtUtc ?? DateTimeOffset.UtcNow).ToString("O", CultureInfo.InvariantCulture);
 
             using (SqliteCommand insertApplication = connection.CreateCommand())
             {

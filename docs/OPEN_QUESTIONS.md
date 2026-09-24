@@ -356,9 +356,9 @@ foreground HWND в `JournalWindow.ShowJournal()` — только при пер�
 Durable application identity contract зафиксирован в `APPLICATION_IDENTITY.md` и уже имеет persistent implementation:
 
 - единственный durable key policy/history — Clipensk-owned `ApplicationId` (непустой GUID);
-- AUMID и exact executable path используются как resolution aliases/evidence, а не как primary key;
+- AUMID и executable path используются как resolution aliases/evidence, а не как primary key;
 - packaged AUMID является сильным alias и имеет приоритет, когда доступен;
-- unpackaged Win32 без AUMID может автоматически разрешаться по уже известному exact executable path alias;
+- unpackaged Win32 без AUMID может автоматически разрешаться по уже известному executable path alias (без учёта регистра букв — решение 2026-09-24, §13);
 - впервые увиденный unpackaged path может получить новый `ApplicationId`;
 - перемещение/переименование executable на ранее неизвестный path не считается автоматически тем же приложением;
 - PID, HWND, display name, publisher, version resource и file hash не могут молча объединять identities;
@@ -481,10 +481,14 @@ smoke на Windows — `UNVERIFIED`):** полный перенос настро
 
 ## 13. Путь к программе в разном регистре букв — одно приложение или два?
 
-**Статус: открыт, нужно решение пользователя.** Повод — замечание З6 ручной проверки
-(2026-09-24): в «Приложениях» `chrome.exe` показан дважды.
+**Решение пользователя (2026-09-24): вариант A** — сравнивать путь без учёта регистра, как это
+делает сама Windows. Реализовано: `APPLICATION_IDENTITY.md` §4 (правило и поведение хранилища),
+`SqliteApplicationIdentityRepository`, тесты `SqliteApplicationIdentityRepositoryTests`. Уже
+созданные дубли не объединяются автоматически — переносом в одну группу (§11).
 
-Сейчас путь к программе без AUMID сравнивается **точно**, с учётом регистра букв
+Повод — замечание З6 ручной проверки (2026-09-24): в «Приложениях» `chrome.exe` показан дважды.
+
+До решения путь к программе без AUMID сравнивался **точно**, с учётом регистра букв
 (`APPLICATION_IDENTITY.md` §4–5): `C:\Program Files\…\chrome.exe` и `C:\PROGRAM FILES\…\chrome.exe`
 дают два разных приложения. Windows возвращает путь процесса в том написании, каким его запустили,
 поэтому один и тот же браузер, запущенный из ярлыка и, например, после своего обновления, может
