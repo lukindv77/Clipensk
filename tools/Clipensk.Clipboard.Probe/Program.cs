@@ -83,13 +83,16 @@ internal static class Program
             Wait(StorageFile.GetFileFromPathAsync(second).AsTask()),
         ];
         PutOnClipboard(package => package.SetStorageItems(files));
+        // Compared by folder and file name: the temp path may come back in its long or 8.3 form.
+        string directoryName = Path.GetFileName(directory);
         passed &= Report(
             "Pipeline: file list",
             ReadThroughPipeline(host, pipeline),
             execution => execution.CapturedContent.OfType<ClipboardCapturedStorageItemsContent>()
-                .Any(items =>
-                    items.CanonicalRepresentation.Contains(first, StringComparison.OrdinalIgnoreCase) &&
-                    items.CanonicalRepresentation.Contains(second, StringComparison.OrdinalIgnoreCase)));
+                .Any(content =>
+                    content.Items.Count == 2 &&
+                    IsProbeFile(content.Items[0], directoryName, "first.txt") &&
+                    IsProbeFile(content.Items[1], directoryName, "second.txt")));
 
         Console.WriteLine(passed ? "Clipboard probe PASS." : "Clipboard probe FAIL.");
         return passed ? 0 : 1;
@@ -123,6 +126,11 @@ internal static class Program
 
         return Task.Run(async () => await pipeline.ProcessNextAsync().ConfigureAwait(false));
     }
+
+    private static bool IsProbeFile(ClipboardStorageItemMetadata item, string directoryName, string fileName) =>
+        !item.IsDirectory &&
+        string.Equals(item.Name, fileName, StringComparison.OrdinalIgnoreCase) &&
+        item.FullPath.EndsWith(Path.Combine(directoryName, fileName), StringComparison.OrdinalIgnoreCase);
 
     private static InMemoryRandomAccessStream CreatePng()
     {
@@ -174,7 +182,8 @@ internal static class Program
         ClipboardContentReadExecution execution =>
             $"captured [{string.Join(", ", execution.CapturedContent.Select(static content => content.SelectedFormat.FormatName))}], " +
             $"selected [{string.Join(", ", execution.Plan.Selection.Formats.Select(static format => format.FormatName))}], " +
-            $"available [{string.Join(", ", execution.Plan.Selection.Snapshot.AvailableFormats)}]",
+            $"available [{string.Join(", ", execution.Plan.Selection.Snapshot.AvailableFormats)}], " +
+            $"files [{string.Join(", ", execution.CapturedContent.OfType<ClipboardCapturedStorageItemsContent>().SelectMany(static content => content.Items).Select(static item => item.FullPath))}]",
         _ => $"read '{result}'",
     };
 
