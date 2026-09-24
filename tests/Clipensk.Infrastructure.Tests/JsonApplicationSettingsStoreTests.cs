@@ -502,6 +502,26 @@ public sealed class JsonApplicationSettingsStoreTests
         }
     }
 
+    [Fact]
+    public async Task SaveAndLoadAsync_InitialSetupCompleted_RoundTripsAndDefaultsToFalse()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "settings.json");
+        try
+        {
+            var store = new JsonApplicationSettingsStore(path);
+            await File.WriteAllTextAsync(path, """{ "SchemaVersion": 1, "PasswordHint": "" }""");
+            Assert.False((await store.LoadAsync()).InitialSetupCompleted);
+
+            await store.SaveAsync(new ApplicationSettings { InitialSetupCompleted = true });
+            Assert.True((await store.LoadAsync()).InitialSetupCompleted);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
     private static string CreateTemporaryDirectory()
     {
         string directory = Path.Combine(

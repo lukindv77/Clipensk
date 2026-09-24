@@ -33,6 +33,7 @@
 
         <Grid Padding="24">
             <StackPanel x:Name="FirstRunPanel" Spacing="14" MaxWidth="680" HorizontalAlignment="Left">
+                <TextBlock x:Name="FirstRunStep" Style="{StaticResource BodyStrongTextBlockStyle}" />
                 <TextBlock x:Name="FirstRunTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="FirstRunBody" TextWrapping="Wrap" />
                 <TextBlock x:Name="DefaultDataRootHint" TextWrapping="Wrap" />
@@ -45,6 +46,7 @@
             </StackPanel>
 
             <StackPanel x:Name="LockPanel" Spacing="14" MaxWidth="680" HorizontalAlignment="Left" Visibility="Collapsed">
+                <TextBlock x:Name="LockSetupStep" Style="{StaticResource BodyStrongTextBlockStyle}" Visibility="Collapsed" />
                 <TextBlock x:Name="LockTitle" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock x:Name="LockBody" TextWrapping="Wrap" />
 
@@ -295,6 +297,10 @@
             <ScrollViewer x:Name="GlobalPolicyPanel" Visibility="Collapsed"
                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="20" MaxWidth="760" HorizontalAlignment="Stretch">
+                    <StackPanel x:Name="PolicySetupPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock x:Name="PolicySetupStep" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock x:Name="PolicySetupBody" TextWrapping="Wrap" />
+                    </StackPanel>
                     <StackPanel x:Name="ApplicationPoliciesPanel" Spacing="12" Loaded="OnApplicationPoliciesPanelLoaded">
                         <TextBlock x:Name="ApplicationPoliciesTitle" Style="{StaticResource TitleTextBlockStyle}" TextWrapping="Wrap" />
                         <TextBlock x:Name="ApplicationPoliciesBody" TextWrapping="Wrap" />
@@ -375,6 +381,57 @@
                             Loaded="OnEditGlobalPolicyButtonLoaded"
                             Click="OnEditGlobalPolicyClicked" />
                     <Button x:Name="ReloadGlobalPolicyButton" HorizontalAlignment="Left" Click="OnReloadGlobalPolicyClicked" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="SetupParametersPanel" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="14" MaxWidth="680" HorizontalAlignment="Left">
+                    <TextBlock x:Name="SetupParametersStep" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock x:Name="SetupParametersTitle" Style="{StaticResource TitleTextBlockStyle}" />
+                    <TextBlock x:Name="SetupParametersBody" TextWrapping="Wrap" />
+
+                    <TextBlock x:Name="SetupHotKeyTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="SetupHotKeyBody" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <CheckBox x:Name="SetupControlModifier" Content="Ctrl" />
+                        <CheckBox x:Name="SetupAltModifier" Content="Alt" />
+                        <CheckBox x:Name="SetupShiftModifier" Content="Shift" />
+                        <CheckBox x:Name="SetupWindowsModifier" Content="Win" />
+                    </StackPanel>
+                    <ComboBox x:Name="SetupHotKeyKey" Width="180" HorizontalAlignment="Left" DisplayMemberPath="DisplayName" />
+
+                    <TextBlock x:Name="SetupAutostartTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <CheckBox x:Name="SetupAutostartCheckBox" />
+
+                    <TextBlock x:Name="SetupAutoLockTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <CheckBox x:Name="SetupAutoLockCheckBox"
+                              Checked="OnSetupAutoLockChanged"
+                              Unchecked="OnSetupAutoLockChanged" />
+                    <NumberBox x:Name="SetupAutoLockMinutes"
+                               Width="220"
+                               HorizontalAlignment="Left"
+                               Minimum="1"
+                               SmallChange="1"
+                               LargeChange="5"
+                               SpinButtonPlacementMode="Compact" />
+
+                    <TextBlock x:Name="SetupJournalTitle" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="SetupJournalBody" TextWrapping="Wrap" />
+                    <NumberBox x:Name="SetupJournalPeriodDays"
+                               Width="220"
+                               HorizontalAlignment="Left"
+                               Minimum="1"
+                               SmallChange="1"
+                               LargeChange="7"
+                               SpinButtonPlacementMode="Compact" />
+                    <TextBlock x:Name="SetupRotationSummary" TextWrapping="Wrap" />
+
+                    <InfoBar x:Name="SetupParametersInfo" IsOpen="False" IsClosable="True" />
+                    <Button x:Name="FinishSetupButton"
+                            HorizontalAlignment="Left"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Click="OnFinishSetupClicked" />
                 </StackPanel>
             </ScrollViewer>
 

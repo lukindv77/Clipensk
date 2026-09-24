@@ -69,4 +69,11 @@ public sealed record ApplicationSettings
     /// machine-wide registration, which would need elevation this app never requests.
     /// </summary>
     public bool AutostartEnabled { get; init; } = false;
+
+    /// <summary>
+    /// Whether the user has finished the first-run setup's last step — the hotkey, autostart,
+    /// auto-lock and journal period, confirmed explicitly (smoke finding З4, 2026-09-24). Settings
+    /// written before the setup existed read as <c>false</c>, so such a user confirms these once.
+    /// </summary>
+    public bool InitialSetupCompleted { get; init; } = false;
 }

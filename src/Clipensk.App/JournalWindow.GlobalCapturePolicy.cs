@@ -497,6 +497,7 @@ public sealed partial class JournalWindow
         GlobalPolicyInfo.Severity = state == PolicyViewState.Failed ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
         GlobalPolicyInfo.Message = PolicyText("State." + state);
         JournalPolicyStatus.Text = PolicyText("State." + state);
+        OnGlobalPolicySettled(state);
     }
 
     private void ClearGlobalPolicyContents()

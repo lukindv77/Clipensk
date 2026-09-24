@@ -63,6 +63,7 @@ public sealed partial class JournalWindow : Window
         InitializeLocalizationEditor();
         InitializeAutostartEditor();
         InitializeAboutPage();
+        InitializeInitialSetupUi();
         InitializeGlobalPolicyUi();
         _lifecycle.ProtectedDataAccessChanged += OnGlobalPolicyProtectedAccessChanged;
         RefreshLifecycleUi();
@@ -88,7 +89,7 @@ public sealed partial class JournalWindow : Window
         {
             ShowLockPanel();
         }
-        else
+        else if (!TryShowPendingSetupStep())
         {
             bool journalWasSelected = ReferenceEquals(ShellNavigation.SelectedItem, JournalItem);
             ShellNavigation.SelectedItem = JournalItem;
@@ -481,6 +482,8 @@ public sealed partial class JournalWindow : Window
                 throw;
             }
 
+            // The rules load that follows decides whether a setup step comes before the journal.
+            _setupGuideArmed = true;
             RefreshLifecycleUi();
             _ = LoadGlobalCapturePolicyAsync();
         }
@@ -589,6 +592,10 @@ public sealed partial class JournalWindow : Window
     private void ShowPage(string tag)
     {
         HideContentPanels();
+        if (!string.Equals(tag, "applications", StringComparison.Ordinal))
+        {
+            SetPolicySetupMode(false);
+        }
 
         if (string.Equals(tag, "applications", StringComparison.Ordinal))
         {
@@ -651,7 +658,7 @@ public sealed partial class JournalWindow : Window
         {
             ShowLockPanel();
         }
-        else
+        else if (!TryShowPendingSetupStep())
         {
             ShellNavigation.SelectedItem = JournalItem;
             ShowPage("journal");
@@ -693,6 +700,7 @@ public sealed partial class JournalWindow : Window
         PasswordHintDisplayPanel.Visibility = isSetup ? Visibility.Collapsed : Visibility.Visible;
         PasswordSetupHintPanel.Visibility = isSetup ? Visibility.Visible : Visibility.Collapsed;
         PasswordConfirmationPanel.Visibility = isSetup ? Visibility.Visible : Visibility.Collapsed;
+        LockSetupStep.Visibility = isSetup ? Visibility.Visible : Visibility.Collapsed;
 
         PasswordEntry.IsEnabled = !isInvalid;
         PasswordConfirmationEntry.IsEnabled = !isInvalid;
@@ -716,6 +724,7 @@ public sealed partial class JournalWindow : Window
     {
         ShellNavigation.SelectedItem = null;
         HideContentPanels();
+        SetPolicySetupMode(false);
         FirstRunPanel.Visibility = Visibility.Visible;
     }
 
@@ -723,6 +732,7 @@ public sealed partial class JournalWindow : Window
     {
         ShellNavigation.SelectedItem = null;
         HideContentPanels();
+        SetPolicySetupMode(false);
         RefreshCredentialUi();
         LockPanel.Visibility = Visibility.Visible;
     }
@@ -778,6 +788,7 @@ public sealed partial class JournalWindow : Window
 
     private void HideContentPanels()
     {
+        SetupParametersPanel.Visibility = Visibility.Collapsed;
         FirstRunPanel.Visibility = Visibility.Collapsed;
         LockPanel.Visibility = Visibility.Collapsed;
         PlaceholderPanel.Visibility = Visibility.Collapsed;
