@@ -54,7 +54,7 @@ public sealed partial class JournalWindow
             }
 
             acquiredKey = result.MasterKey
-                ?? throw new InvalidDataException("Credential service не вернул ключ хранилища.");
+                ?? throw new InvalidDataException("Служба паролей не вернула ключ хранилища.");
             _credentialState = ProtectedStorageCredentialState.Ready;
 
             ProtectedStorageDatabaseResult validation =
@@ -69,7 +69,7 @@ public sealed partial class JournalWindow
                 LockInfo.Severity = InfoBarSeverity.Success;
                 LockInfo.Message = StorageCatalogRecoveryText(
                     "NotNeeded",
-                    "Current и storage-catalog.db уже проходят штатную проверку. Восстановление не требуется.");
+                    "Текущая база и каталог хранилища уже проходят штатную проверку. Восстановление не требуется.");
                 LockInfo.IsOpen = true;
                 return;
             }
@@ -88,7 +88,7 @@ public sealed partial class JournalWindow
             LockInfo.Severity = InfoBarSeverity.Success;
             LockInfo.Message = StorageCatalogRecoveryText(
                 "Completed",
-                "storage-catalog.db восстановлен и прошёл штатную проверку. Введите пароль ещё раз и нажмите «Разблокировать».");
+                "Каталог хранилища восстановлен и прошёл штатную проверку. Введите пароль ещё раз и нажмите «Разблокировать».");
             LockInfo.IsOpen = true;
         }
         catch
@@ -96,7 +96,7 @@ public sealed partial class JournalWindow
             LockInfo.Severity = InfoBarSeverity.Error;
             LockInfo.Message = StorageCatalogRecoveryText(
                 "Failed",
-                "Не удалось восстановить storage-catalog.db. Current и Archive не изменяются до безопасной публикации нового Catalog; проверьте хранилище и повторите операцию.");
+                "Не удалось восстановить каталог хранилища. Текущая база и архивы не изменяются, пока новый каталог не опубликован безопасно; проверьте хранилище и повторите операцию.");
             LockInfo.IsOpen = true;
         }
         finally
@@ -122,7 +122,7 @@ public sealed partial class JournalWindow
         }
 
         string dataRootPath = _settings.DataRootPath
-            ?? throw new InvalidOperationException("DataRoot не настроен.");
+            ?? throw new InvalidOperationException("Папка хранилища не задана.");
         StorageCatalogRecoveryAction action = ResolveStorageCatalogRecoveryAction(
             dataRootPath,
             failure.Status);
@@ -139,7 +139,7 @@ public sealed partial class JournalWindow
         LockInfo.Severity = InfoBarSeverity.Informational;
         LockInfo.Message = StorageCatalogRecoveryText(
             "Running",
-            "Восстановление storage-catalog.db… Clipensk останется заблокированным до повторной проверки хранилища.");
+            "Восстановление каталога хранилища… Clipensk останется заблокированным до повторной проверки хранилища.");
         LockInfo.IsOpen = true;
 
         ReadOnlyMemory<byte> key = masterKey.DangerousGetMemory();
@@ -205,10 +205,10 @@ public sealed partial class JournalWindow
         StorageCatalogRecoveryButton.Content = catalogExists
             ? StorageCatalogRecoveryText(
                 "CheckAction",
-                "Проверить / восстановить storage-catalog.db")
+                "Проверить / восстановить каталог хранилища")
             : StorageCatalogRecoveryText(
                 "RecoverAction",
-                "Восстановить storage-catalog.db");
+                "Восстановить каталог хранилища");
     }
 
     private StorageCatalogRecoveryAction ResolveStorageCatalogRecoveryAction(
@@ -253,13 +253,13 @@ public sealed partial class JournalWindow
             Content = replaceExisting
                 ? StorageCatalogRecoveryText(
                     "ReplaceBody",
-                    "storage-catalog.db не прошёл проверку. Clipensk может построить новый каталог только из Current и Archive. Существующий файл будет атомарно заменён и сохранён в Current\\CatalogQuarantine. Current и Archive не изменяются.")
+                    "Каталог хранилища (файл storage-catalog.db) не прошёл проверку. Clipensk может построить новый каталог только из текущей базы и архивов. Существующий файл будет атомарно заменён и сохранён в папке Current\\CatalogQuarantine. Текущая база и архивы не изменяются.")
                 : StorageCatalogRecoveryText(
                     "RecoverBody",
-                    "storage-catalog.db отсутствует. Clipensk может заново построить его только из Current и Archive. Current и Archive не изменяются."),
+                    "Каталог хранилища (файл storage-catalog.db) отсутствует. Clipensk может заново построить его только из текущей базы и архивов. Текущая база и архивы не изменяются."),
             PrimaryButtonText = replaceExisting
                 ? StorageCatalogRecoveryText("ReplaceAction", "Заменить каталог")
-                : StorageCatalogRecoveryText("RecoverAction", "Восстановить каталог"),
+                : StorageCatalogRecoveryText("RecoverAction", "Восстановить каталог хранилища"),
             CloseButtonText = StorageCatalogRecoveryText("Cancel", "Отмена"),
             DefaultButton = ContentDialogButton.Close,
         };

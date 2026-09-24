@@ -78,10 +78,10 @@ public sealed partial class JournalWindow
                 operation == MaintenancePhysicalOperation.Vacuum
                     ? MaintenancePhysicalText(
                         "VacuumCompleted",
-                        "Архив {0} уплотнён (VACUUM) и прошёл проверку целостности.")
+                        "Архив {0} уплотнён и прошёл проверку целостности.")
                     : MaintenancePhysicalText(
                         "OptimizeCompleted",
-                        "Архив {0} оптимизирован (PRAGMA optimize) и прошёл проверку целостности."),
+                        "Архив {0} оптимизирован и прошёл проверку целостности."),
                 selectedArchive.FileName.FileName);
             MaintenanceInfo.IsOpen = true;
         }

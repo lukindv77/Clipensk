@@ -58,7 +58,7 @@ public sealed partial class JournalWindow
     }
 
     private string GetLanguagesDirectory() => Path.Combine(
-        _settings.DataRootPath ?? throw new InvalidOperationException("DataRoot не настроен."),
+        _settings.DataRootPath ?? throw new InvalidOperationException("Папка хранилища не задана."),
         "Languages");
 
     private async void OnLoadLocalizationFileClicked(object sender, RoutedEventArgs e)

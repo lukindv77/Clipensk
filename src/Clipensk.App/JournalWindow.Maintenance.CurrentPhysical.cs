@@ -11,14 +11,14 @@ public sealed partial class JournalWindow
     {
         MaintenanceCurrentVacuumButton.Content = MaintenancePhysicalText(
             "CurrentVacuum",
-            "Уплотнить Current");
+            "Уплотнить текущую базу");
     }
 
     private void OnMaintenanceCurrentOptimizeButtonLoaded(object sender, RoutedEventArgs e)
     {
         MaintenanceCurrentOptimizeButton.Content = MaintenancePhysicalText(
             "CurrentOptimize",
-            "Оптимизировать Current");
+            "Оптимизировать текущую базу");
     }
 
     private async void OnMaintenanceCurrentVacuumClicked(object sender, RoutedEventArgs e)
@@ -62,10 +62,10 @@ public sealed partial class JournalWindow
             MaintenanceInfo.Message = operation == MaintenancePhysicalOperation.Vacuum
                 ? MaintenancePhysicalText(
                     "CurrentVacuumCompleted",
-                    "Current уплотнён (VACUUM) и прошёл проверку целостности.")
+                    "Текущая база уплотнена и прошла проверку целостности.")
                 : MaintenancePhysicalText(
                     "CurrentOptimizeCompleted",
-                    "Current оптимизирован (PRAGMA optimize) и прошёл проверку целостности.");
+                    "Текущая база оптимизирована и прошла проверку целостности.");
             MaintenanceInfo.IsOpen = true;
         }
         catch (OperationCanceledException)
@@ -79,10 +79,10 @@ public sealed partial class JournalWindow
                 MaintenanceInfo.Message = operation == MaintenancePhysicalOperation.Vacuum
                     ? MaintenancePhysicalText(
                         "CurrentVacuumFailed",
-                        "Не удалось уплотнить Current. Проверьте Current и storage-catalog.db и повторите операцию.")
+                        "Не удалось уплотнить текущую базу. Проверьте текущую базу и каталог хранилища и повторите операцию.")
                     : MaintenancePhysicalText(
                         "CurrentOptimizeFailed",
-                        "Не удалось оптимизировать Current. Проверьте Current и storage-catalog.db и повторите операцию.");
+                        "Не удалось оптимизировать текущую базу. Проверьте текущую базу и каталог хранилища и повторите операцию.");
                 MaintenanceInfo.IsOpen = true;
             }
         }

@@ -17,19 +17,23 @@ public sealed partial class JournalWindow
             ["Boundary"] = "Последний день первого сегмента",
             ["Action"] = "Разделить архив",
             ["ResumeAction"] = "Продолжить разделение",
-            ["Pending"] = "Обнаружено незавершённое разделение архива {0} (фаза {1}). Другие операции обслуживания заблокированы до завершения recovery.",
+            ["Pending"] = "Обнаружено незавершённое разделение архива {0} (этап: {1}). Другие операции обслуживания заблокированы, пока разделение не будет завершено.",
             ["InvalidBoundary"] = "Выберите дату внутри периода архива, но раньше его последнего дня.",
             ["Completed"] = "Архив {0} разделён. Итоговых сегментов в опубликованном наборе операции: {1}.",
-            ["Failed"] = "Разделение архива не завершено. Если durable marker уже создан, используйте «Продолжить разделение»; Clipensk выполнит roll-forward recovery без отката опубликованных файлов.",
-            ["ResumeFailed"] = "Не удалось прочитать или продолжить незавершённое разделение. Проверьте защищённое хранилище; другие операции обслуживания остаются заблокированными, пока marker существует.",
+            ["Failed"] = "Разделение архива не завершено. Если отметка о незавершённой операции уже создана, нажмите «Продолжить разделение»: Clipensk доведёт операцию до конца, не откатывая уже опубликованные файлы.",
+            ["ResumeFailed"] = "Не удалось прочитать или продолжить незавершённое разделение. Проверьте защищённое хранилище; другие операции обслуживания остаются заблокированными, пока есть отметка о незавершённой операции.",
             ["ResumeCompleted"] = "Незавершённое разделение архива успешно продолжено и полностью завершено.",
             ["ConfirmTitle"] = "Подтвердить разделение архива",
-            ["ConfirmBody"] = "Архив {0} сейчас покрывает {1:dd.MM.yyyy}–{2:dd.MM.yyyy}. Будут опубликованы сегменты {3:dd.MM.yyyy}–{4:dd.MM.yyyy} и {5:dd.MM.yyyy}–{6:dd.MM.yyyy}. После начала publication операция становится roll-forward only. Продолжить?",
+            ["ConfirmBody"] = "Архив {0} сейчас покрывает {1:dd.MM.yyyy}–{2:dd.MM.yyyy}. Будут опубликованы сегменты {3:dd.MM.yyyy}–{4:dd.MM.yyyy} и {5:dd.MM.yyyy}–{6:dd.MM.yyyy}. После начала публикации операцию можно только довести до конца, отменить её уже нельзя. Продолжить?",
             ["ConfirmAction"] = "Разделить",
             ["Cancel"] = "Отмена",
             ["ResumeConfirmTitle"] = "Продолжить незавершённое разделение?",
-            ["ResumeConfirmBody"] = "Для архива {0} сохранён durable split marker в фазе {1}. Clipensk проверит фактические файлы и продолжит операцию вперёд согласно сохранённому immutable plan.",
+            ["ResumeConfirmBody"] = "Для архива {0} сохранена отметка о незавершённом разделении (этап: {1}). Clipensk проверит фактические файлы и доведёт операцию до конца по сохранённому плану.",
             ["ResumeConfirmAction"] = "Продолжить",
+            ["Phase.Planned"] = "план подготовлен",
+            ["Phase.ReadyToPublish"] = "сегменты готовы к публикации",
+            ["Phase.PhysicalPublished"] = "файлы сегментов опубликованы",
+            ["Phase.CatalogPublished"] = "каталог обновлён",
         };
 
     private PendingArchiveSplitOperation? _maintenancePendingArchiveSplit;
@@ -176,7 +180,7 @@ public sealed partial class JournalWindow
                 CultureInfo.CurrentCulture,
                 MaintenanceSplitText("Pending"),
                 _maintenancePendingArchiveSplit!.SourceFileName.FileName,
-                _maintenancePendingArchiveSplit.Phase)
+                MaintenanceSplitText($"Phase.{_maintenancePendingArchiveSplit.Phase}"))
             : string.Empty;
 
         if (hasPending)
@@ -492,7 +496,7 @@ public sealed partial class JournalWindow
                 CultureInfo.CurrentCulture,
                 MaintenanceSplitText("ResumeConfirmBody"),
                 pending.SourceFileName.FileName,
-                pending.Phase),
+                MaintenanceSplitText($"Phase.{pending.Phase}")),
             PrimaryButtonText = MaintenanceSplitText("ResumeConfirmAction"),
             CloseButtonText = MaintenanceSplitText("Cancel"),
             DefaultButton = ContentDialogButton.Close,

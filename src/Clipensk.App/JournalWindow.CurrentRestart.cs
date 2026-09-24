@@ -58,7 +58,7 @@ public sealed partial class JournalWindow
             }
 
             acquiredKey = result.MasterKey
-                ?? throw new InvalidDataException("Credential service не вернул ключ хранилища.");
+                ?? throw new InvalidDataException("Служба паролей не вернула ключ хранилища.");
             _credentialState = ProtectedStorageCredentialState.Ready;
 
             if (!await ConfirmCurrentRestartAsync())

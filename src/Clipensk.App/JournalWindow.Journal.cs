@@ -525,7 +525,8 @@ public sealed partial class JournalWindow
             unified.Entry.Payloads
                 .OrderBy(item => item.PayloadOrder)
                 .Select(item => item.FormatName)
-                .Distinct(StringComparer.Ordinal));
+                .Distinct(StringComparer.Ordinal)
+                .Select(JournalFormatLabel));
         if (string.IsNullOrWhiteSpace(formats))
         {
             formats = JournalText("NoFormats");
@@ -548,6 +549,20 @@ public sealed partial class JournalWindow
             JournalText("Details"),
             formats,
             locations);
+    }
+
+    /// <summary>A standard format by its name in the capture rules, a custom one by its own name.</summary>
+    private string JournalFormatLabel(string formatName)
+    {
+        foreach ((string name, string label) in StandardPolicyFormats())
+        {
+            if (string.Equals(name, formatName, StringComparison.Ordinal))
+            {
+                return label;
+            }
+        }
+
+        return formatName;
     }
 
     private static string NormalizeJournalPreview(string value)

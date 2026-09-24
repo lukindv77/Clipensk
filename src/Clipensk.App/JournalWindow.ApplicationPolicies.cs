@@ -327,7 +327,7 @@ public sealed partial class JournalWindow
         string paths = summary.ExecutablePaths.Count == 0
             ? "—"
             : string.Join(Environment.NewLine, summary.ExecutablePaths);
-        return $"ApplicationId: {summary.ApplicationId}{Environment.NewLine}AUMID: {aumids}{Environment.NewLine}{ApplicationPolicyText("Paths")}: {paths}";
+        return FillText(ApplicationPolicyText("Identity"), summary.ApplicationId, aumids, paths);
     }
 
     private string BuildApplicationDiscoveredFormatsSummary(
